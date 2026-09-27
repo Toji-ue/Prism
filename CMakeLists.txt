@@ -24,6 +24,8 @@ add_subdirectory(src/core)
 # prism app
 qt_add_executable(prism
     src/app/main.cpp)
+# WIN32 GUI subsystem: no console window attaches when launched from Explorer.
+set_target_properties(prism PROPERTIES WIN32_EXECUTABLE TRUE)
 
 qt_add_qml_module(prism
     URI Prism

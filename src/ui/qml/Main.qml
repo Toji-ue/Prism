@@ -9,6 +9,8 @@ Window {
     minimumHeight: 600
     title: qsTr("Prism — untitled")
 
+    visible: true
+
     color: "#1e1e22"
 
     // Placeholder shell: dark canvas viewport + layer-panel stub.
