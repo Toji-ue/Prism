@@ -2,6 +2,7 @@
 
 #include "application/LayerListModel.h"
 #include "commands/Commands.h"
+#include "fill/FloodFill.h"
 #include "layer/Layer.h"
 #include "project/ProjectIO.h"
 
@@ -39,6 +40,8 @@ AppController::AppController(QObject* parent)
     m_doc.addRasterLayer("Layer 1");
     m_layersModel->setDocument(&m_doc);
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    // Start on the first preset so the toolbar/status bar read like a real app.
+    selectPreset(0);
     rebuildFullComposite();
 }
 
@@ -81,6 +84,7 @@ float AppController::brushSize() const { return m_brush.radius; }
 void AppController::setBrushSize(float size)
 {
     m_brush.radius = std::clamp(size, 1.0F, 200.0F);
+    m_presetIntact = false;
     emit brushChanged();
 }
 
@@ -89,6 +93,7 @@ float AppController::brushHardness() const { return m_brush.hardness; }
 void AppController::setBrushHardness(float hardness)
 {
     m_brush.hardness = std::clamp(hardness, 0.0F, 1.0F);
+    m_presetIntact = false;
     emit brushChanged();
 }
 
@@ -97,6 +102,7 @@ float AppController::brushFlow() const { return m_brush.flow; }
 void AppController::setBrushFlow(float flow)
 {
     m_brush.flow = std::clamp(flow, 0.01F, 1.0F);
+    m_presetIntact = false;
     emit brushChanged();
 }
 
@@ -114,6 +120,136 @@ void AppController::setZoom(qreal zoom)
 {
     m_zoom = std::clamp(zoom, 0.05, 8.0);
     emit viewChanged();
+}
+
+int AppController::tool() const { return m_tool; }
+
+void AppController::setTool(int tool)
+{
+    m_tool = tool;
+    // The eraser is a brush mode, so the tool selection drives it.
+    m_brush.erase = (tool == EraserTool);
+    emit toolChanged();
+    emit brushChanged();
+}
+
+QString AppController::brushName() const
+{
+    if (!m_presetIntact)
+        return tr("Custom Brush");
+    return QString::fromStdString(
+        canvas::builtinBrushPresets()[static_cast<std::size_t>(m_activePreset)].name);
+}
+
+int AppController::activePresetIndex() const { return m_activePreset; }
+
+QString AppController::statusInfo() const
+{
+    const auto s = m_doc.canvasSize();
+    return tr("RGB/Alpha (8-bit integer/channel) · %1 · %2 × %3 px · %4 MiB")
+        .arg(QString::fromStdString(m_doc.colorProfile()))
+        .arg(s.width)
+        .arg(s.height)
+        .arg(documentMemoryMiB(), 0, 'f', 1);
+}
+
+qreal AppController::documentMemoryMiB() const
+{
+    const auto s = m_doc.canvasSize();
+    const qint64 bytesPerLayer = static_cast<qint64>(s.width) * s.height * 4;
+    const qint64 total = bytesPerLayer * static_cast<qint64>(m_doc.layers().size());
+    return static_cast<qreal>(total) / (1024.0 * 1024.0);
+}
+
+// ------------------------------------------------------------- brush presets
+
+int AppController::presetCount() const
+{
+    return static_cast<int>(canvas::builtinBrushPresets().size());
+}
+
+QString AppController::presetName(int index) const
+{
+    const auto& presets = canvas::builtinBrushPresets();
+    if (index < 0 || index >= static_cast<int>(presets.size()))
+        return {};
+    return QString::fromStdString(presets[static_cast<std::size_t>(index)].name);
+}
+
+QImage AppController::presetThumbnail(int index, int width, int height) const
+{
+    const auto& presets = canvas::builtinBrushPresets();
+    if (index < 0 || index >= static_cast<int>(presets.size()))
+        return {};
+    const auto thumb = canvas::renderPresetThumbnail(
+        presets[static_cast<std::size_t>(index)].brush, width, height, m_brush.color);
+    // Own the bytes: QImage would otherwise point at a buffer that dies here.
+    return QImage(thumb.data(), thumb.width(), thumb.height(), thumb.width() * 4,
+                  QImage::Format_RGBA8888)
+        .copy();
+}
+
+void AppController::selectPreset(int index)
+{
+    const auto& presets = canvas::builtinBrushPresets();
+    if (index < 0 || index >= static_cast<int>(presets.size()))
+        return;
+    const auto& preset = presets[static_cast<std::size_t>(index)];
+    const auto savedColor = m_brush.color;
+    m_brush = preset.brush;
+    m_brush.color = savedColor; // keep the artist's current color
+    m_activePreset = index;
+    m_presetIntact = true;
+    m_tool = m_brush.erase ? EraserTool : BrushTool;
+    emit brushChanged();
+    emit toolChanged();
+}
+
+// -------------------------------------------------------------- canvas tools
+
+void AppController::fillAt(float x, float y)
+{
+    const int lx = static_cast<int>(std::floor(x));
+    const int ly = static_cast<int>(std::floor(y));
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+
+    auto& pixels = m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels();
+    if (lx < 0 || ly < 0 || lx >= pixels.width() || ly >= pixels.height())
+        return;
+
+    // Fill a working copy first: that reveals the affected rect, so we can
+    // snapshot a matching "before" patch from the untouched layer.
+    core::raster::RasterBuffer work = pixels;
+    const auto rect = canvas::floodFill(work, lx, ly, m_brush.color, 24);
+    if (rect.isEmpty())
+        return;
+
+    auto before = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
+    auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
+
+    m_history.execute(std::make_unique<core::StrokeCommand>(
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+        rect.x, rect.y, "Fill"));
+
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+QColor AppController::pickColorAt(float x, float y, bool apply)
+{
+    const int lx = static_cast<int>(std::floor(x));
+    const int ly = static_cast<int>(std::floor(y));
+    const auto& result = m_compositor.result();
+    if (lx < 0 || ly < 0 || lx >= result.width() || ly >= result.height())
+        return brushColor();
+
+    // Sample the flattened canvas — what the artist sees is what they pick.
+    const auto c = result.at(lx, ly);
+    const QColor picked(c.r, c.g, c.b, 255);
+    if (apply)
+        setBrushColor(picked);
+    return picked;
 }
 
 // --------------------------------------------------------------------- actions
@@ -259,6 +395,15 @@ void AppController::clearCanvas()
 
 // ----------------------------------------------------------------------- file
 
+void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight)
+{
+    const auto s = m_doc.canvasSize();
+    if (s.width <= 0 || s.height <= 0 || viewportWidth <= 0 || viewportHeight <= 0)
+        return;
+    const qreal fit = std::min(viewportWidth / s.width, viewportHeight / s.height);
+    setZoom(std::min(fit, 1.0));
+}
+
 bool AppController::saveProject(const QUrl& url)
 {
     return io::ProjectIO::save(m_doc, url.toLocalFile());
@@ -303,8 +448,7 @@ bool AppController::exportPng(const QUrl& url)
     return io::ProjectIO::exportPng(m_compositor, url.toLocalFile());
 }
 
-void AppController::newDocument(int width, int height)
-{
+void AppController::newDocument(int width, int height){
     m_doc = core::Document(core::CanvasSize{ width, height, 72 });
     m_doc.addRasterLayer("Layer 1");
     m_history.clear();

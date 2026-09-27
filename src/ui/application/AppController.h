@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/LayerListModel.h"
+#include "brush/BrushPresets.h"
 #include "brush/BrushStroke.h"
 #include "compositor/Compositor.h"
 #include "document/Document.h"
@@ -32,8 +33,26 @@ class AppController : public QObject {
     Q_PROPERTY(float brushFlow READ brushFlow WRITE setBrushFlow NOTIFY brushChanged)
     Q_PROPERTY(bool eraser READ eraser WRITE setEraser NOTIFY brushChanged)
     Q_PROPERTY(qreal zoom READ zoom WRITE setZoom NOTIFY viewChanged)
+    Q_PROPERTY(int tool READ tool WRITE setTool NOTIFY toolChanged)
+    Q_PROPERTY(QString brushName READ brushName NOTIFY brushChanged)
+    Q_PROPERTY(int activePresetIndex READ activePresetIndex NOTIFY brushChanged)
+    Q_PROPERTY(QString statusInfo READ statusInfo NOTIFY canvasChanged)
 
 public:
+    /// Canvas tools shown in the left toolbox. Only a subset is implemented
+    /// today; the rest are presented but inert until their code lands.
+    enum Tool {
+        BrushTool = 0,
+        EraserTool,
+        FillTool,
+        EyedropperTool,
+        PanTool,
+        ZoomTool,
+        RectSelectTool,
+        MoveTool,
+    };
+    Q_ENUM(Tool)
+
     explicit AppController(QObject* parent = nullptr);
 
     // --- model ------------------------------------------------------------
@@ -59,8 +78,27 @@ public:
     void setEraser(bool erase);
     qreal zoom() const;
     void setZoom(qreal zoom);
+    int tool() const;
+    void setTool(int tool);
+    QString brushName() const;
+    int activePresetIndex() const;
+    QString statusInfo() const;
 
     Q_INVOKABLE QImage canvasImage() const;
+
+    // --- brush presets ----------------------------------------------------
+    Q_INVOKABLE int presetCount() const;
+    Q_INVOKABLE QString presetName(int index) const;
+    Q_INVOKABLE QImage presetThumbnail(int index, int width, int height) const;
+    Q_INVOKABLE void selectPreset(int index);
+
+    // --- canvas tools -----------------------------------------------------
+    /// Flood-fills the active layer at canvas coordinates (a history step).
+    Q_INVOKABLE void fillAt(float x, float y);
+    /// Samples the composited color at canvas coordinates; returns it and
+    /// sets it as the brush color when \p apply is true.
+    Q_INVOKABLE QColor pickColorAt(float x, float y, bool apply);
+    Q_INVOKABLE qreal documentMemoryMiB() const;
 
     // --- actions ----------------------------------------------------------
     Q_INVOKABLE void addLayer();
@@ -82,6 +120,9 @@ public:
     Q_INVOKABLE bool importImage(const QUrl& url);
     Q_INVOKABLE bool exportPng(const QUrl& url);
     Q_INVOKABLE void newDocument(int width, int height);
+    /// Picks the zoom that fits the whole canvas into a viewport of the
+    /// given size (never above 100%). Called on first layout by the UI.
+    Q_INVOKABLE void fitToViewport(qreal viewportWidth, qreal viewportHeight);
 
     // --- stroking ---------------------------------------------------------
     Q_INVOKABLE void beginStroke(float x, float y);
@@ -93,6 +134,7 @@ signals:
     void historyChanged();
     void brushChanged();
     void viewChanged();
+    void toolChanged();
     void canvasChanged(int x, int y, int w, int h);
 
 private:
@@ -109,4 +151,8 @@ private:
     LayerListModel* m_layersModel = nullptr;
     int m_activeLayer = 0;
     qreal m_zoom = 1.0;
+    int m_tool = BrushTool;
+    int m_activePreset = 0;
+    /// True until the user moves a brush slider — controls the "Custom" label.
+    bool m_presetIntact = true;
 };

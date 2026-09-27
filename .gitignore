@@ -9,3 +9,9 @@ compile_commands.json
 
 deploy/
 screen_check.png
+
+# Local UI verification artifacts
+ui_shot*.png
+prism_window.png
+ui_check*.png
+.dsh-vision-router/

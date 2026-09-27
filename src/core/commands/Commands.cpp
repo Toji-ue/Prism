@@ -43,6 +43,18 @@ StrokeCommand::StrokeCommand(Document& doc, std::size_t layerIndex,
     m_before = layer().pixels().copyRect(rectX, rectY, m_after.width(), m_after.height());
 }
 
+StrokeCommand::StrokeCommand(Document& doc, std::size_t layerIndex, raster::RasterBuffer before,
+                             raster::RasterBuffer after, int rectX, int rectY, std::string label)
+    : m_doc(doc)
+    , m_layerIndex(layerIndex)
+    , m_rectX(rectX)
+    , m_rectY(rectY)
+    , m_label(std::move(label))
+    , m_before(std::move(before))
+    , m_after(std::move(after))
+{
+}
+
 Layer& StrokeCommand::layer() const
 {
     return *m_doc.layers().at(m_layerIndex);

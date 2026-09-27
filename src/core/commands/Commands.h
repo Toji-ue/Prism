@@ -27,14 +27,20 @@ private:
     std::size_t m_index = 0;
 };
 
-/// Paints a stroke into a raster layer on redo; restores the previous
-/// pixels on undo. Snapshots only the stroke's bounding box.
+/// Replaces a rectangular patch of a raster layer; restores the previous
+/// pixels on undo. Snapshots only the patch's bounding box.
+///
+/// Two ways to build it: the stroke constructor snapshots `before` from the
+/// layer itself (call it BEFORE painting); the explicit constructor takes
+/// both snapshots, for operations that mutate the layer first (flood fill).
 class StrokeCommand final : public Command {
 public:
     StrokeCommand(Document& doc, std::size_t layerIndex, raster::RasterBuffer paintedPixels,
                   int rectX, int rectY);
+    StrokeCommand(Document& doc, std::size_t layerIndex, raster::RasterBuffer before,
+                  raster::RasterBuffer after, int rectX, int rectY, std::string label);
 
-    const char* description() const override { return "Brush stroke"; }
+    const char* description() const override { return m_label.c_str(); }
 
     void undo() override;
     void redo() override;
@@ -46,6 +52,7 @@ private:
     std::size_t m_layerIndex;
     int m_rectX;
     int m_rectY;
+    std::string m_label = "Brush stroke";
     raster::RasterBuffer m_before;
     raster::RasterBuffer m_after;
 };

@@ -1,11 +1,16 @@
-# prism_canvas — compositing + brush. CPU reference implementation; the
-# Qt RHI renderer lands here later and must match this output exactly.
+# prism_canvas — compositing + brush + pixel ops. CPU reference
+# implementation; the Qt RHI renderer lands here later and must match this
+# output exactly.
 
 add_library(prism_canvas STATIC
     compositor/Compositor.cpp
     compositor/Compositor.h
     brush/BrushStroke.cpp
-    brush/BrushStroke.h)
+    brush/BrushStroke.h
+    brush/BrushPresets.cpp
+    brush/BrushPresets.h
+    fill/FloodFill.cpp
+    fill/FloodFill.h)
 
 add_library(Prism::canvas ALIAS prism_canvas)
 

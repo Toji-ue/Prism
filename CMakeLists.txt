@@ -40,7 +40,15 @@ qt_add_qml_module(prism
     URI Prism
     VERSION 1.0
     QML_FILES
-        src/ui/qml/Main.qml)
+        src/ui/qml/Theme.js
+        src/ui/qml/PSlider.qml
+        src/ui/qml/PSpinBox.qml
+        src/ui/qml/Main.qml
+        src/ui/qml/ToolBox.qml
+        src/ui/qml/ColorSelector.qml
+        src/ui/qml/LayersDocker.qml
+        src/ui/qml/BrushPresetsDocker.qml
+        src/ui/qml/NewDocumentDialog.qml)
 
 target_link_libraries(prism PRIVATE
     Prism::core

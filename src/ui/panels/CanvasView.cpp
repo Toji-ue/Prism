@@ -7,8 +7,9 @@
 CanvasView::CanvasView(QQuickItem* parent)
     : QQuickPaintedItem(parent)
 {
-    // Checkerboard-ish dark backdrop behind the (possibly translucent) canvas.
-    setFillColor(QColor(30, 30, 34));
+    // Transparent: the canvas backdrop/paper rectangle sits behind this item
+    // in QML, and an opaque fill here would hide it.
+    setFillColor(Qt::transparent);
 }
 
 void CanvasView::setController(AppController* controller)
