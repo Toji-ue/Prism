@@ -23,6 +23,9 @@ add_subdirectory(src/core)
 # prism_canvas — CPU compositing + brush (reference implementation)
 add_subdirectory(src/canvas)
 
+# prism_io — project file format + image import/export
+add_subdirectory(src/io)
+
 # prism_ui — QML bridge (controller, canvas view)
 add_subdirectory(src/ui)
 

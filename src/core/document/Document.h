@@ -41,6 +41,8 @@ public:
 
     /// Adds a layer on top of the stack and returns its index.
     std::size_t addLayer(std::unique_ptr<Layer> layer);
+    /// Inserts a layer at \p index, shifting later layers up.
+    void insertLayer(std::size_t index, std::unique_ptr<Layer> layer);
     std::size_t addRasterLayer(std::string name);
 
     /// Moves a layer within the stack; returns false if the index is out of range.

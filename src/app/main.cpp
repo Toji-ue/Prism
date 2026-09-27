@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 
 #include "application/AppController.h"
+#include "application/LayerListModel.h"
 #include "panels/CanvasView.h"
 
 int main(int argc, char* argv[])
@@ -13,6 +14,8 @@ int main(int argc, char* argv[])
     // Manual registration until each type moves into its own qml module.
     qmlRegisterType<AppController>("Prism.Ui", 1, 0, "AppController");
     qmlRegisterType<CanvasView>("Prism.Ui", 1, 0, "CanvasView");
+    qmlRegisterUncreatableType<LayerListModel>("Prism.Ui", 1, 0, "LayerListModel",
+                                               "Exposed via AppController.layers");
 
     QQmlApplicationEngine engine;
     const QUrl url(QStringLiteral("qrc:/Prism/src/ui/qml/Main.qml"));

@@ -19,6 +19,16 @@ void Document::resizeCanvas(CanvasSize size)
 {
     if (!size.isValid())
         throw std::invalid_argument("Document::resizeCanvas: invalid canvas size");
+    // Resize every raster layer to the new size, preserving top-left content
+    // (extra space is transparent, overflow is cropped).
+    for (auto& layer : m_layers) {
+        if (layer->type() != Layer::Type::Raster)
+            continue;
+        const auto& old = layer->pixels();
+        raster::RasterBuffer resized(size.width, size.height);
+        resized.blit(old, 0, 0);
+        layer->pixels() = std::move(resized);
+    }
     m_size = size;
 }
 
@@ -26,6 +36,15 @@ std::size_t Document::addLayer(std::unique_ptr<Layer> layer)
 {
     m_layers.push_back(std::move(layer));
     return m_layers.size() - 1;
+}
+
+void Document::insertLayer(std::size_t index, std::unique_ptr<Layer> layer)
+{
+    if (index >= m_layers.size()) {
+        m_layers.push_back(std::move(layer));
+        return;
+    }
+    m_layers.insert(m_layers.begin() + static_cast<std::ptrdiff_t>(index), std::move(layer));
 }
 
 std::size_t Document::addRasterLayer(std::string name)

@@ -3,6 +3,7 @@
 #include "layer/BlendMode.h"
 #include "raster/RasterBuffer.h"
 
+#include <memory>
 #include <string>
 
 namespace prism::core {
@@ -46,6 +47,9 @@ public:
     /// content — only do it via a history Command.
     [[nodiscard]] raster::RasterBuffer& pixels() noexcept { return m_pixels; }
     [[nodiscard]] const raster::RasterBuffer& pixels() const noexcept { return m_pixels; }
+
+    /// Deep copy of this layer (pixels + properties), for duplicate.
+    [[nodiscard]] std::unique_ptr<Layer> clone() const;
 
 private:
     Type m_type;

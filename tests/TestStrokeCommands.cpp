@@ -90,10 +90,10 @@ TEST(BrushStrokeTest, HardCircleCoversFullRadius)
     const auto rect = BrushStroke::paint(buf, b, { { 16.0F, 16.0F, 1.0F } });
 
     EXPECT_EQ(buf.at(16, 16), raster::kOpaqueWhite);
-    // radius 3 strictly-inside falloff: pixels at |dx| < 3 from the integer
-    // center, i.e. a 5px-wide footprint (not 7 — the rim sits at dist == r).
-    EXPECT_EQ(rect.width, 5);
-    EXPECT_EQ(rect.height, 5);
+    // radius 3 hard brush with 0.5px AA rim: full coverage to dist <= 3,
+    // i.e. axis pixels from 13..19 (7px footprint).
+    EXPECT_EQ(rect.width, 7);
+    EXPECT_EQ(rect.height, 7);
 }
 
 TEST(BrushStrokeTest, StrokeClipsAtCanvasEdge)

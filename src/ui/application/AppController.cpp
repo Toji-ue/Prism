@@ -1,34 +1,57 @@
 #include "application/AppController.h"
 
+#include "application/LayerListModel.h"
 #include "commands/Commands.h"
 #include "layer/Layer.h"
-
-#include <QFile>
-#include <QSaveFile>
+#include "project/ProjectIO.h"
 
 #include <algorithm>
+#include <cmath>
 
 using namespace prism;
 
-AppController::AppController(QObject* parent)
-    : QObject(parent)
+namespace {
+
+prism::core::geometry::Rect fullRect(const prism::core::Document& doc)
 {
-    // Start with one paintable layer, like every drawing app does.
-    m_doc.addRasterLayer("Layer 1");
+    const auto s = doc.canvasSize();
+    return prism::core::geometry::Rect{ 0, 0, s.width, s.height };
 }
 
-// ---------------------------------------------------------------- properties
+prism::core::raster::Color toRaster(QColor c)
+{
+    return prism::core::raster::Color{ static_cast<std::uint8_t>(c.red()),
+                                       static_cast<std::uint8_t>(c.green()),
+                                       static_cast<std::uint8_t>(c.blue()), 255 };
+}
 
-int AppController::layerCount() const { return static_cast<int>(m_doc.layers().size()); }
+QColor toQColor(prism::core::raster::Color c)
+{
+    return QColor(c.r, c.g, c.b, c.a);
+}
+
+} // namespace
+
+AppController::AppController(QObject* parent)
+    : QObject(parent)
+    , m_layersModel(new LayerListModel(this))
+{
+    m_doc.addRasterLayer("Layer 1");
+    m_layersModel->setDocument(&m_doc);
+    m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    rebuildFullComposite();
+}
+
+// ------------------------------------------------------------------ properties
 
 int AppController::activeLayerIndex() const
 {
-    return std::min(m_activeLayer, layerCount() - 1);
+    return std::max(0, std::min(m_activeLayer, static_cast<int>(m_doc.layers().size()) - 1));
 }
 
 void AppController::setActiveLayerIndex(int index)
 {
-    if (index >= 0 && index < layerCount()) {
+    if (index >= 0 && index < static_cast<int>(m_doc.layers().size())) {
         m_activeLayer = index;
         emit layersChanged();
     }
@@ -45,17 +68,11 @@ QString AppController::undoLabel() const
 int AppController::canvasWidth() const { return m_doc.canvasSize().width; }
 int AppController::canvasHeight() const { return m_doc.canvasSize().height; }
 
-QColor AppController::brushColor() const
-{
-    const auto& c = m_brush.color;
-    return QColor(c.r, c.g, c.b, c.a);
-}
+QColor AppController::brushColor() const { return toQColor(m_brush.color); }
 
 void AppController::setBrushColor(const QColor& color)
 {
-    m_brush.color = core::raster::Color{ static_cast<std::uint8_t>(color.red()),
-                                         static_cast<std::uint8_t>(color.green()),
-                                         static_cast<std::uint8_t>(color.blue()), 255 };
+    m_brush.color = toRaster(color);
     emit brushChanged();
 }
 
@@ -67,93 +84,296 @@ void AppController::setBrushSize(float size)
     emit brushChanged();
 }
 
-// ------------------------------------------------------------------ actions
+float AppController::brushHardness() const { return m_brush.hardness; }
+
+void AppController::setBrushHardness(float hardness)
+{
+    m_brush.hardness = std::clamp(hardness, 0.0F, 1.0F);
+    emit brushChanged();
+}
+
+float AppController::brushFlow() const { return m_brush.flow; }
+
+void AppController::setBrushFlow(float flow)
+{
+    m_brush.flow = std::clamp(flow, 0.01F, 1.0F);
+    emit brushChanged();
+}
+
+bool AppController::eraser() const { return m_brush.erase; }
+
+void AppController::setEraser(bool erase)
+{
+    m_brush.erase = erase;
+    emit brushChanged();
+}
+
+qreal AppController::zoom() const { return m_zoom; }
+
+void AppController::setZoom(qreal zoom)
+{
+    m_zoom = std::clamp(zoom, 0.05, 8.0);
+    emit viewChanged();
+}
+
+// --------------------------------------------------------------------- actions
 
 void AppController::addLayer()
 {
-    const auto name = QStringLiteral("Layer %1").arg(layerCount() + 1);
+    const auto name = QStringLiteral("Layer %1").arg(static_cast<int>(m_doc.layers().size()) + 1);
     m_history.execute(std::make_unique<core::AddLayerCommand>(m_doc, name.toStdString()));
-    m_activeLayer = layerCount() - 1;
+    m_activeLayer = static_cast<int>(m_doc.layers().size()) - 1;
+    m_layersModel->refresh();
     emit layersChanged();
+    emit historyChanged();
+}
+
+void AppController::deleteLayer()
+{
+    if (m_doc.layers().size() <= 1)
+        return;
+    const int idx = activeLayerIndex();
+    m_history.execute(std::make_unique<core::RemoveLayerCommand>(m_doc, idx));
+    m_activeLayer = std::max(0, idx - 1);
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::duplicateLayer()
+{
+    m_history.execute(
+        std::make_unique<core::DuplicateLayerCommand>(m_doc, activeLayerIndex()));
+    m_activeLayer = activeLayerIndex() + 1;
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::moveLayerUp()
+{
+    const int idx = activeLayerIndex();
+    if (idx >= static_cast<int>(m_doc.layers().size()) - 1)
+        return;
+    m_history.execute(std::make_unique<core::MoveLayerCommand>(m_doc, idx, idx + 1));
+    m_activeLayer = idx + 1;
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::moveLayerDown()
+{
+    const int idx = activeLayerIndex();
+    if (idx <= 0)
+        return;
+    m_history.execute(std::make_unique<core::MoveLayerCommand>(m_doc, idx, idx - 1));
+    m_activeLayer = idx - 1;
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::setLayerVisible(int index, bool visible)
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::Visible, visible,
+        layer.isVisible()));
+    m_layersModel->refresh();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::setLayerOpacity(int index, int percent)
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    const float value = static_cast<float>(percent) / 100.0F;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::Opacity, value,
+        layer.opacity()));
+    m_layersModel->refresh();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::setLayerBlendMode(int index, int mode)
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    const auto value = static_cast<core::BlendMode>(mode);
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::BlendMode, value,
+        layer.blendMode()));
+    m_layersModel->refresh();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::renameLayer(int index, const QString& name)
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::Name, name.toStdString(),
+        layer.name()));
+    m_layersModel->refresh();
     emit historyChanged();
 }
 
 void AppController::undo()
 {
     m_history.undo();
-    rebuildFullComposite();
+    m_layersModel->refresh();
+    emit layersChanged();
     emit historyChanged();
+    rebuildFullComposite();
 }
 
 void AppController::redo()
 {
     m_history.redo();
-    rebuildFullComposite();
+    m_layersModel->refresh();
+    emit layersChanged();
     emit historyChanged();
+    rebuildFullComposite();
 }
 
-bool AppController::exportPng(const QUrl& fileUrl)
+void AppController::clearCanvas()
 {
-    const QString path = fileUrl.toLocalFile();
-    if (path.isEmpty())
-        return false;
-
-    // ARGB32... actually RGBA8888 matches our byte layout directly; PNG
-    // keeps alpha. Raster rows are top-down, same as QImage — no flip.
-    const auto& result = m_compositor.result();
-    QImage image(result.data(), result.width(), result.height(),
-                 result.width() * 4, QImage::Format_RGBA8888);
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly))
-        return false;
-    if (!image.copy().save(&file, "PNG"))
-        return false; // copy() detaches from the compositor's buffer
-    return file.commit();
+    m_history.execute(std::make_unique<core::ClearLayerCommand>(
+        m_doc, static_cast<std::size_t>(activeLayerIndex())));
+    emit historyChanged();
+    rebuildFullComposite();
 }
 
-// ----------------------------------------------------------------- stroking
+// ----------------------------------------------------------------------- file
+
+bool AppController::saveProject(const QUrl& url)
+{
+    return io::ProjectIO::save(m_doc, url.toLocalFile());
+}
+
+bool AppController::openProject(const QUrl& url)
+{
+    auto doc = io::ProjectIO::load(url.toLocalFile());
+    if (!doc)
+        return false;
+    m_doc = std::move(*doc);
+    m_history.clear();
+    m_compositor.canvasResized();
+    m_activeLayer = 0;
+    m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    m_layersModel->setDocument(&m_doc);
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+    return true;
+}
+
+bool AppController::importImage(const QUrl& url)
+{
+    auto doc = io::ProjectIO::importImage(url.toLocalFile());
+    if (!doc)
+        return false;
+    m_doc = std::move(*doc);
+    m_history.clear();
+    m_compositor.canvasResized();
+    m_activeLayer = 0;
+    m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    m_layersModel->setDocument(&m_doc);
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+    return true;
+}
+
+bool AppController::exportPng(const QUrl& url)
+{
+    return io::ProjectIO::exportPng(m_compositor, url.toLocalFile());
+}
+
+void AppController::newDocument(int width, int height)
+{
+    m_doc = core::Document(core::CanvasSize{ width, height, 72 });
+    m_doc.addRasterLayer("Layer 1");
+    m_history.clear();
+    m_compositor.canvasResized();
+    m_activeLayer = 0;
+    m_preview = core::raster::RasterBuffer(width, height);
+    m_layersModel->setDocument(&m_doc);
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+// ------------------------------------------------------------------- stroking
 
 void AppController::beginStroke(float x, float y)
 {
     m_currentStroke.clear();
     m_currentStroke.push_back({ x, y, 1.0F });
+    m_preview.fill(core::raster::kTransparent);
+    m_strokeDirty = core::geometry::Rect{ static_cast<int>(x), static_cast<int>(y), 0, 0 };
 }
 
 void AppController::extendStroke(float x, float y)
 {
-    if (!m_currentStroke.empty())
-        m_currentStroke.push_back({ x, y, 1.0F });
+    if (m_currentStroke.empty())
+        return;
+    const auto prev = m_currentStroke.back();
+    m_currentStroke.push_back({ x, y, 1.0F });
+    const auto r = canvas::BrushStroke::paintSegment(m_preview, m_brush, prev,
+                                                     { x, y, 1.0F });
+    if (!r.isEmpty()) {
+        m_strokeDirty = core::geometry::Rect{
+            std::min(m_strokeDirty.x, r.x), std::min(m_strokeDirty.y, r.y),
+            std::max(m_strokeDirty.x + m_strokeDirty.width, r.x + r.width)
+                - std::min(m_strokeDirty.x, r.x),
+            std::max(m_strokeDirty.y + m_strokeDirty.height, r.y + r.height)
+                - std::min(m_strokeDirty.y, r.y) };
+    }
+    rebuildStrokePreview();
 }
 
 void AppController::endStroke()
 {
-    if (m_currentStroke.empty() || m_activeLayer >= layerCount())
+    if (m_currentStroke.empty())
+        return;
+    if (m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
 
-    // Paint into a transparent scratch buffer so the live layer only sees
-    // the committed stroke, and History can snapshot before/after.
+    // Re-paint the full stroke fresh into the scratch (accumulated preview is
+    // exact, but a clean repaint keeps before/after snapshots consistent).
     core::raster::RasterBuffer scratch(m_doc.canvasSize().width, m_doc.canvasSize().height);
     const auto rect = canvas::BrushStroke::paint(scratch, m_brush, m_currentStroke);
     m_currentStroke.clear();
+    m_preview.fill(core::raster::kTransparent);
 
-    if (rect.isEmpty())
+    if (rect.isEmpty()) {
+        rebuildFullComposite();
         return;
+    }
 
     auto painted = scratch.copyRect(rect.x, rect.y, rect.width, rect.height);
     m_history.execute(std::make_unique<core::StrokeCommand>(
         m_doc, static_cast<std::size_t>(m_activeLayer), std::move(painted), rect.x, rect.y));
 
-    const auto composited = m_compositor.composite(rect);
     emit historyChanged();
-    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+    rebuildFullComposite();
 }
 
-QString AppController::layerName(int index) const
-{
-    if (index < 0 || index >= layerCount())
-        return {};
-    return QString::fromStdString(m_doc.layers()[static_cast<std::size_t>(index)]->name());
-}
+// ---------------------------------------------------------------------- internals
 
 QImage AppController::canvasImage() const
 {
@@ -164,7 +384,12 @@ QImage AppController::canvasImage() const
 
 void AppController::rebuildFullComposite()
 {
-    const auto size = m_doc.canvasSize();
-    const auto rect = m_compositor.composite(core::geometry::Rect{ 0, 0, size.width, size.height });
+    const auto rect = m_compositor.composite(fullRect(m_doc));
+    emit canvasChanged(rect.x, rect.y, rect.width, rect.height);
+}
+
+void AppController::rebuildStrokePreview()
+{
+    const auto rect = m_compositor.composite(m_strokeDirty, &m_preview);
     emit canvasChanged(rect.x, rect.y, rect.width, rect.height);
 }

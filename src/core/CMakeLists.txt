@@ -15,7 +15,9 @@ add_library(prism_core STATIC
     raster/RasterBuffer.cpp
     raster/RasterBuffer.h
     raster/Blend.cpp
-    raster/Blend.h)
+    raster/Blend.h
+    raster/ColorMath.cpp
+    raster/ColorMath.h)
 
 add_library(Prism::core ALIAS prism_core)
 

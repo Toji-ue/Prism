@@ -21,7 +21,8 @@ void Compositor::canvasResized()
     m_result = RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
 }
 
-prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect dirty)
+prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect dirty,
+                                                  const RasterBuffer* overlay)
 {
     const auto& size = m_doc.canvasSize();
     const prism::core::geometry::Rect canvasRect{ 0, 0, size.width, size.height };
@@ -51,6 +52,18 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
                 if (s.a == 0)
                     continue;
                 m_result.set(x, y, blendPixel(m_result.at(x, y), s, layer->blendMode()));
+            }
+        }
+    }
+
+    // Live-preview overlay paints last, normal blend, same coordinates.
+    if (overlay && !overlay->isEmpty()) {
+        for (int y = area.y; y < area.y + area.height; ++y) {
+            for (int x = area.x; x < area.x + area.width; ++x) {
+                const Color s = overlay->at(x, y);
+                if (s.a == 0)
+                    continue;
+                m_result.set(x, y, blendPixel(m_result.at(x, y), s, prism::core::BlendMode::Normal));
             }
         }
     }

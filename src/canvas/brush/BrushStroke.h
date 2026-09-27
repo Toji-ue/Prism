@@ -18,31 +18,39 @@ struct StrokePoint {
 
 /// Brush settings for one stroke.
 struct BrushSettings {
-    float radius = 8.0F; // in canvas pixels, at full pressure
-    float hardness = 1.0F; // 0 = soft falloff, 1 = hard circle
+    float radius = 8.0F; // canvas pixels, at full pressure
+    float hardness = 0.8F; // 0 = soft falloff, 1 = hard circle
     prism::core::raster::Color color = prism::core::raster::kOpaqueBlack;
-    /// Flow: how much paint each stamp deposits, 0..1. This is a stroke
-    /// property, NOT layer opacity — see AGENTS.md terminology note.
+    /// Flow: paint deposited per stamp, 0..1. A stroke property, NOT layer
+    /// opacity — see AGENTS.md terminology note.
     float flow = 1.0F;
+    /// Eraser: removes paint instead of depositing it.
+    bool erase = false;
 };
 
-/// Hard/soft circular brush stamping along a point path.
-///
-/// Pure CPU reference implementation. Points are stamped densely enough
-/// that consecutive stamps overlap (spacing = radius / 2), which is the
-/// classic approach; spacing curves arrive with the real brush engine.
+/// Antialiased circular brush. Stamps are interpolated along the input path
+/// so fast mouse movement never leaves gaps; overlapping stamps accumulate
+/// paint up to full alpha, matching how a real brush builds up opacity.
 class BrushStroke {
 public:
-    /// Stamps \p points into \p buffer with \p brush.
+    /// Paints \p points into \p buffer with \p brush.
     /// Returns the bounding rect (buffer coordinates) actually touched, or
     /// an empty rect if nothing was painted.
     [[nodiscard]] static prism::core::geometry::Rect paint(RasterBuffer& buffer,
                                                            const BrushSettings& brush,
                                                            const std::vector<StrokePoint>& points);
 
+    /// Paints only the segment [prev, current] (interpolated) into \p buffer.
+    /// Used by the live-preview path, which reuses already-painted points.
+    [[nodiscard]] static prism::core::geometry::Rect paintSegment(RasterBuffer& buffer,
+                                                                  const BrushSettings& brush,
+                                                                  const StrokePoint& prev,
+                                                                  const StrokePoint& current);
+
 private:
-    static void stamp(RasterBuffer& buffer, const BrushSettings& brush,
-                      const StrokePoint& center, prism::core::geometry::Rect& bounds);
+    static void stamp(RasterBuffer& buffer, const BrushSettings& brush, float cx, float cy,
+                      float pressure, prism::core::geometry::Rect& bounds);
+    static float coverage(float dist, float radius, float hardness) noexcept;
 };
 
 } // namespace prism::canvas
