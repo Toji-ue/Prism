@@ -177,6 +177,33 @@ public:
     /// Similar-colour selection anywhere on the canvas (not region-limited).
     Q_INVOKABLE void similarColorAt(float x, float y, int tolerance);
 
+    // --- extra tools ------------------------------------------------------
+    /// Polyline / Bezier / Bezier-selection: click to add a point.
+    Q_INVOKABLE void addPathPoint(float x, float y);
+    /// Finishes the in-progress polyline / bezier / selection path. \p close
+    /// closes it as a shape (\p mode: 0 = polyline stroke, 1 = bezier stroke,
+    /// 2 = smooth selection, 3 = magnetic selection).
+    Q_INVOKABLE void finishPath(int mode);
+    Q_INVOKABLE void cancelPath();
+    Q_INVOKABLE int pathPointCount() const;
+    /// Freehand Path: press, drag, release — smooths the drag before drawing.
+    Q_INVOKABLE void beginFreePath(float x, float y);
+    Q_INVOKABLE void extendFreePath(float x, float y);
+    Q_INVOKABLE void endFreePath();
+    /// Arc: drag from one end of the arc to the other.
+    Q_INVOKABLE void beginArc(float x, float y);
+    Q_INVOKABLE void updateArc(float x, float y);
+    Q_INVOKABLE void endArc();
+    /// Pattern fill inside the selection (or the whole layer).
+    Q_INVOKABLE void fillPattern(int kind, int scale);
+    /// Crop the whole document to a dragged rectangle.
+    Q_INVOKABLE void cropTo(float x, float y, float w, float h);
+    /// Transform the active layer: rotation in degrees and uniform scale about
+    /// the layer centre.
+    Q_INVOKABLE void transformLayer(float degrees, float scale);
+    /// Text tool: rasterizes \p text at (x, y) with the current colour.
+    Q_INVOKABLE void renderText(float x, float y, const QString& text, int pixelSize);
+
     // --- selection --------------------------------------------------------
     Q_INVOKABLE void setSelection(float x, float y, float w, float h);
     /// Elliptical marquee (same drag as the rectangular one).
@@ -324,6 +351,17 @@ private:
     prism::core::geometry::Point m_shapeEnd;
     bool m_shapeActive = false;
     bool m_shapeFilled = false;
+    /// Points collected by the click-based path tools.
+    std::vector<prism::core::geometry::Point> m_pathPoints;
+    /// Freehand Path drag samples.
+    std::vector<prism::canvas::StrokePoint> m_freePath;
+    /// Dynamic Brush: the lagged brush position.
+    prism::canvas::StrokePoint m_dynamicPos;
+
+    /// Commits a patch of the active layer (shared by every non-stroke tool).
+    void commitPatch(const prism::core::raster::RasterBuffer& original,
+                     const prism::core::raster::RasterBuffer& work,
+                     const prism::core::geometry::Rect& rect, const char* label);
     bool m_mirrorH = false;
     bool m_mirrorV = false;
     bool m_startPageVisible = true;

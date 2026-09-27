@@ -53,6 +53,20 @@ public:
     /// within \p tolerance, connected or not (unlike the magic wand).
     void selectSimilarGlobal(const RasterBuffer& source, int x, int y, int tolerance);
 
+    /// Outline Selection: the connected run of non-transparent pixels under
+    /// (x, y) - selects the outline/object itself rather than matching colour.
+    void selectContiguousOpaque(const RasterBuffer& source, int x, int y);
+
+    /// Bezier Selection: a smoothed closed curve through \p points
+    /// (Catmull-Rom densification of a Polygon Selection).
+    void selectSmoothPolygon(const std::vector<prism::core::geometry::Point>& points);
+
+    /// Magnetic Selection: like the freehand lasso, but each point is pulled
+    /// onto the strongest nearby edge in \p source (within \p snapRadius).
+    void selectMagnetic(const RasterBuffer& source,
+                        const std::vector<prism::core::geometry::Point>& points,
+                        int snapRadius = 6);
+
     /// Read-only mask access for rendering the marching-ants overlay.
     [[nodiscard]] const RasterBuffer& mask() const noexcept { return m_mask; }
     /// Bumped on every change, so QML can re-fetch the overlay image.

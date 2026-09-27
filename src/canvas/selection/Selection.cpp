@@ -264,6 +264,119 @@ void Selection::selectSimilarGlobal(const RasterBuffer& source, int x, int y, in
     ++m_revision;
 }
 
+void Selection::selectContiguousOpaque(const RasterBuffer& source, int x, int y)
+{
+    m_mask.fill(kTransparent);
+    if (source.isEmpty() || source.width() != m_mask.width()
+        || source.height() != m_mask.height() || x < 0 || y < 0 || x >= source.width()
+        || y >= source.height() || source.at(x, y).a == 0) {
+        m_empty = true;
+        m_bounds = {};
+        ++m_revision;
+        return;
+    }
+
+    // Region-grow on alpha only: "select this outline", ignoring colour.
+    const Color on{ 255, 255, 255, 255 };
+    floodFillRegion(source, x, y, 0, [&](int px, int py, Color c) {
+        if (c.a > 0)
+            m_mask.set(px, py, on);
+    });
+    // floodFillRegion matches on all channels; restrict to the opaque shell by
+    // running it on a copy where alpha is the only signal.
+    RasterBuffer alphaOnly(source.width(), source.height());
+    for (int py = 0; py < source.height(); ++py)
+        for (int px = 0; px < source.width(); ++px) {
+            const std::uint8_t a = source.at(px, py).a;
+            alphaOnly.set(px, py, Color{ 255, 255, 255, a == 0 ? 0 : 255 });
+        }
+    m_mask.fill(kTransparent);
+    floodFillRegion(alphaOnly, x, y, 0,
+                    [&](int px, int py, Color) { m_mask.set(px, py, on); });
+
+    m_empty = false;
+    recomputeBounds();
+    ++m_revision;
+}
+
+void Selection::selectSmoothPolygon(const std::vector<Point>& points)
+{
+    if (points.size() < 3) {
+        selectPolygon(points);
+        return;
+    }
+    // Catmull-Rom through the control points, then reuse the polygon rasterizer.
+    std::vector<Point> dense;
+    const int steps = 12;
+    const std::size_t n = points.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        const Point& p0 = points[(i + n - 1) % n];
+        const Point& p1 = points[i];
+        const Point& p2 = points[(i + 1) % n];
+        const Point& p3 = points[(i + 2) % n];
+        for (int s = 0; s < steps; ++s) {
+            const float t = static_cast<float>(s) / static_cast<float>(steps);
+            const float t2 = t * t;
+            const float t3 = t2 * t;
+            const auto cr = [&](float a, float b, float c, float d) {
+                return 0.5F * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2
+                               + (-a + 3 * b - 3 * c + d) * t3);
+            };
+            dense.push_back(Point{ static_cast<int>(cr(static_cast<float>(p0.x),
+                                                       static_cast<float>(p1.x),
+                                                       static_cast<float>(p2.x),
+                                                       static_cast<float>(p3.x))),
+                                   static_cast<int>(cr(static_cast<float>(p0.y),
+                                                       static_cast<float>(p1.y),
+                                                       static_cast<float>(p2.y),
+                                                       static_cast<float>(p3.y))) });
+        }
+    }
+    selectPolygon(dense);
+}
+
+void Selection::selectMagnetic(const RasterBuffer& source,
+                               const std::vector<Point>& points, int snapRadius)
+{
+    if (points.size() < 3) {
+        selectPolygon(points);
+        return;
+    }
+
+    // Snap each point to the strongest gradient within snapRadius: that is the
+    // "sticks to edges" behaviour the magnetic tool is named for.
+    const auto luma = [&](int x, int y) {
+        if (x < 0 || y < 0 || x >= source.width() || y >= source.height())
+            return 0.0F;
+        const Color c = source.at(x, y);
+        return 0.2126F * c.r + 0.7152F * c.g + 0.0722F * c.b;
+    };
+
+    std::vector<Point> snapped;
+    snapped.reserve(points.size());
+    for (const auto& p : points) {
+        int bestX = p.x;
+        int bestY = p.y;
+        float best = -1.0F;
+        for (int dy = -snapRadius; dy <= snapRadius; ++dy) {
+            for (int dx = -snapRadius; dx <= snapRadius; ++dx) {
+                const int sx = p.x + dx;
+                const int sy = p.y + dy;
+                const float gx = luma(sx + 1, sy) - luma(sx - 1, sy);
+                const float gy = luma(sx, sy + 1) - luma(sx, sy - 1);
+                const float mag = std::sqrt(gx * gx + gy * gy);
+                if (mag > best) {
+                    best = mag;
+                    bestX = sx;
+                    bestY = sy;
+                }
+            }
+        }
+        snapped.push_back(Point{ bestX, bestY });
+    }
+    selectPolygon(snapped);
+}
+
 void Selection::recomputeBounds(){
     int minX = m_mask.width(), minY = m_mask.height(), maxX = -1, maxY = -1;
     for (int y = 0; y < m_mask.height(); ++y) {

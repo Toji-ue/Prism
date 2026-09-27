@@ -11,6 +11,8 @@
 
 #include <QCoreApplication>
 #include <QClipboard>
+#include <QFont>
+#include <QPainter>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QSettings>
@@ -577,6 +579,280 @@ QSize AppController::clipboardImageSize() const
 {
     const QImage image = QGuiApplication::clipboard()->image();
     return image.isNull() ? QSize() : image.size();
+}
+
+void AppController::commitPatch(const core::raster::RasterBuffer& original,
+                               const core::raster::RasterBuffer& work,
+                               const core::geometry::Rect& rect, const char* label)
+{
+    if (rect.isEmpty() || m_activeLayer < 0
+        || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
+    auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
+    m_history.execute(std::make_unique<core::StrokeCommand>(
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+        rect.x, rect.y, label));
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+// -------------------------------------------------------- click-based paths
+
+void AppController::addPathPoint(float x, float y)
+{
+    m_pathPoints.push_back(core::geometry::Point{ static_cast<int>(std::floor(x)),
+                                                  static_cast<int>(std::floor(y)) });
+}
+
+void AppController::cancelPath()
+{
+    m_pathPoints.clear();
+    m_freePath.clear();
+    m_preview.fill(core::raster::kTransparent);
+    rebuildFullComposite();
+}
+
+int AppController::pathPointCount() const { return static_cast<int>(m_pathPoints.size()); }
+
+void AppController::finishPath(int mode)
+{
+    if (m_pathPoints.size() < 2) {
+        cancelPath();
+        return;
+    }
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
+    const core::raster::RasterBuffer original = layer.pixels();
+    core::raster::RasterBuffer work = original;
+
+    core::geometry::Rect rect;
+    const char* label = "Path";
+    switch (mode) {
+    case 1: { // Bezier: control handles derived from the middle points
+        const auto& p = m_pathPoints;
+        std::vector<canvas::StrokePoint> path;
+        for (std::size_t i = 0; i + 1 < p.size(); ++i) {
+            const auto& a = p[i];
+            const auto& b = p[i + 1];
+            const auto seg = canvas::bezierPath(
+                a, core::geometry::Point{ (a.x * 2 + b.x) / 3, (a.y * 2 + b.y) / 3 },
+                core::geometry::Point{ (a.x + b.x * 2) / 3, (a.y + b.y * 2) / 3 }, b, 24);
+            path.insert(path.end(), seg.begin(), seg.end());
+        }
+        rect = canvas::strokeAlong(work, path, m_brush);
+        label = "Bezier";
+        break;
+    }
+    case 2:
+        m_selection.selectSmoothPolygon(m_pathPoints);
+        m_pathPoints.clear();
+        emit selectionChanged();
+        rebuildFullComposite();
+        return;
+    case 3:
+        m_selection.selectMagnetic(m_compositor.result(), m_pathPoints);
+        m_pathPoints.clear();
+        emit selectionChanged();
+        rebuildFullComposite();
+        return;
+    default: { // Polyline
+        std::vector<canvas::StrokePoint> path;
+        for (const auto& p : m_pathPoints)
+            path.push_back({ static_cast<float>(p.x), static_cast<float>(p.y), 1.0F });
+        rect = canvas::strokeAlong(work, path, m_brush);
+        label = "Polyline";
+        break;
+    }
+    }
+    m_pathPoints.clear();
+    canvas::clipToSelection(work, m_selection, &original);
+    commitPatch(original, work, rect, label);
+}
+
+// ------------------------------------------------------------ freehand path
+
+void AppController::beginFreePath(float x, float y)
+{
+    m_freePath.clear();
+    m_freePath.push_back({ x, y, 1.0F });
+    m_preview.fill(core::raster::kTransparent);
+    m_strokeDirty = {};
+}
+
+void AppController::extendFreePath(float x, float y)
+{
+    if (m_freePath.empty())
+        return;
+    const auto previous = m_strokeDirty;
+    m_freePath.push_back({ x, y, 1.0F });
+    const auto smoothed = canvas::smoothPath(m_freePath, 1);
+    m_preview.fill(core::raster::kTransparent);
+    const auto rect = canvas::strokeAlong(m_preview, smoothed, m_brush);
+    core::geometry::Rect dirty = rect;
+    if (!previous.isEmpty())
+        dirty = core::geometry::Rect{
+            std::min(previous.x, rect.x), std::min(previous.y, rect.y),
+            std::max(previous.x + previous.width, rect.x + rect.width) - std::min(previous.x, rect.x),
+            std::max(previous.y + previous.height, rect.y + rect.height) - std::min(previous.y, rect.y) };
+    m_strokeDirty = rect;
+    const auto composited = m_compositor.composite(dirty, &m_preview);
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+}
+
+void AppController::endFreePath()
+{
+    if (m_freePath.size() < 2) {
+        cancelPath();
+        return;
+    }
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
+    const core::raster::RasterBuffer original = layer.pixels();
+    core::raster::RasterBuffer work = original;
+    const auto rect = canvas::strokeAlong(work, canvas::smoothPath(m_freePath, 2), m_brush);
+    m_freePath.clear();
+    m_preview.fill(core::raster::kTransparent);
+    canvas::clipToSelection(work, m_selection, &original);
+    commitPatch(original, work, rect, "Freehand path");
+}
+
+// --------------------------------------------------------------------- arc
+
+void AppController::beginArc(float x, float y)
+{
+    m_shapeStart = core::geometry::Point{ static_cast<int>(x), static_cast<int>(y) };
+    m_shapeEnd = m_shapeStart;
+    m_shapeActive = true;
+    m_preview.fill(core::raster::kTransparent);
+}
+
+void AppController::updateArc(float x, float y)
+{
+    if (!m_shapeActive)
+        return;
+    const auto previous = m_strokeDirty;
+    m_shapeEnd = core::geometry::Point{ static_cast<int>(x), static_cast<int>(y) };
+    m_preview.fill(core::raster::kTransparent);
+    const auto rect = canvas::strokeAlong(m_preview, canvas::arcPath(m_shapeStart, m_shapeEnd),
+                                          m_brush);
+    core::geometry::Rect dirty = rect;
+    if (!previous.isEmpty())
+        dirty = core::geometry::Rect{
+            std::min(previous.x, rect.x), std::min(previous.y, rect.y),
+            std::max(previous.x + previous.width, rect.x + rect.width) - std::min(previous.x, rect.x),
+            std::max(previous.y + previous.height, rect.y + rect.height) - std::min(previous.y, rect.y) };
+    m_strokeDirty = rect;
+    const auto composited = m_compositor.composite(dirty, &m_preview);
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+}
+
+void AppController::endArc()
+{
+    if (!m_shapeActive) {
+        return;
+    }
+    m_shapeActive = false;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
+    const core::raster::RasterBuffer original = layer.pixels();
+    core::raster::RasterBuffer work = original;
+    const auto rect = canvas::strokeAlong(work, canvas::arcPath(m_shapeStart, m_shapeEnd), m_brush);
+    m_preview.fill(core::raster::kTransparent);
+    canvas::clipToSelection(work, m_selection, &original);
+    commitPatch(original, work, rect, "Arc");
+}
+
+// ------------------------------------------------------ pattern / crop / etc
+
+void AppController::fillPattern(int kind, int scale)
+{
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
+    if (layer.isLocked())
+        return;
+    const core::raster::RasterBuffer original = layer.pixels();
+    core::raster::RasterBuffer work = original;
+    const auto kindEnum = static_cast<canvas::PatternKind>(std::clamp(kind, 0, 2));
+    core::geometry::Rect limit = m_selection.isEmpty()
+                                     ? core::geometry::Rect{}
+                                     : m_selection.bounds();
+    const auto rect = canvas::fillPattern(work, kindEnum, scale, m_brush.color, limit);
+    commitPatch(original, work, rect, "Pattern");
+}
+
+void AppController::cropTo(float x, float y, float w, float h)
+{
+    const auto size = m_doc.canvasSize();
+    const int x0 = std::clamp(static_cast<int>(std::floor(std::min(x, x + w))), 0, size.width);
+    const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, size.height);
+    const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, size.width);
+    const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, size.height);
+    const int cw = x1 - x0;
+    const int ch = y1 - y0;
+    if (cw < 2 || ch < 2)
+        return;
+
+    // Crop each layer, then resize the document. Destructive by nature, so the
+    // history is cleared rather than pretending it can be undone.
+    for (const auto& layer : m_doc.layers()) {
+        if (layer->pixels().isEmpty())
+            continue;
+        layer->pixels() = layer->pixels().copyRect(x0, y0, cw, ch);
+    }
+    m_doc.resizeCanvas(core::CanvasSize{ cw, ch, m_doc.canvasSize().dpi });
+    m_history.clear();
+    m_compositor.canvasResized();
+    m_selection.reset(cw, ch);
+    m_preview = core::raster::RasterBuffer(cw, ch);
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::transformLayer(float degrees, float scale)
+{
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
+    if (layer.isLocked())
+        return;
+    const core::raster::RasterBuffer original = layer.pixels();
+    core::raster::RasterBuffer work = original;
+    const auto rect = canvas::transformBuffer(work, degrees, scale,
+                                              static_cast<float>(work.width()) * 0.5F,
+                                              static_cast<float>(work.height()) * 0.5F);
+    commitPatch(original, work, rect, "Transform");
+}
+
+void AppController::renderText(float x, float y, const QString& text, int pixelSize)
+{
+    if (text.isEmpty())
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
+    if (layer.isLocked())
+        return;
+
+    // Rasterize with Qt's font engine into an RGBA image of the layer's size,
+    // then treat it as a normal pixel patch.
+    const int w = layer.pixels().width();
+    const int h = layer.pixels().height();
+    QImage canvasImage(w, h, QImage::Format_RGBA8888);
+    canvasImage.fill(Qt::transparent);
+    {
+        QPainter p(&canvasImage);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+        QFont font = p.font();
+        font.setPixelSize(std::max(6, pixelSize));
+        p.setFont(font);
+        const QColor c = brushColor();
+        p.setPen(c);
+        p.drawText(QPointF(x, y), text);
+    }
+
+    core::raster::RasterBuffer textLayer(w, h);
+    std::memcpy(textLayer.data(), canvasImage.constBits(),
+                static_cast<std::size_t>(w) * h * 4);
+
+    const core::raster::RasterBuffer original = layer.pixels();
+    core::raster::RasterBuffer work = original;
+    // Composite the text over the working copy.
+    work.compositeOver(textLayer, 0, 0);
+    commitPatch(original, work, core::geometry::Rect{ 0, 0, w, h }, "Text");
 }
 
 QImage AppController::selectionOverlay() const
