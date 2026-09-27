@@ -1091,49 +1091,85 @@ ApplicationWindow {
                 clip: true
                 model: root.controller.toolShortcutList
 
-                delegate: RowLayout {
+                delegate: ColumnLayout {
+                    id: shortcutRow
                     width: shortcutList.width
-                    height: 26
-                    spacing: 8
+                    spacing: 1
 
-                    Text {
+                    /// Live conflict check: names the OTHER tool (if any) that
+                    /// currently holds the typed key, so the consequence is
+                    /// visible BEFORE the assignment is committed.
+                    readonly property string conflictWith: {
+                        const list = root.controller.toolShortcutList
+                        const k = keyField.text.trim().toUpperCase()
+                        if (k.length === 0)
+                            return ""
+                        for (let i = 0; i < list.length; ++i)
+                            if (list[i].tool !== modelData.tool && list[i].key === k)
+                                return list[i].name
+                        return ""
+                    }
+
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: modelData.name
-                        color: T.text
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                    }
-                    Text {
-                        text: modelData.key.length > 0 ? modelData.key : qsTr("(none)")
-                        color: T.textDim
-                        font.pixelSize: 10
-                        Layout.preferredWidth: 40
-                    }
-                    Rectangle {
-                        width: 56; height: 22
-                        color: T.panelRaised
-                        border.color: T.border
-                        TextInput {
-                            id: keyField
-                            anchors.fill: parent
-                            anchors.leftMargin: 6
-                            verticalAlignment: TextInput.AlignVCenter
+                        spacing: 8
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: modelData.name
                             color: T.text
                             font.pixelSize: 11
-                            maximumLength: 1
-                            clip: true
-                            Text {
-                                visible: keyField.text.length === 0 && !keyField.activeFocus
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            text: modelData.key.length > 0 ? modelData.key : qsTr("(none)")
+                            color: T.textDim
+                            font.pixelSize: 10
+                            Layout.preferredWidth: 40
+                        }
+                        Rectangle {
+                            width: 56; height: 22
+                            // The key box flags a conflict while typing.
+                            color: T.panelRaised
+                            border.color: shortcutRow.conflictWith.length > 0
+                                          ? T.text : T.border
+                            border.width: 1
+                            TextInput {
+                                id: keyField
                                 anchors.fill: parent
                                 anchors.leftMargin: 6
-                                verticalAlignment: Text.AlignVCenter
-                                text: qsTr("set...")
-                                color: T.textDim
-                                font.pixelSize: 10
+                                verticalAlignment: TextInput.AlignVCenter
+                                color: T.text
+                                font.pixelSize: 11
+                                maximumLength: 1
+                                clip: true
+                                Text {
+                                    visible: keyField.text.length === 0 && !keyField.activeFocus
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 6
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: qsTr("set...")
+                                    color: T.textDim
+                                    font.pixelSize: 10
+                                }
+                                onEditingFinished:
+                                    root.controller.setToolShortcut(modelData.tool, text)
                             }
-                            onEditingFinished:
-                                root.controller.setToolShortcut(modelData.tool, text)
                         }
+                    }
+
+                    // The warning itself: names the tool that would lose the
+                    // key if this assignment is committed.
+                    Text {
+                        Layout.fillWidth: true
+                        visible: conflictWith.length > 0
+                        leftPadding: 4
+                        text: qsTr("! '%1' is already used by %2 - assigning it here will clear it there")
+                              .arg(keyField.text.trim().toUpperCase())
+                              .arg(conflictWith)
+                        color: T.text
+                        font.pixelSize: 10
+                        elide: Text.ElideMiddle
                     }
                 }
             }
