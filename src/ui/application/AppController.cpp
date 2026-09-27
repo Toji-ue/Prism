@@ -257,8 +257,11 @@ QImage AppController::layerThumbnail(int index, int width, int height) const
     if (src.isEmpty() || width <= 0 || height <= 0)
         return {};
 
-    // Box-downscale: average each destination pixel's source block so the
-    // thumbnail reads like the layer rather than a nearest-neighbour sample.
+    // Averaged downscale with a BOUNDED sample budget: each destination pixel
+    // averages at most 4x4 source samples instead of its whole block. Scanning
+    // all 1M source pixels per thumbnail was too slow to regenerate during a
+    // stroke — part of the drawing lag.
+    constexpr int kMaxSamplesPerAxis = 4;
     core::raster::RasterBuffer out(width, height);
     const float sx = static_cast<float>(src.width()) / static_cast<float>(width);
     const float sy = static_cast<float>(src.height()) / static_cast<float>(height);
@@ -266,11 +269,13 @@ QImage AppController::layerThumbnail(int index, int width, int height) const
         for (int x = 0; x < width; ++x) {
             const int x0 = static_cast<int>(x * sx);
             const int y0 = static_cast<int>(y * sy);
-            const int x1 = std::min(src.width(), std::max(x0 + 1, static_cast<int>((x + 1) * sx)));
-            const int y1 = std::min(src.height(), std::max(y0 + 1, static_cast<int>((y + 1) * sy)));
+            const int x1 = std::min(src.width(), x0 + std::max(1, static_cast<int>(sx)));
+            const int y1 = std::min(src.height(), y0 + std::max(1, static_cast<int>(sy)));
+            const int stepX = std::max(1, (x1 - x0) / kMaxSamplesPerAxis);
+            const int stepY = std::max(1, (y1 - y0) / kMaxSamplesPerAxis);
             int r = 0, g = 0, b = 0, a = 0, n = 0;
-            for (int yy = y0; yy < y1; ++yy) {
-                for (int xx = x0; xx < x1; ++xx) {
+            for (int yy = y0; yy < y1; yy += stepY) {
+                for (int xx = x0; xx < x1; xx += stepX) {
                     const auto c = src.at(xx, yy);
                     // Weight color by alpha so transparent areas don't darken.
                     r += c.r * c.a;
@@ -893,8 +898,10 @@ void AppController::extendStroke(float x, float y)
     // but only recomposite the band this tick actually painted. Everything
     // else already holds base+preview from previous ticks, so redrawing the
     // entire stroke bbox every mouse move was wasted work.
+    // The layer-revision counter is deliberately NOT bumped here: doing so
+    // made every layer thumbnail re-render on each mouse move, which was the
+    // cause of the drawing lag. Thumbnails refresh when the stroke commits.
     const auto composited = m_compositor.composite(segment, &m_preview);
-    ++m_layerRevision;
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 

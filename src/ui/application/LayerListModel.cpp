@@ -56,8 +56,9 @@ void LayerListModel::refresh()
 {
     if (!m_doc)
         return;
-    if (m_doc->layers().empty())
-        beginResetModel(), endResetModel();
-    else
-        emit dataChanged(index(0), index(rowCount() - 1));
+    // The row COUNT may have changed (add / delete / duplicate). Emitting only
+    // dataChanged left the view showing a stale list — new layers never
+    // appeared. A reset is the correct notification for a structural change.
+    beginResetModel();
+    endResetModel();
 }

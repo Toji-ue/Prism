@@ -286,26 +286,20 @@ ApplicationWindow {
 
             Rectangle { width: 1; height: 20; color: T.border }
 
-            // Opacity: bound to brushFlow so it always reflects the brush,
-            // including changes made from presets or sliders.
+            // Opacity (brush flow) as a slider, with the value beside it.
+            // Bound to brushFlow so presets and the docker stay in sync.
             Text { text: qsTr("Opacity:"); color: T.text; font.pixelSize: 11 }
-            ComboBox {
-                id: opacityCombo
-                Layout.preferredWidth: 76
-                height: 24
+            PSlider {
+                Layout.preferredWidth: 96
+                from: 0.05; to: 1
+                value: controller.brushFlow
+                onMoved: controller.brushFlow = value
+            }
+            Text {
+                Layout.preferredWidth: 34
+                text: Math.round(controller.brushFlow * 100) + "%"
+                color: T.text
                 font.pixelSize: 11
-                model: ["100%", "75%", "50%", "25%", "10%"]
-                readonly property var values: [100, 75, 50, 25, 10]
-                currentIndex: {
-                    const pct = Math.round(controller.brushFlow * 100)
-                    let best = 0, bestDiff = 1e9
-                    for (let i = 0; i < values.length; ++i) {
-                        const d = Math.abs(values[i] - pct)
-                        if (d < bestDiff) { bestDiff = d; best = i }
-                    }
-                    return best
-                }
-                onActivated: controller.brushFlow = values[currentIndex] / 100
             }
 
             Text { text: qsTr("Size:"); color: T.text; font.pixelSize: 11 }

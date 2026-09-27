@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QDateTime>
+#include <QElapsedTimer>
 
 #include "application/AppController.h"
 #include "application/LayerListModel.h"
@@ -128,6 +129,22 @@ int runSelfTest()
     check(countOpaquePixels(controller.canvasImage()) == beforeSelectionStroke,
           "selection stroke undone");
 
+    // Stroke latency: informational, so a regression is visible in CI logs.
+    // The per-move path must not do per-tick full-canvas work.
+    {
+        QElapsedTimer timer;
+        controller.beginStroke(100.0F, 100.0F);
+        timer.start();
+        for (int i = 0; i < 200; ++i)
+            controller.extendStroke(100.0F + static_cast<float>(i) * 2.0F,
+                                    100.0F + static_cast<float>(i));
+        controller.endStroke();
+        const qint64 ms = timer.elapsed();
+        qInfo() << "stroke latency:" << ms << "ms for 200 move events ("
+                << (ms / 200.0) << "ms per event)";
+        check(ms < 2000, "200 move events stay under 2s");
+    }
+
     // Layer ops + undo must not corrupt the stack.
     const int before = controller.layers()->rowCount();
     controller.addLayer();
@@ -238,8 +255,11 @@ int main(int argc, char* argv[])
                 return;
             // The demo draws on a document, so the start page must be gone.
             controller->setStartPageVisible(false);
-            // Corner-to-corner diagonal plus centre cross: any offset or
-            // scale error in the view is obvious in the screenshot.
+            // Add a second layer: makes the layer panel's list structure
+            // visible in the screenshot (it must show two rows).
+            controller->addLayer();
+            qInfo() << "demo: layer rows =" << controller->layers()->rowCount();
+            // Draw on the newly added (top) layer.
             const qreal w = controller->canvasWidth();
             const qreal h = controller->canvasHeight();
             controller->setBrushColor(QColor(20, 20, 40));

@@ -86,11 +86,8 @@ Rectangle {
             }
             Repeater {
                 model: [
-                    { icon: "file-new",     label: qsTr("User Manual") },
                     { icon: "swatch",       label: qsTr("Support Prism") },
-                    { icon: "brush",        label: qsTr("Getting Started") },
                     { icon: "duplicate",    label: qsTr("Source Code") },
-                    { icon: "move",         label: qsTr("User Community") },
                     { icon: "transparency", label: qsTr("Website") }
                 ]
                 delegate: RowLayout {
@@ -222,14 +219,16 @@ Rectangle {
             }
         }
 
-        // ---------------- News / info ----------------
+        // ---------------- Info panel ----------------
+        // (Krita's "News" column is intentionally dropped — see the request
+        // to keep the start page to start/recent/community.)
         ColumnLayout {
             Layout.preferredWidth: 240
             Layout.fillHeight: true
             spacing: 10
 
             Text {
-                text: qsTr("News")
+                text: qsTr("About")
                 color: T.text
                 font.pixelSize: 21
             }
@@ -248,9 +247,9 @@ Rectangle {
                         width: 200
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
-                        text: qsTr("No news — Prism %1").arg(page.controller.versionString())
-                        color: T.textDim
-                        font.pixelSize: 12
+                        text: qsTr("Prism %1").arg(page.controller.versionString())
+                        color: T.text
+                        font.pixelSize: 13
                     }
                     Text {
                         width: 200
