@@ -240,6 +240,34 @@ int runSelfTest()
         controller.setTool(AppController::BrushTool);
     }
 
+    // Erasing on one layer must not affect what other layers show: the pixels
+    // belong to the layer above, so they must survive both mid-drag and after
+    // release. (Reported bug: erasing on a lower layer made upper layers
+    // vanish and then come back.)
+    {
+        controller.setTool(AppController::BrushTool);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.setBrushSize(30.0F);
+        controller.addLayer(); // work on the top layer
+        const int topIndex = controller.activeLayerIndex();
+        controller.beginStroke(500.0F, 600.0F);
+        controller.extendStroke(560.0F, 600.0F);
+        controller.endStroke();
+        const int pixelsOnTopLayer = countOpaquePixels(controller.canvasImage());
+
+        controller.setActiveLayerIndex(topIndex - 1); // a lower, empty layer
+        controller.setTool(AppController::EraserTool);
+        controller.setBrushSize(40.0F);
+        controller.beginStroke(530.0F, 600.0F);
+        controller.extendStroke(531.0F, 600.0F); // mid-drag
+        check(countOpaquePixels(controller.canvasImage()) == pixelsOnTopLayer,
+              "erasing on a lower layer leaves upper layers intact while dragging");
+        controller.endStroke();
+        check(countOpaquePixels(controller.canvasImage()) == pixelsOnTopLayer,
+              "erasing on a lower layer leaves upper layers intact after release");
+        controller.setTool(AppController::BrushTool);
+    }
+
     // Shape tools: line, rectangle, ellipse each commit one undo step.
     {
         controller.setTool(AppController::LineTool);

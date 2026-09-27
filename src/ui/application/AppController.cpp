@@ -1429,6 +1429,18 @@ void AppController::beginStroke(float x, float y)
     m_currentStroke.push_back({ x, y, 1.0F });
     m_preview.fill(core::raster::kTransparent);
     m_strokeDirty = core::geometry::Rect{ static_cast<int>(x), static_cast<int>(y), 0, 0 };
+
+    // The eraser previews by substituting an erased copy of the ACTIVE layer,
+    // so nothing on any other layer is touched on screen either.
+    m_erasing = m_brush.erase && m_activeLayer >= 0
+             && m_activeLayer < static_cast<int>(m_doc.layers().size());
+    if (m_erasing) {
+        m_eraseBefore = m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels();
+        m_eraseWork = m_eraseBefore;
+        m_compositor.setLayerOverride(static_cast<std::size_t>(m_activeLayer), &m_eraseWork);
+    } else {
+        m_compositor.clearLayerOverride();
+    }
 }
 
 void AppController::extendStroke(float x, float y)
@@ -1437,6 +1449,24 @@ void AppController::extendStroke(float x, float y)
         return;
     const auto prev = m_currentStroke.back();
     m_currentStroke.push_back({ x, y, 1.0F });
+
+    if (m_erasing) {
+        // Erase into the substituted layer copy and re-composite that band.
+        // No overlay is used, so only the active layer's pixels change.
+        const auto segment = canvas::BrushStroke::paintSegment(m_eraseWork, m_brush, prev,
+                                                               { x, y, 1.0F });
+        if (segment.isEmpty())
+            return;
+        m_strokeDirty = core::geometry::Rect{
+            std::min(m_strokeDirty.x, segment.x), std::min(m_strokeDirty.y, segment.y),
+            std::max(m_strokeDirty.x + m_strokeDirty.width, segment.x + segment.width)
+                - std::min(m_strokeDirty.x, segment.x),
+            std::max(m_strokeDirty.y + m_strokeDirty.height, segment.y + segment.height)
+                - std::min(m_strokeDirty.y, segment.y) };
+        const auto composited = m_compositor.composite(segment);
+        emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+        return;
+    }
 
     // The eraser preview accumulates COVERAGE (a normal stamp into the scratch);
     // the compositor then subtracts it, so the erase is visible live instead of
@@ -1481,6 +1511,23 @@ void AppController::endStroke()
         m_currentStroke.clear();
         m_preview.fill(core::raster::kTransparent);
         rebuildFullComposite();
+        return;
+    }
+
+    if (m_erasing) {
+        // The preview already built the erased layer; commit that exact result
+        // so nothing other than the active layer was ever affected.
+        m_erasing = false;
+        m_compositor.clearLayerOverride();
+        const auto rect = canvas::BrushStroke::paint(m_eraseWork, m_brush, m_currentStroke);
+        m_currentStroke.clear();
+        m_preview.fill(core::raster::kTransparent);
+        if (rect.isEmpty()) {
+            rebuildFullComposite();
+            return;
+        }
+        canvas::clipToSelection(m_eraseWork, m_selection, &m_eraseBefore);
+        commitPatch(m_eraseBefore, m_eraseWork, rect, "Erase");
         return;
     }
 

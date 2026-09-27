@@ -21,6 +21,18 @@ void Compositor::canvasResized()
     m_result = RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
 }
 
+void Compositor::setLayerOverride(std::size_t layerIndex, const RasterBuffer* pixels)
+{
+    m_overrideIndex = static_cast<long long>(layerIndex);
+    m_overridePixels = pixels;
+}
+
+void Compositor::clearLayerOverride()
+{
+    m_overrideIndex = -1;
+    m_overridePixels = nullptr;
+}
+
 prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect dirty,
                                                   const RasterBuffer* overlay,
                                                   bool overlayErases)
@@ -39,11 +51,16 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
 
     // Layers paint bottom-to-top. Layer opacity multiplies the source alpha
     // before blending; invisible layers are skipped entirely.
+    std::size_t layerIndex = 0;
     for (const auto& layer : m_doc.layers()) {
-        if (!layer->isVisible() || layer->pixels().isEmpty())
+        const bool overridden = m_overridePixels
+                             && m_overrideIndex == static_cast<long long>(layerIndex);
+        const auto& pixels = overridden ? *m_overridePixels : layer->pixels();
+        ++layerIndex;
+        if (!layer->isVisible() || pixels.isEmpty())
             continue;
 
-        const auto& src = layer->pixels();
+        const auto& src = pixels;
         for (int y = area.y; y < area.y + area.height; ++y) {
             for (int x = area.x; x < area.x + area.width; ++x) {
                 Color s = src.at(x, y);

@@ -375,6 +375,10 @@ private:
     std::vector<prism::canvas::StrokePoint> m_freePath;
     /// Dynamic Brush: the lagged brush position.
     prism::canvas::StrokePoint m_dynamicPos;
+    /// Eraser drag state: the layer copy being erased, and its original.
+    prism::core::raster::RasterBuffer m_eraseWork;
+    prism::core::raster::RasterBuffer m_eraseBefore;
+    bool m_erasing = false;
 
     /// Commits a patch of the active layer (shared by every non-stroke tool).
     void commitPatch(const prism::core::raster::RasterBuffer& original,
