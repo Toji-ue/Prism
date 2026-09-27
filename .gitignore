@@ -15,3 +15,6 @@ ui_shot*.png
 prism_window.png
 ui_check*.png
 .dsh-vision-router/
+
+# Krita reference source (local copy, not part of Prism)
+krita-master/

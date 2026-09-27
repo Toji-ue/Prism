@@ -7,6 +7,7 @@
 #include <QBuffer>
 #include <QFile>
 #include <QImage>
+#include <QImageWriter>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -150,15 +151,38 @@ std::optional<Document> ProjectIO::importImage(const QString& path)
 
 bool ProjectIO::exportPng(const prism::canvas::Compositor& composite, const QString& path)
 {
+    return exportImage(composite, path, "png");
+}
+
+bool ProjectIO::exportImage(const prism::canvas::Compositor& composite, const QString& path,
+                            const QByteArray& format, int quality)
+{
     const auto& result = composite.result();
     const QImage image(result.data(), result.width(), result.height(), result.width() * 4,
                        QImage::Format_RGBA8888);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly))
         return false;
-    if (!image.copy().save(&file, "PNG"))
+
+    QImageWriter writer(&file, format);
+    writer.setQuality(quality);
+    if (!writer.write(image.copy()))
         return false;
     return file.commit();
+}
+
+QList<QByteArray> ProjectIO::writableFormats()
+{
+    // Formats worth offering for a drawing app; anything Qt cannot write on
+    // this platform is filtered out so the dialogs never offer a dead choice.
+    static const QList<QByteArray> candidates = {
+        "png", "jpg", "webp", "tiff", "bmp", "gif", "ppm", "xbm", "xpm", "ico",
+    };
+    QList<QByteArray> out;
+    for (const QByteArray& f : candidates)
+        if (QImageWriter::supportedImageFormats().contains(f))
+            out.append(f);
+    return out;
 }
 
 } // namespace prism::io

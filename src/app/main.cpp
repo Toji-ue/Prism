@@ -277,6 +277,36 @@ int runSelfTest()
         controller.setTool(AppController::BrushTool);
     }
 
+    // Save -> reopen round trip through the SAME controller path the UI uses.
+    // The reported "cannot reopen a saved .prism" bug lived here, not in the
+    // format itself.
+    {
+        const QString tmp = QDir::temp().filePath(QStringLiteral("prism-selftest.prism"));
+        QFile::remove(tmp);
+        controller.addLayer();
+        controller.setDocumentName(QStringLiteral("selftest"));
+        check(controller.saveFile(QUrl::fromLocalFile(tmp)), "saveFile writes a project");
+        check(QFile::exists(tmp), "project file exists on disk");
+
+        const int layersBefore = controller.layers()->rowCount();
+        check(controller.openFile(QUrl::fromLocalFile(tmp)), "openFile reopens the project");
+        check(controller.layers()->rowCount() == layersBefore, "reopened project keeps layers");
+
+        // A name without a suffix must still land as .prism, otherwise the
+        // Open dialog's filter cannot see it again.
+        const QString noExt = QDir::temp().filePath(QStringLiteral("prism-selftest-noext"));
+        QFile::remove(noExt + QStringLiteral(".prism"));
+        check(controller.saveFile(QUrl::fromLocalFile(noExt)), "save without suffix succeeds");
+        check(QFile::exists(noExt + QStringLiteral(".prism")),
+              "missing .prism suffix is appended");
+
+        // Image formats go through the same Save As dialog.
+        const QString png = QDir::temp().filePath(QStringLiteral("prism-selftest.png"));
+        QFile::remove(png);
+        check(controller.saveFile(QUrl::fromLocalFile(png)), "saveFile writes a PNG");
+        check(QFile::exists(png), "PNG exists on disk");
+    }
+
     // Stroke latency: informational, so a regression is visible in CI logs.
     // The per-move path must not do per-tick full-canvas work.
     {

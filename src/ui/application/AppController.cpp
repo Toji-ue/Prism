@@ -1225,12 +1225,51 @@ void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight)
 
 bool AppController::saveProject(const QUrl& url)
 {
-    const bool ok = io::ProjectIO::save(m_doc, url.toLocalFile());
+    QString path = url.toLocalFile();
+    // A project file without the .prism suffix is invisible to the Open
+    // dialog's filter — that is why reopened saves appeared to be missing.
+    if (!path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
+        path += QStringLiteral(".prism");
+
+    const bool ok = io::ProjectIO::save(m_doc, path);
     if (ok) {
-        addRecentFile(url.toLocalFile());
-        setDocumentName(QFileInfo(url.toLocalFile()).fileName());
+        addRecentFile(path);
+        setDocumentName(QFileInfo(path).fileName());
+    } else {
+        qWarning() << "save failed:" << path;
     }
     return ok;
+}
+
+bool AppController::saveFile(const QUrl& url)
+{
+    QString path = url.toLocalFile();
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix.isEmpty() || suffix == QLatin1String("prism"))
+        return saveProject(QUrl::fromLocalFile(path));
+
+    const bool ok = io::ProjectIO::exportImage(m_compositor, path, suffix.toUtf8());
+    if (ok)
+        addRecentFile(path);
+    else
+        qWarning() << "export failed:" << path;
+    return ok;
+}
+
+bool AppController::openFile(const QUrl& url)
+{
+    const QString path = url.toLocalFile();
+    if (path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
+        return openProject(url);
+    return importImage(url);
+}
+
+QStringList AppController::writableFormatNames() const
+{
+    QStringList out;
+    for (const QByteArray& f : io::ProjectIO::writableFormats())
+        out << QString::fromLatin1(f);
+    return out;
 }
 
 bool AppController::openProject(const QUrl& url)

@@ -991,31 +991,45 @@ ApplicationWindow {
 
     FileDialog {
         id: saveDialog
-        title: qsTr("Save project")
-        nameFilters: ["Prism project (*.prism)"]
+        title: qsTr("Save As")
+        // Krita-style format list: the file suffix picks the writer.
+        nameFilters: [
+            qsTr("Prism document (*.prism)"),
+            qsTr("PNG image (*.png)"),
+            qsTr("JPEG image (*.jpg *.jpeg)"),
+            qsTr("WebP image (*.webp)"),
+            qsTr("TIFF image (*.tif *.tiff)"),
+            qsTr("BMP image (*.bmp)"),
+            qsTr("GIF image (*.gif)"),
+            qsTr("PPM image (*.ppm)"),
+            qsTr("Windows icon (*.ico)"),
+            qsTr("All files (*)")
+        ]
         fileMode: FileDialog.SaveFile
-        onAccepted: if (!controller.saveProject(selectedFile)) console.warn("save failed")
+        onAccepted: if (!controller.saveFile(selectedFile)) console.warn("save failed")
     }
     FileDialog {
         id: openDialog
-        title: qsTr("Open project or image")
-        nameFilters: ["Prism project (*.prism)", "Images (*.png *.jpg *.jpeg *.bmp)"]
+        title: qsTr("Open")
+        nameFilters: [
+            qsTr("Prism document (*.prism)"),
+            qsTr("Images (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.ppm *.ico)"),
+            qsTr("All files (*)")
+        ]
         fileMode: FileDialog.OpenFile
-        onAccepted: {
-            const p = selectedFile.toString().toLowerCase()
-            if (p.endsWith(".prism")) {
-                if (!controller.openProject(selectedFile)) console.warn("open failed")
-            } else {
-                if (!controller.importImage(selectedFile)) console.warn("import failed")
-            }
-        }
+        onAccepted: if (!controller.openFile(selectedFile)) console.warn("open failed")
     }
     FileDialog {
         id: exportDialog
-        title: qsTr("Export PNG")
-        nameFilters: ["PNG image (*.png)"]
+        title: qsTr("Export")
+        nameFilters: [
+            qsTr("PNG image (*.png)"),
+            qsTr("JPEG image (*.jpg)"),
+            qsTr("WebP image (*.webp)"),
+            qsTr("All files (*)")
+        ]
         fileMode: FileDialog.SaveFile
-        onAccepted: if (!controller.exportPng(selectedFile)) console.warn("export failed")
+        onAccepted: if (!controller.saveFile(selectedFile)) console.warn("export failed")
     }
 
     // brush preset dropdown from the toolbar button

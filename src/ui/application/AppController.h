@@ -283,6 +283,16 @@ public:
 
     // --- file -------------------------------------------------------------
     Q_INVOKABLE bool saveProject(const QUrl& url);
+    /// Saves by suffix: ".prism" writes the layered project, anything else
+    /// exports a flattened image in that format (Krita's Save As list).
+    /// A missing suffix on a project save is corrected to ".prism" — without
+    /// that, the file was written with no extension and the Open dialog's
+    /// filter could not see it again.
+    Q_INVOKABLE bool saveFile(const QUrl& url);
+    /// Opens by suffix: ".prism" loads the project, images are imported.
+    Q_INVOKABLE bool openFile(const QUrl& url);
+    /// Formats the Save dialog offers (Qt format names, e.g. "png", "jpg").
+    Q_INVOKABLE QStringList writableFormatNames() const;
     Q_INVOKABLE bool openProject(const QUrl& url);
     Q_INVOKABLE bool importImage(const QUrl& url);
     Q_INVOKABLE bool exportPng(const QUrl& url);

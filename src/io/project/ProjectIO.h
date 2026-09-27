@@ -29,6 +29,16 @@ public:
     /// Exports the flattened document to a PNG at \p path.
     [[nodiscard]] static bool exportPng(const prism::canvas::Compositor& composite,
                                         const QString& path);
+
+    /// Exports the flattened document in any format Qt can write (PNG, JPEG,
+    /// WebP, TIFF, BMP, GIF, ...). \p format is the Qt format name; an empty
+    /// one is inferred from the file suffix.
+    [[nodiscard]] static bool exportImage(const prism::canvas::Compositor& composite,
+                                          const QString& path, const QByteArray& format = {},
+                                          int quality = 95);
+
+    /// All formats the Save/Export dialogs offer, in Krita's order.
+    [[nodiscard]] static QList<QByteArray> writableFormats();
 };
 
 } // namespace prism::io
