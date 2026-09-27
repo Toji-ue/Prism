@@ -35,6 +35,7 @@ QVariant LayerListModel::data(const QModelIndex& index, int role) const
     case OpacityRole: return static_cast<int>(layer.opacity() * 100.0F + 0.5F);
     case BlendModeRole: return static_cast<int>(layer.blendMode());
     case TypeRole: return static_cast<int>(layer.type());
+    case LockedRole: return layer.isLocked();
     }
     return {};
 }
@@ -47,6 +48,7 @@ QHash<int, QByteArray> LayerListModel::roleNames() const
         { OpacityRole, "opacity" },
         { BlendModeRole, "blendMode" },
         { TypeRole, "type" },
+        { LockedRole, "locked" },
     };
 }
 

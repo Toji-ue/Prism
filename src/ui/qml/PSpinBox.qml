@@ -5,13 +5,17 @@ import "Theme.js" as T
 // Compact Krita-style spin box: bordered field with two small stepper
 // buttons. Controls Basic's SpinBox draws oversized +/− buttons that break
 // the dense toolbar layout, so the app uses this instead.
+//
+// IMPORTANT: value is treated as an in-bound property. The control never
+// writes to it — it only emits valueModified(). Writing would destroy the
+// caller's binding (that bug made the toolbar size control drift out of sync
+// with the brush).
 Item {
     id: root
 
     property int from: 0
     property int to: 100
     property int value: 0
-    property string suffix: ""
     property int decimals: 0
 
     signal valueModified(int v)
@@ -19,20 +23,8 @@ Item {
     implicitHeight: 22
     implicitWidth: 84
 
-    function commit(v) {
-        var clamped = Math.max(root.from, Math.min(root.to, v))
-        if (clamped !== root.value) {
-            root.value = clamped
-            root.valueModified(clamped)
-        } else {
-            field.text = root.display()
-        }
-    }
-
     function display() {
-        return root.decimals > 0
-            ? root.value.toFixed(root.decimals)
-            : String(root.value)
+        return root.decimals > 0 ? root.value.toFixed(root.decimals) : String(root.value)
     }
 
     Rectangle {
@@ -54,8 +46,13 @@ Item {
         selectByMouse: true
         onEditingFinished: {
             var n = parseFloat(text)
-            if (!isNaN(n)) root.commit(Math.round(n))
-            else field.text = root.display()
+            if (!isNaN(n)) {
+                var clamped = Math.max(root.from, Math.min(root.to, Math.round(n)))
+                if (clamped !== root.value)
+                    root.valueModified(clamped)
+            }
+            // Restore the displayed text from the (possibly unchanged) value.
+            field.text = root.display()
         }
     }
 
@@ -67,20 +64,26 @@ Item {
         spacing: 0
 
         Repeater {
-            model: ["▲", "▼"]
+            model: ["stepper-up", "stepper-down"]
             delegate: Rectangle {
-                width: 16; height: 10
+                width: 16; height: 11
                 color: sh.hovered ? T.buttonHover : T.panelRaised
-                Text {
+                Icon {
                     anchors.centerIn: parent
-                    text: modelData
+                    width: 10; height: 10
+                    name: modelData
                     color: T.text
-                    font.pixelSize: 6
+                    strokeWidth: 1
                 }
                 HoverHandler { id: sh }
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.commit(root.value + (index === 0 ? 1 : -1))
+                    onClicked: {
+                        var next = root.value + (index === 0 ? 1 : -1)
+                        next = Math.max(root.from, Math.min(root.to, next))
+                        if (next !== root.value)
+                            root.valueModified(next)
+                    }
                 }
             }
         }

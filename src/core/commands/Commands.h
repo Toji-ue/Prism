@@ -124,8 +124,27 @@ private:
     raster::RasterBuffer m_after;
 };
 
-/// Sets a single layer property (name, visibility, opacity, or blend mode).
-/// Stores before/after so undo restores exactly.
+/// Moves a raster layer's whole content by (dx, dy) pixels. Undo restores
+/// the pre-move pixels exactly (one full-buffer snapshot).
+class MoveLayerContentCommand final : public Command {
+public:
+    MoveLayerContentCommand(Document& doc, std::size_t index, int dx, int dy);
+
+    const char* description() const override { return "Move layer content"; }
+
+    void undo() override;
+    void redo() override;
+
+private:
+    Document& m_doc;
+    std::size_t m_index;
+    int m_dx;
+    int m_dy;
+    raster::RasterBuffer m_before;
+};
+
+/// Sets a single layer property (name, visibility, opacity, lock, or blend
+/// mode). Stores before/after so undo restores exactly.
 class SetLayerPropertyCommand final : public Command {
 public:
     enum class Property {
@@ -133,6 +152,7 @@ public:
         Visible,
         Opacity,
         BlendMode,
+        Locked,
     };
 
     SetLayerPropertyCommand(Document& doc, std::size_t index, Property prop,

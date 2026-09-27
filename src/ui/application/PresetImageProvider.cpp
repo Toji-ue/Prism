@@ -1,9 +1,10 @@
 #include "application/PresetImageProvider.h"
 
-#include "brush/BrushPresets.h"
+#include "application/AppController.h"
 
-PresetImageProvider::PresetImageProvider()
+PresetImageProvider::PresetImageProvider(AppController* controller)
     : QQuickImageProvider(QQuickImageProvider::Image)
+    , m_controller(controller)
 {
 }
 
@@ -11,22 +12,28 @@ QImage PresetImageProvider::requestImage(const QString& id, QSize* size,
                                          const QSize& requestedSize)
 {
     const int index = id.section('/', 0, 0).toInt();
-    const auto& presets = prism::canvas::builtinBrushPresets();
-    if (index < 0 || index >= static_cast<int>(presets.size())) {
-        if (size)
-            *size = QSize(1, 1);
-        return {};
-    }
-
     const int w = requestedSize.width() > 0 ? requestedSize.width() : 44;
     const int h = requestedSize.height() > 0 ? requestedSize.height() : 44;
-    const auto thumb = prism::canvas::renderPresetThumbnail(
-        presets[static_cast<std::size_t>(index)].brush, w, h);
+    const QImage thumb = m_controller->presetThumbnailRaw(index, w, h);
     if (size)
-        *size = QSize(thumb.width(), thumb.height());
+        *size = thumb.size();
+    return thumb;
+}
 
-    // .copy() detaches from the stack-local buffer before it dies.
-    return QImage(thumb.data(), thumb.width(), thumb.height(), thumb.width() * 4,
-                  QImage::Format_RGBA8888)
-        .copy();
+LayerThumbnailProvider::LayerThumbnailProvider(AppController* controller)
+    : QQuickImageProvider(QQuickImageProvider::Image)
+    , m_controller(controller)
+{
+}
+
+QImage LayerThumbnailProvider::requestImage(const QString& id, QSize* size,
+                                            const QSize& requestedSize)
+{
+    const int index = id.section('/', 0, 0).toInt();
+    const int w = requestedSize.width() > 0 ? requestedSize.width() : 44;
+    const int h = requestedSize.height() > 0 ? requestedSize.height() : 32;
+    const QImage thumb = m_controller->layerThumbnail(index, w, h);
+    if (size)
+        *size = thumb.size();
+    return thumb;
 }

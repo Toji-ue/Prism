@@ -16,9 +16,25 @@ ApplicationWindow {
     visible: true
     color: T.window
 
+    // Injected from C++ so the image providers share this instance.
+    required property AppController controller
+
     Component.onCompleted: showMaximized()
 
-    AppController { id: controller }
+    // The active tool's keyboard shortcut, for the status bar hint.
+    readonly property string toolHint: {
+        switch (controller.tool) {
+        case AppController.BrushTool: return qsTr("Freehand Brush")
+        case AppController.EraserTool: return qsTr("Eraser")
+        case AppController.FillTool: return qsTr("Fill")
+        case AppController.EyedropperTool: return qsTr("Color Picker")
+        case AppController.PanTool: return qsTr("Pan")
+        case AppController.ZoomTool: return qsTr("Zoom")
+        case AppController.RectSelectTool: return qsTr("Rectangular Select")
+        case AppController.MoveTool: return qsTr("Move Layer")
+        }
+        return ""
+    }
 
     // ---------------- shortcuts ----------------
     Shortcut { sequence: "Ctrl+Z"; onActivated: controller.undo() }
@@ -29,6 +45,11 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+N"; onActivated: newDocDialog.open() }
     Shortcut { sequence: "Ctrl+Shift+N"; onActivated: controller.addLayer() }
     Shortcut { sequence: "Ctrl+E"; onActivated: controller.exportPng ? exportDialog.open() : {} }
+    Shortcut { sequence: "Ctrl+A"; onActivated: controller.selectAll() }
+    Shortcut { sequence: "Ctrl+D"; onActivated: controller.clearSelection() }
+    Shortcut { sequence: "M"; onActivated: controller.tool = AppController.RectSelectTool }
+    Shortcut { sequence: "V"; onActivated: controller.tool = AppController.MoveTool }
+    Shortcut { sequence: "Z"; onActivated: controller.tool = AppController.ZoomTool }
     Shortcut { sequence: "B"; onActivated: controller.tool = AppController.BrushTool }
     Shortcut { sequence: "E"; onActivated: controller.tool = AppController.EraserTool }
     Shortcut { sequence: "F"; onActivated: controller.tool = AppController.FillTool }
@@ -130,17 +151,22 @@ ApplicationWindow {
             anchors.rightMargin: 6
             spacing: 6
 
-            // small file/edit action buttons
+            // small file action buttons
             Repeater {
                 model: [
-                    { g: "📄", tip: qsTr("New"),        act: "new" },
-                    { g: "📂", tip: qsTr("Open"),       act: "open" },
-                    { g: "💾", tip: qsTr("Save"),       act: "save" }
+                    { icon: "file-new",  tip: qsTr("New (Ctrl+N)"),  act: "new" },
+                    { icon: "file-open", tip: qsTr("Open (Ctrl+O)"), act: "open" },
+                    { icon: "file-save", tip: qsTr("Save (Ctrl+S)"), act: "save" }
                 ]
                 delegate: Rectangle {
                     width: 24; height: 24
                     color: fh.hovered ? T.buttonHover : "transparent"
-                    Text { anchors.centerIn: parent; text: modelData.g; font.pixelSize: 13 }
+                    Icon {
+                        anchors.centerIn: parent
+                        width: 15; height: 15
+                        name: modelData.icon
+                        color: T.text
+                    }
                     HoverHandler { id: fh }
                     MouseArea {
                         anchors.fill: parent
@@ -151,6 +177,7 @@ ApplicationWindow {
                         }
                     }
                     ToolTip.visible: fh.hovered
+                    ToolTip.delay: 500
                     ToolTip.text: modelData.tip
                 }
             }
@@ -159,14 +186,19 @@ ApplicationWindow {
 
             Repeater {
                 model: [
-                    { g: "↶", tip: qsTr("Undo"),    act: "undo", on: controller.canUndo },
-                    { g: "↷", tip: qsTr("Redo"),    act: "redo", on: controller.canRedo }
+                    { icon: "undo", tip: qsTr("Undo"),    act: "undo", on: controller.canUndo },
+                    { icon: "redo", tip: qsTr("Redo"),    act: "redo", on: controller.canRedo }
                 ]
                 delegate: Rectangle {
                     width: 24; height: 24
                     opacity: modelData.on ? 1.0 : 0.4
                     color: uh.hovered && modelData.on ? T.buttonHover : "transparent"
-                    Text { anchors.centerIn: parent; text: modelData.g; color: T.text; font.pixelSize: 14 }
+                    Icon {
+                        anchors.centerIn: parent
+                        width: 15; height: 15
+                        name: modelData.icon
+                        color: T.text
+                    }
                     HoverHandler { id: uh }
                     MouseArea {
                         anchors.fill: parent
@@ -174,13 +206,14 @@ ApplicationWindow {
                         onClicked: modelData.act === "undo" ? controller.undo() : controller.redo()
                     }
                     ToolTip.visible: uh.hovered
+                    ToolTip.delay: 500
                     ToolTip.text: modelData.tip
                 }
             }
 
             Rectangle { width: 1; height: 20; color: T.border }
 
-            // current brush preset button (opens the presets docker look)
+            // current brush preset button (opens the preset grid)
             Rectangle {
                 width: 168; height: 24
                 color: T.windowAlt
@@ -193,6 +226,7 @@ ApplicationWindow {
                         Layout.preferredWidth: 16
                         Layout.preferredHeight: 16
                         fillMode: Image.PreserveAspectFit
+                        cache: false
                         source: "image://preset/" + controller.activePresetIndex
                     }
                     Text {
@@ -203,6 +237,12 @@ ApplicationWindow {
                         elide: Text.ElideRight
                         verticalAlignment: Text.AlignVCenter
                     }
+                    Icon {
+                        Layout.preferredWidth: 12
+                        Layout.preferredHeight: 12
+                        name: "chevron-down"
+                        color: T.textDim
+                    }
                 }
                 MouseArea {
                     anchors.fill: parent
@@ -212,15 +252,26 @@ ApplicationWindow {
 
             Rectangle { width: 1; height: 20; color: T.border }
 
-            // Opacity + Size combos, like Krita's toolbar
+            // Opacity: bound to brushFlow so it always reflects the brush,
+            // including changes made from presets or sliders.
             Text { text: qsTr("Opacity:"); color: T.text; font.pixelSize: 11 }
             ComboBox {
                 id: opacityCombo
-                Layout.preferredWidth: 74
+                Layout.preferredWidth: 76
                 height: 24
                 font.pixelSize: 11
                 model: ["100%", "75%", "50%", "25%", "10%"]
-                onActivated: controller.brushFlow = parseInt(model[currentIndex]) / 100
+                readonly property var values: [100, 75, 50, 25, 10]
+                currentIndex: {
+                    const pct = Math.round(controller.brushFlow * 100)
+                    let best = 0, bestDiff = 1e9
+                    for (let i = 0; i < values.length; ++i) {
+                        const d = Math.abs(values[i] - pct)
+                        if (d < bestDiff) { bestDiff = d; best = i }
+                    }
+                    return best
+                }
+                onActivated: controller.brushFlow = values[currentIndex] / 100
             }
 
             Text { text: qsTr("Size:"); color: T.text; font.pixelSize: 11 }
@@ -261,7 +312,7 @@ ApplicationWindow {
 
         // left toolbox
         ToolBox {
-            controller: controller
+            controller: root.controller
             Layout.fillHeight: true
         }
 
@@ -306,17 +357,28 @@ ApplicationWindow {
                         CanvasView {
                             id: canvasItem
                             anchors.fill: parent
-                            controller: controller
+                            controller: root.controller
                         }
 
                         MouseArea {
+                            id: canvasMouse
                             anchors.fill: parent
                             acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                            cursorShape: controller.tool === AppController.PanTool
-                                         ? Qt.OpenHandCursor : Qt.CrossCursor
+                            cursorShape: {
+                                switch (controller.tool) {
+                                case AppController.PanTool: return Qt.OpenHandCursor
+                                case AppController.ZoomTool: return Qt.PointingHandCursor
+                                case AppController.MoveTool: return Qt.SizeAllCursor
+                                case AppController.RectSelectTool: return Qt.CrossCursor
+                                }
+                                return Qt.CrossCursor
+                            }
 
                             property real lastX: 0
                             property real lastY: 0
+                            property real startX: 0
+                            property real startY: 0
+                            property bool draggingLayer: false
 
                             function canvasX(mx) { return mx / controller.zoom }
                             function canvasY(my) { return my / controller.zoom }
@@ -324,26 +386,45 @@ ApplicationWindow {
                             onPressed: mouse => {
                                 const cx = canvasX(mouse.x)
                                 const cy = canvasY(mouse.y)
-                                if (mouse.button === Qt.MiddleButton
-                                        || controller.tool === AppController.PanTool) {
-                                    lastX = mouse.x
-                                    lastY = mouse.y
+                                startX = cx
+                                startY = cy
+                                lastX = mouse.x
+                                lastY = mouse.y
+                                draggingLayer = false
+
+                                const panning = mouse.button === Qt.MiddleButton
+                                                || controller.tool === AppController.PanTool
+                                if (panning)
                                     return
-                                }
-                                if (controller.tool === AppController.FillTool) {
+
+                                switch (controller.tool) {
+                                case AppController.FillTool:
                                     controller.fillAt(cx, cy)
-                                } else if (controller.tool === AppController.EyedropperTool) {
+                                    break
+                                case AppController.EyedropperTool:
                                     controller.pickColorAt(cx, cy, true)
-                                } else {
+                                    break
+                                case AppController.ZoomTool:
+                                    controller.zoomStep(mouse.modifiers & Qt.ControlModifier)
+                                    break
+                                case AppController.MoveTool:
+                                    draggingLayer = true
+                                    break
+                                case AppController.RectSelectTool:
+                                    controller.setSelection(cx, cy, 0, 0)
+                                    break
+                                default:
                                     controller.beginStroke(cx, cy)
+                                    break
                                 }
                             }
 
                             onPositionChanged: mouse => {
                                 const cx = canvasX(mouse.x)
                                 const cy = canvasY(mouse.y)
-                                if (mouse.buttons & Qt.MiddleButton
-                                        || controller.tool === AppController.PanTool) {
+                                const panning = (mouse.buttons & Qt.MiddleButton)
+                                                || controller.tool === AppController.PanTool
+                                if (panning) {
                                     flick.contentX -= (mouse.x - lastX)
                                     flick.contentY -= (mouse.y - lastY)
                                     return
@@ -353,15 +434,56 @@ ApplicationWindow {
                                         controller.pickColorAt(cx, cy, true)
                                     return
                                 }
-                                if (pressed && (controller.tool === AppController.BrushTool
-                                                || controller.tool === AppController.EraserTool))
+                                if (!pressed)
+                                    return
+
+                                switch (controller.tool) {
+                                case AppController.RectSelectTool:
+                                    controller.setSelection(startX, startY, cx - startX, cy - startY)
+                                    break
+                                case AppController.BrushTool:
+                                case AppController.EraserTool:
                                     controller.extendStroke(cx, cy)
+                                    break
+                                }
                             }
 
-                            onReleased: {
+                            onReleased: mouse => {
+                                const cx = canvasX(mouse.x)
+                                const cy = canvasY(mouse.y)
+                                if (controller.tool === AppController.MoveTool && draggingLayer) {
+                                    const dx = Math.round(cx - startX)
+                                    const dy = Math.round(cy - startY)
+                                    if (dx !== 0 || dy !== 0)
+                                        controller.moveActiveLayer(dx, dy)
+                                    draggingLayer = false
+                                    return
+                                }
                                 if (controller.tool === AppController.BrushTool
                                         || controller.tool === AppController.EraserTool)
                                     controller.endStroke()
+                            }
+                        }
+
+                        // Selection outline (dashed, like a marching-ants frame).
+                        Rectangle {
+                            visible: controller.hasSelection
+                            x: controller.selectionX * controller.zoom
+                            y: controller.selectionY * controller.zoom
+                            width: controller.selectionW * controller.zoom
+                            height: controller.selectionH * controller.zoom
+                            color: "transparent"
+                            border.color: "#ffffff"
+                            border.width: 1
+
+                            // dark inner line keeps the selection readable on
+                            // white and on dark artwork alike
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                color: "transparent"
+                                border.color: "#000000"
+                                border.width: 1
                             }
                         }
                     }
@@ -383,17 +505,17 @@ ApplicationWindow {
                 spacing: 2
 
                 ColorSelector {
-                    controller: controller
+                    controller: root.controller
                     width: parent.width
                     height: dockerArea.height * 0.44
                 }
                 LayersDocker {
-                    controller: controller
+                    controller: root.controller
                     width: parent.width
                     height: dockerArea.height * 0.26 - 3
                 }
                 BrushPresetsDocker {
-                    controller: controller
+                    controller: root.controller
                     width: parent.width
                     height: dockerArea.height * 0.30 - 4
                 }
@@ -415,7 +537,7 @@ ApplicationWindow {
             spacing: 12
 
             Text {
-                text: controller.brushName
+                text: root.toolHint + "  ·  " + controller.brushName
                 color: T.text
                 font.pixelSize: 11
             }
@@ -429,6 +551,12 @@ ApplicationWindow {
             Text {
                 text: qsTr("%1 × %2 px").arg(controller.canvasWidth).arg(controller.canvasHeight)
                 color: T.textDim
+                font.pixelSize: 11
+            }
+            Text {
+                text: qsTr("Selection: %1 × %2").arg(controller.selectionW).arg(controller.selectionH)
+                visible: controller.hasSelection
+                color: T.highlight
                 font.pixelSize: 11
             }
             Text {
@@ -455,7 +583,7 @@ ApplicationWindow {
     }
 
     // ---------------- dialogs & popups ----------------
-    NewDocumentDialog { id: newDocDialog; controller: controller }
+    NewDocumentDialog { id: newDocDialog; controller: root.controller }
 
     FileDialog {
         id: saveDialog
@@ -531,6 +659,6 @@ ApplicationWindow {
         width: 300; height: 420
         padding: 0
         background: Rectangle { color: T.window; border.color: T.border }
-        ColorSelector { controller: controller; anchors.fill: parent }
+        ColorSelector { controller: root.controller; anchors.fill: parent }
     }
 }

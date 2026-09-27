@@ -5,6 +5,7 @@
 #include "fill/FloodFill.h"
 #include "layer/Layer.h"
 #include "project/ProjectIO.h"
+#include "selection/Selection.h"
 
 #include <algorithm>
 #include <cmath>
@@ -36,6 +37,7 @@ QColor toQColor(prism::core::raster::Color c)
 AppController::AppController(QObject* parent)
     : QObject(parent)
     , m_layersModel(new LayerListModel(this))
+    , m_presets(canvas::builtinBrushPresets())
 {
     m_doc.addRasterLayer("Layer 1");
     m_layersModel->setDocument(&m_doc);
@@ -137,8 +139,7 @@ QString AppController::brushName() const
 {
     if (!m_presetIntact)
         return tr("Custom Brush");
-    return QString::fromStdString(
-        canvas::builtinBrushPresets()[static_cast<std::size_t>(m_activePreset)].name);
+    return presetName(m_activePreset);
 }
 
 int AppController::activePresetIndex() const { return m_activePreset; }
@@ -163,26 +164,27 @@ qreal AppController::documentMemoryMiB() const
 
 // ------------------------------------------------------------- brush presets
 
-int AppController::presetCount() const
-{
-    return static_cast<int>(canvas::builtinBrushPresets().size());
-}
+int AppController::presetCount() const { return static_cast<int>(m_presets.size()); }
 
 QString AppController::presetName(int index) const
 {
-    const auto& presets = canvas::builtinBrushPresets();
-    if (index < 0 || index >= static_cast<int>(presets.size()))
+    if (index < 0 || index >= presetCount())
         return {};
-    return QString::fromStdString(presets[static_cast<std::size_t>(index)].name);
+    return QString::fromStdString(m_presets[static_cast<std::size_t>(index)].name);
 }
 
 QImage AppController::presetThumbnail(int index, int width, int height) const
 {
-    const auto& presets = canvas::builtinBrushPresets();
-    if (index < 0 || index >= static_cast<int>(presets.size()))
+    return presetThumbnailRaw(index, width, height);
+}
+
+QImage AppController::presetThumbnailRaw(int index, int width, int height) const
+{
+    if (index < 0 || index >= presetCount())
         return {};
-    const auto thumb = canvas::renderPresetThumbnail(
-        presets[static_cast<std::size_t>(index)].brush, width, height, m_brush.color);
+    const auto thumb =
+        canvas::renderPresetThumbnail(m_presets[static_cast<std::size_t>(index)].brush, width,
+                                      height, core::raster::kOpaqueBlack);
     // Own the bytes: QImage would otherwise point at a buffer that dies here.
     return QImage(thumb.data(), thumb.width(), thumb.height(), thumb.width() * 4,
                   QImage::Format_RGBA8888)
@@ -191,18 +193,101 @@ QImage AppController::presetThumbnail(int index, int width, int height) const
 
 void AppController::selectPreset(int index)
 {
-    const auto& presets = canvas::builtinBrushPresets();
-    if (index < 0 || index >= static_cast<int>(presets.size()))
+    if (index < 0 || index >= presetCount())
         return;
-    const auto& preset = presets[static_cast<std::size_t>(index)];
-    const auto savedColor = m_brush.color;
+    const auto preset = m_presets[static_cast<std::size_t>(index)];
     m_brush = preset.brush;
-    m_brush.color = savedColor; // keep the artist's current color
+    // The preset carries no color: keep the artist's current one.
+    m_brush.color = toRaster(brushColor());
     m_activePreset = index;
     m_presetIntact = true;
     m_tool = m_brush.erase ? EraserTool : BrushTool;
     emit brushChanged();
     emit toolChanged();
+}
+
+void AppController::addPreset()
+{
+    canvas::BrushPreset preset;
+    preset.name = "Custom " + std::to_string(++m_customPresetCounter);
+    preset.brush = m_brush;
+    m_presets.push_back(preset);
+    m_activePreset = presetCount() - 1;
+    m_presetIntact = true;
+    emit presetsChanged();
+    emit brushChanged();
+}
+
+void AppController::removePreset(int index)
+{
+    if (index < 0 || index >= presetCount())
+        return;
+    // Always keep at least one preset — an empty brush list is unusable.
+    if (presetCount() <= 1)
+        return;
+    m_presets.erase(m_presets.begin() + index);
+    m_activePreset = std::clamp(m_activePreset, 0, presetCount() - 1);
+    emit presetsChanged();
+    emit brushChanged();
+}
+
+void AppController::movePreset(int index, int delta)
+{
+    const int target = index + delta;
+    if (index < 0 || index >= presetCount() || target < 0 || target >= presetCount())
+        return;
+    std::swap(m_presets[static_cast<std::size_t>(index)],
+              m_presets[static_cast<std::size_t>(target)]);
+    m_activePreset = target;
+    emit presetsChanged();
+    emit brushChanged();
+}
+
+QImage AppController::layerThumbnail(int index, int width, int height) const
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return {};
+    const auto& src = m_doc.layers()[static_cast<std::size_t>(index)]->pixels();
+    if (src.isEmpty() || width <= 0 || height <= 0)
+        return {};
+
+    // Box-downscale: average each destination pixel's source block so the
+    // thumbnail reads like the layer rather than a nearest-neighbour sample.
+    core::raster::RasterBuffer out(width, height);
+    const float sx = static_cast<float>(src.width()) / static_cast<float>(width);
+    const float sy = static_cast<float>(src.height()) / static_cast<float>(height);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const int x0 = static_cast<int>(x * sx);
+            const int y0 = static_cast<int>(y * sy);
+            const int x1 = std::min(src.width(), std::max(x0 + 1, static_cast<int>((x + 1) * sx)));
+            const int y1 = std::min(src.height(), std::max(y0 + 1, static_cast<int>((y + 1) * sy)));
+            int r = 0, g = 0, b = 0, a = 0, n = 0;
+            for (int yy = y0; yy < y1; ++yy) {
+                for (int xx = x0; xx < x1; ++xx) {
+                    const auto c = src.at(xx, yy);
+                    // Weight color by alpha so transparent areas don't darken.
+                    r += c.r * c.a;
+                    g += c.g * c.a;
+                    b += c.b * c.a;
+                    a += c.a;
+                    ++n;
+                }
+            }
+            if (a == 0 || n == 0) {
+                out.set(x, y, core::raster::kTransparent);
+            } else {
+                out.set(x, y,
+                        core::raster::Color{ static_cast<std::uint8_t>(r / a),
+                                             static_cast<std::uint8_t>(g / a),
+                                             static_cast<std::uint8_t>(b / a),
+                                             static_cast<std::uint8_t>(a / n) });
+            }
+        }
+    }
+    return QImage(out.data(), out.width(), out.height(), out.width() * 4,
+                  QImage::Format_RGBA8888)
+        .copy();
 }
 
 // -------------------------------------------------------------- canvas tools
@@ -215,6 +300,8 @@ void AppController::fillAt(float x, float y)
         return;
 
     auto& pixels = m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels();
+    if (m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->isLocked())
+        return;
     if (lx < 0 || ly < 0 || lx >= pixels.width() || ly >= pixels.height())
         return;
 
@@ -224,6 +311,10 @@ void AppController::fillAt(float x, float y)
     const auto rect = canvas::floodFill(work, lx, ly, m_brush.color, 24);
     if (rect.isEmpty())
         return;
+
+    // A selection confines the fill: pixels outside it come back from the
+    // untouched copy.
+    canvas::clipToSelection(work, m_selection, &pixels);
 
     auto before = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
     auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
@@ -250,6 +341,105 @@ QColor AppController::pickColorAt(float x, float y, bool apply)
     if (apply)
         setBrushColor(picked);
     return picked;
+}
+
+void AppController::zoomStep(bool out)
+{
+    // The canvas sheet is centred in the viewport, so zooming about the
+    // centre keeps the working area in view without scroll bookkeeping.
+    setZoom(out ? m_zoom / 1.25 : m_zoom * 1.25);
+}
+
+void AppController::moveActiveLayer(int dx, int dy)
+{
+    if ((dx == 0 && dy == 0) || m_activeLayer < 0
+        || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    if (layer.isLocked() || layer.pixels().isEmpty())
+        return;
+    m_history.execute(std::make_unique<core::MoveLayerContentCommand>(
+        m_doc, static_cast<std::size_t>(m_activeLayer), dx, dy));
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+// ------------------------------------------------------------------ selection
+
+bool AppController::hasSelection() const { return !m_selection.isEmpty(); }
+int AppController::selectionX() const { return m_selection.x; }
+int AppController::selectionY() const { return m_selection.y; }
+int AppController::selectionW() const { return m_selection.width; }
+int AppController::selectionH() const { return m_selection.height; }
+
+void AppController::setSelection(float x, float y, float w, float h)
+{
+    const auto s = m_doc.canvasSize();
+    const int x0 = std::clamp(static_cast<int>(std::floor(std::min(x, x + w))), 0, s.width);
+    const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, s.height);
+    const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, s.width);
+    const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, s.height);
+    m_selection = core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 };
+    emit selectionChanged();
+}
+
+void AppController::clearSelection()
+{
+    m_selection = {};
+    emit selectionChanged();
+}
+
+void AppController::selectAll()
+{
+    m_selection = fullRect(m_doc);
+    emit selectionChanged();
+}
+
+// ---------------------------------------------------------------- layer state
+
+void AppController::setLayerLocked(int index, bool locked)
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::Locked, locked,
+        layer.isLocked()));
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+}
+
+void AppController::previewLayerOpacity(int index, int percent)
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    // Live feedback only — the history entry is created once, on release.
+    m_doc.layers()[static_cast<std::size_t>(index)]->setOpacity(
+        static_cast<float>(percent) / 100.0F);
+    rebuildFullComposite();
+}
+
+void AppController::commitLayerOpacity(int index, int percent, int previousPercent)
+{
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    if (percent == previousPercent) {
+        m_layersModel->refresh();
+        return;
+    }
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    // The drag already applied the new value; the command needs the value it
+    // is replacing, so it is seeded with previousPercent and re-executed.
+    const float before = static_cast<float>(previousPercent) / 100.0F;
+    layer.setOpacity(before);
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::Opacity,
+        static_cast<float>(percent) / 100.0F, before));
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
 }
 
 // --------------------------------------------------------------------- actions
@@ -494,20 +684,27 @@ void AppController::endStroke()
 {
     if (m_currentStroke.empty())
         return;
-    if (m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
 
-    // Re-paint the full stroke fresh into the scratch (accumulated preview is
-    // exact, but a clean repaint keeps before/after snapshots consistent).
+    auto& activeLayer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+
+    // Re-paint the full stroke fresh into the scratch (the accumulated
+    // preview is identical, but a clean repaint keeps snapshots consistent).
+    // Note: the point list must survive until after the paint call.
     core::raster::RasterBuffer scratch(m_doc.canvasSize().width, m_doc.canvasSize().height);
     const auto rect = canvas::BrushStroke::paint(scratch, m_brush, m_currentStroke);
     m_currentStroke.clear();
     m_preview.fill(core::raster::kTransparent);
 
-    if (rect.isEmpty()) {
+    if (activeLayer.isLocked() || rect.isEmpty()) {
+        // Locked layers swallow the edit rather than silently ignoring lock.
         rebuildFullComposite();
         return;
     }
+
+    // Clip to the active selection, if any.
+    canvas::clipToSelection(scratch, m_selection);
 
     auto painted = scratch.copyRect(rect.x, rect.y, rect.width, rect.height);
     m_history.execute(std::make_unique<core::StrokeCommand>(
@@ -529,6 +726,7 @@ QImage AppController::canvasImage() const
 void AppController::rebuildFullComposite()
 {
     const auto rect = m_compositor.composite(fullRect(m_doc));
+    ++m_layerRevision; // thumbnails must re-fetch after a content change
     emit canvasChanged(rect.x, rect.y, rect.width, rect.height);
 }
 

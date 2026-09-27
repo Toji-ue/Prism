@@ -4,14 +4,16 @@ import Prism.Ui 1.0
 import "Theme.js" as T
 
 // Krita-style Layers docker: title bar with action buttons, blend-mode
-// combo, opacity slider, then the layer rows (eye / lock / name).
+// combo, opacity slider, then the layer rows (eye / lock / thumbnail / name).
 Rectangle {
     id: docker
     required property AppController controller
 
     color: T.panel
-    implicitHeight: header.height + controls.height + list.height + 12
-    height: 260
+
+    // Opacity is edited live (no history per pixel of drag); the history
+    // entry is created once on release, seeded with the drag-start value.
+    property int dragStartOpacity: 100
 
     // ---- header ----
     Rectangle {
@@ -20,16 +22,13 @@ Rectangle {
         height: T.dockerHeaderHeight
         color: T.windowAlt
 
-        Row {
+        Text {
             anchors.left: parent.left
             anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
-            Text {
-                text: qsTr("Layers")
-                color: T.text
-                font.pixelSize: 11
-                anchors.verticalCenter: parent.verticalCenter
-            }
+            text: qsTr("Layers")
+            color: T.text
+            font.pixelSize: 11
         }
 
         Row {
@@ -40,20 +39,20 @@ Rectangle {
 
             Repeater {
                 model: [
-                    { g: "＋", tip: qsTr("New layer"),        act: "add" },
-                    { g: "⧉", tip: qsTr("Duplicate layer"),   act: "dup" },
-                    { g: "▴", tip: qsTr("Raise layer"),       act: "up" },
-                    { g: "▾", tip: qsTr("Lower layer"),       act: "down" },
-                    { g: "✕", tip: qsTr("Delete layer"),      act: "del" }
+                    { icon: "plus",      tip: qsTr("New layer"),      act: "add" },
+                    { icon: "duplicate", tip: qsTr("Duplicate layer"), act: "dup" },
+                    { icon: "arrow-up",  tip: qsTr("Raise layer"),    act: "up" },
+                    { icon: "arrow-down", tip: qsTr("Lower layer"),   act: "down" },
+                    { icon: "trash",     tip: qsTr("Delete layer"),   act: "del" }
                 ]
                 delegate: Rectangle {
                     width: 20; height: 20
                     color: mh.hovered ? T.buttonHover : "transparent"
-                    Text {
+                    Icon {
                         anchors.centerIn: parent
-                        text: modelData.g
+                        width: 14; height: 14
+                        name: modelData.icon
                         color: T.text
-                        font.pixelSize: 11
                     }
                     HoverHandler { id: mh }
                     MouseArea {
@@ -69,6 +68,7 @@ Rectangle {
                         }
                     }
                     ToolTip.visible: mh.hovered
+                    ToolTip.delay: 500
                     ToolTip.text: modelData.tip
                 }
             }
@@ -91,11 +91,13 @@ Rectangle {
             height: 22
             font.pixelSize: 11
             model: ["Normal", "Multiply", "Screen", "Overlay"]
+            // Bound to the active layer's mode so external changes (undo,
+            // layer switch) are reflected instead of leaving a stale label.
             currentIndex: {
                 var idx = controller.activeLayerIndex
-                var item = controller.layers.data(controller.layers.index(idx, 0),
-                                                  LayerListModel.BlendModeRole)
-                return item === undefined ? 0 : item
+                var v = controller.layers.data(controller.layers.index(idx, 0),
+                                               LayerListModel.BlendModeRole)
+                return v === undefined ? 0 : v
             }
             onActivated: controller.setLayerBlendMode(controller.activeLayerIndex, currentIndex)
         }
@@ -119,7 +121,17 @@ Rectangle {
                         LayerListModel.OpacityRole)
                     return v === undefined ? 100 : v
                 }
-                onMoved: controller.setLayerOpacity(controller.activeLayerIndex, value)
+                onPressedChanged: {
+                    if (pressed)
+                        docker.dragStartOpacity = value
+                    else
+                        controller.commitLayerOpacity(controller.activeLayerIndex,
+                                                      Math.round(value),
+                                                      docker.dragStartOpacity)
+                }
+                // Live preview without touching history.
+                onMoved: controller.previewLayerOpacity(controller.activeLayerIndex,
+                                                        Math.round(value))
             }
             Text {
                 text: Math.round(opacitySlider.value) + "%"
@@ -146,7 +158,7 @@ Rectangle {
 
         delegate: Rectangle {
             width: list.width
-            height: 26
+            height: 28
             color: controller.activeLayerIndex === index ? T.highlight : "transparent"
 
             MouseArea {
@@ -157,19 +169,20 @@ Rectangle {
             Row {
                 anchors.left: parent.left
                 anchors.leftMargin: 3
+                anchors.right: parent.right
+                anchors.rightMargin: 3
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 4
+                spacing: 3
 
-                // visibility eye
-                Rectangle {
+                // visibility
+                Item {
                     width: 18; height: 18
-                    color: "transparent"
-                    Text {
+                    Icon {
                         anchors.centerIn: parent
-                        text: model.visible ? "👁" : "—"
+                        width: 13; height: 13
+                        name: model.visible ? "eye" : "eye-off"
                         color: controller.activeLayerIndex === index
-                               ? T.highlightText : T.textDim
-                        font.pixelSize: 11
+                               ? T.highlightText : (model.visible ? T.text : T.textDim)
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -177,23 +190,45 @@ Rectangle {
                     }
                 }
 
-                // thumbnail of the layer's own pixels is not exposed yet;
-                // a plain chip keeps the row readable until it is.
+                // lock
+                Item {
+                    width: 18; height: 18
+                    Icon {
+                        anchors.centerIn: parent
+                        width: 13; height: 13
+                        name: model.locked ? "lock" : "unlock"
+                        color: controller.activeLayerIndex === index
+                               ? T.highlightText : (model.locked ? T.text : T.textDim)
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: controller.setLayerLocked(index, !model.locked)
+                    }
+                }
+
+                // real thumbnail of this layer's pixels
                 Rectangle {
-                    width: 20; height: 16
+                    width: 24; height: 20
                     color: T.panelSunken
                     border.color: T.border
+                    border.width: 1
+                    Image {
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        fillMode: Image.PreserveAspectFit
+                        cache: false
+                        source: "image://layerthumb/" + index + "?v=" + controller.layerRevision
+                    }
                 }
 
                 TextInput {
-                    id: nameField
-                    width: 96
+                    width: Math.max(50, parent.width - 150)
                     text: model.name
-                    color: controller.activeLayerIndex === index
-                           ? T.highlightText : T.text
+                    color: controller.activeLayerIndex === index ? T.highlightText : T.text
                     font.pixelSize: 11
                     anchors.verticalCenter: parent.verticalCenter
                     selectByMouse: true
+                    clip: true
                     onEditingFinished: controller.renameLayer(index, text)
                 }
 

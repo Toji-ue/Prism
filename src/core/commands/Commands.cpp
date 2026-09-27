@@ -154,7 +154,32 @@ void ClearLayerCommand::redo()
     m_doc.layers().at(m_index)->pixels() = m_after;
 }
 
-// ---------------------------------------------------------- SetLayerProperty
+// ------------------------------------------------------- MoveLayerContent
+
+MoveLayerContentCommand::MoveLayerContentCommand(Document& doc, std::size_t index, int dx,
+                                                 int dy)
+    : m_doc(doc)
+    , m_index(index)
+    , m_dx(dx)
+    , m_dy(dy)
+    , m_before(doc.layers().at(index)->pixels())
+{
+}
+
+void MoveLayerContentCommand::undo()
+{
+    m_doc.layers().at(m_index)->pixels() = m_before;
+}
+
+void MoveLayerContentCommand::redo()
+{
+    auto& pixels = m_doc.layers().at(m_index)->pixels();
+    raster::RasterBuffer moved(pixels.width(), pixels.height());
+    moved.blit(m_before, m_dx, m_dy);
+    pixels = std::move(moved);
+}
+
+// ----------------------------------------------------------- SetLayerProperty
 
 SetLayerPropertyCommand::SetLayerPropertyCommand(Document& doc, std::size_t index,
                                                  Property prop, std::string value,
@@ -206,6 +231,7 @@ void SetLayerPropertyCommand::apply(const Value& v)
     case Property::Visible: layer.setVisible(v.b); break;
     case Property::Opacity: layer.setOpacity(v.f); break;
     case Property::BlendMode: layer.setBlendMode(v.blend); break;
+    case Property::Locked: layer.setLocked(v.b); break;
     }
 }
 

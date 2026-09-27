@@ -20,6 +20,7 @@ public:
         OpacityRole,
         BlendModeRole,
         TypeRole,
+        LockedRole,
     };
     Q_ENUM(Role)
 

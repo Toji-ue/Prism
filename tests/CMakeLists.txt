@@ -11,6 +11,7 @@ add_executable(core_tests
     TestHistory.cpp
     TestLayerCommands.cpp
     TestProjectIO.cpp
+    TestSelection.cpp
     TestStrokeCommands.cpp)
 
 target_link_libraries(core_tests PRIVATE

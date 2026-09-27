@@ -4,7 +4,8 @@ import Prism.Ui 1.0
 import "Theme.js" as T
 
 // Krita-style left toolbox: two columns of square tool buttons, then the
-// foreground/background swatch pair at the bottom.
+// foreground/background swatch pair at the bottom. All glyphs are vector
+// icons drawn by Icon.qml — no emoji.
 Rectangle {
     id: toolbox
     required property AppController controller
@@ -14,16 +15,15 @@ Rectangle {
     border.color: T.border
     border.width: 1
 
-    // Tool entries: label glyph, tooltip, tool enum, implemented?
     readonly property var tools: [
-        { glyph: "B",  name: qsTr("Freehand Brush"),  tool: AppController.BrushTool,      ready: true },
-        { glyph: "E",  name: qsTr("Eraser"),          tool: AppController.EraserTool,     ready: true },
-        { glyph: "🪣", name: qsTr("Fill"),            tool: AppController.FillTool,       ready: true },
-        { glyph: "I",  name: qsTr("Color Picker"),    tool: AppController.EyedropperTool, ready: true },
-        { glyph: "✋", name: qsTr("Pan"),             tool: AppController.PanTool,        ready: true },
-        { glyph: "🔍", name: qsTr("Zoom"),            tool: AppController.ZoomTool,       ready: false },
-        { glyph: "▭",  name: qsTr("Rectangular Select"), tool: AppController.RectSelectTool, ready: false },
-        { glyph: "✥",  name: qsTr("Move Layer"),      tool: AppController.MoveTool,       ready: false }
+        { icon: "brush",       name: qsTr("Freehand Brush"),     tool: AppController.BrushTool,      key: "B" },
+        { icon: "eraser",      name: qsTr("Eraser"),             tool: AppController.EraserTool,     key: "E" },
+        { icon: "fill",        name: qsTr("Fill"),               tool: AppController.FillTool,       key: "F" },
+        { icon: "picker",      name: qsTr("Color Picker"),       tool: AppController.EyedropperTool, key: "I" },
+        { icon: "pan",         name: qsTr("Pan"),                tool: AppController.PanTool,        key: "" },
+        { icon: "zoom",        name: qsTr("Zoom"),               tool: AppController.ZoomTool,       key: "" },
+        { icon: "select-rect", name: qsTr("Rectangular Select"), tool: AppController.RectSelectTool, key: "M" },
+        { icon: "move",        name: qsTr("Move Layer"),         tool: AppController.MoveTool,       key: "V" }
     ]
 
     Column {
@@ -41,40 +41,38 @@ Rectangle {
 
                 delegate: Rectangle {
                     width: 26; height: 26
-                    color: {
-                        if (toolbox.controller.tool === modelData.tool)
-                            return T.highlight
-                        return hover.hovered ? T.buttonHover : T.windowAlt
-                    }
+                    color: toolbox.controller.tool === modelData.tool
+                           ? T.highlight
+                           : (hover.hovered ? T.buttonHover : T.windowAlt)
                     border.color: T.border
-                    opacity: modelData.ready ? 1.0 : 0.45
+                    border.width: 1
 
-                    Text {
+                    Icon {
                         anchors.centerIn: parent
-                        text: modelData.glyph
+                        width: 16; height: 16
+                        name: modelData.icon
                         color: toolbox.controller.tool === modelData.tool
                                ? T.highlightText : T.text
-                        font.pixelSize: 13
                     }
 
                     HoverHandler { id: hover }
 
                     MouseArea {
                         anchors.fill: parent
-                        enabled: modelData.ready
                         onClicked: toolbox.controller.tool = modelData.tool
                     }
 
                     ToolTip.visible: hover.hovered
-                    ToolTip.text: modelData.ready
-                                  ? modelData.name
-                                  : modelData.name + qsTr(" — not implemented yet")
+                    ToolTip.delay: 500
+                    ToolTip.text: modelData.key.length > 0
+                                  ? modelData.name + "  (" + modelData.key + ")"
+                                  : modelData.name
                 }
             }
         }
     }
 
-    // Foreground / background color swatches, offset like Krita's.
+    // Foreground / background swatches, offset like Krita's.
     Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 8
@@ -86,9 +84,22 @@ Rectangle {
             x: 14; y: 14
             color: toolbox.controller.brushColor
             border.color: T.border
+            border.width: 1
             MouseArea {
                 anchors.fill: parent
-                onClicked: toolbox.controller.brushColor = "#ffffff"
+                onClicked: colorPopup.open()
+            }
+            Popup {
+                id: colorPopup
+                width: 300; height: 420
+                x: toolbox.width
+                y: -200
+                padding: 0
+                background: Rectangle { color: T.window; border.color: T.border }
+                ColorSelector {
+                    anchors.fill: parent
+                    controller: toolbox.controller
+                }
             }
         }
         Rectangle {
@@ -96,6 +107,7 @@ Rectangle {
             x: 0; y: 0
             color: "#ffffff"
             border.color: T.border
+            border.width: 1
             MouseArea {
                 anchors.fill: parent
                 onClicked: toolbox.controller.brushColor = "#ffffff"

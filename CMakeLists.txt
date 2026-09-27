@@ -41,6 +41,7 @@ qt_add_qml_module(prism
     VERSION 1.0
     QML_FILES
         src/ui/qml/Theme.js
+        src/ui/qml/Icon.qml
         src/ui/qml/PSlider.qml
         src/ui/qml/PSpinBox.qml
         src/ui/qml/Main.qml

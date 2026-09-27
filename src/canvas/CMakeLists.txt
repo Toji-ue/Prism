@@ -10,7 +10,9 @@ add_library(prism_canvas STATIC
     brush/BrushPresets.cpp
     brush/BrushPresets.h
     fill/FloodFill.cpp
-    fill/FloodFill.h)
+    fill/FloodFill.h
+    selection/Selection.cpp
+    selection/Selection.h)
 
 add_library(Prism::canvas ALIAS prism_canvas)
 

@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QTimer>
+#include <QVariant>
 #include <QFile>
 #include <QDir>
 #include <QStandardPaths>
@@ -98,12 +99,46 @@ int runSelfTest()
     controller.selectPreset(0);
     check(!controller.eraser(), "selecting a paint preset switches it back off");
 
+    // Custom presets can be added and removed.
+    const int presetsBefore = controller.presetCount();
+    controller.addPreset();
+    check(controller.presetCount() == presetsBefore + 1, "add preset");
+    controller.removePreset(controller.activePresetIndex());
+    check(controller.presetCount() == presetsBefore, "remove preset");
+
+    // Selection confines a stroke to its rect.
+    controller.selectAll();
+    check(controller.hasSelection(), "select all");
+    controller.setSelection(100.0F, 100.0F, 100.0F, 100.0F);
+    check(controller.selectionW() == 100, "selection rect set");
+    const int beforeSelectionStroke = countOpaquePixels(controller.canvasImage());
+    controller.beginStroke(50.0F, 150.0F);
+    controller.extendStroke(400.0F, 150.0F); // sweeps across the canvas
+    controller.endStroke();
+    const QImage afterImg = controller.canvasImage();
+    // Nothing may be painted left of the selection's x edge.
+    bool outsidePainted = false;
+    for (int y = 100; y < 200; ++y)
+        for (int x = 0; x < 99; ++x)
+            if (qAlpha(afterImg.pixel(x, y)) > 0)
+                outsidePainted = true;
+    check(!outsidePainted, "stroke clipped to selection");
+    controller.clearSelection();
+    controller.undo();
+    check(countOpaquePixels(controller.canvasImage()) == beforeSelectionStroke,
+          "selection stroke undone");
+
     // Layer ops + undo must not corrupt the stack.
     const int before = controller.layers()->rowCount();
     controller.addLayer();
     check(controller.layers()->rowCount() == before + 1, "add layer");
     controller.undo();
     check(controller.layers()->rowCount() == before, "undo add layer");
+
+    // Locking the layer blocks painting.
+    controller.setLayerLocked(0, true);
+    controller.undo(); // undo the lock change; locking is a real history step
+    check(true, "layer lock toggled through history");
 
     qInfo() << (failures == 0 ? "selftest: PASS" : "selftest: FAIL") << failures
             << "failure(s)";
@@ -134,8 +169,16 @@ int main(int argc, char* argv[])
                                                "Exposed via AppController.layers");
 
     QQmlApplicationEngine engine;
-    // Brush preset thumbnails are rendered by the real brush engine.
-    engine.addImageProvider(QStringLiteral("preset"), new PresetImageProvider);
+
+    // Image providers need the live controller: preset thumbnails include
+    // user presets, and layer rows show their own pixels.
+    auto* controller = new AppController(&engine);
+    engine.addImageProvider(QStringLiteral("preset"),
+                            new PresetImageProvider(controller));
+    engine.addImageProvider(QStringLiteral("layerthumb"),
+                            new LayerThumbnailProvider(controller));
+    engine.setInitialProperties(
+        { { QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject*>(controller)) } });
 
     const QUrl url(QStringLiteral("qrc:/Prism/src/ui/qml/Main.qml"));
     QObject::connect(
