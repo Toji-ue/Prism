@@ -39,6 +39,10 @@ ApplicationWindow {
     // Switches the Advanced Color Selector docker to its Tool Options tab.
     function showToolOptions() { mainColorSelector.tab = 1 }
 
+    // Verification hook (prism --demo-menu): opens a dropdown so its colours
+    // can be checked from a screenshot.
+    function demoOpenMenu() { fileMenu.open() }
+
     // Verification hook (prism --demo-cursor): pins the brush ring at a
     // canvas position so a screenshot can prove its size and colour, since
     // Windows will not deliver hover events to a non-foreground window.
@@ -90,7 +94,8 @@ ApplicationWindow {
     menuBar: MenuBar {
         // Everything except the ways to open a document is inert while the
         // start page is up, so menu entries that need a canvas are disabled.
-        Menu {
+        PMenu {
+            id: fileMenu
             title: qsTr("&File")
             Action { text: qsTr("&New...\tCtrl+N"); onTriggered: newDocDialog.open() }
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }

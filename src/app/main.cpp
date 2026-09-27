@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QPalette>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QTimer>
@@ -295,6 +296,37 @@ int main(int argc, char* argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("Prism"));
     QGuiApplication::setApplicationVersion(QStringLiteral("0.3"));
 
+    // Dark application palette. The Basic style colours its popups (menu
+    // dropdowns, tooltips, dialog frames) from the palette, which is why they
+    // stayed light while the QML-styled widgets around them were dark.
+    // Everything here is derived from the same two colours as Theme.js:
+    // #ffffff foreground on #1f1f1f background.
+    {
+        const QColor bg(0x1f, 0x1f, 0x1f);
+        const QColor fg(0xff, 0xff, 0xff);
+        const QColor raised(0x33, 0x33, 0x33);
+        const QColor disabled(0x6b, 0x6b, 0x6b);
+        QPalette pal;
+        pal.setColor(QPalette::Window, bg);
+        pal.setColor(QPalette::WindowText, fg);
+        pal.setColor(QPalette::Base, bg);
+        pal.setColor(QPalette::AlternateBase, raised);
+        pal.setColor(QPalette::Text, fg);
+        pal.setColor(QPalette::Button, raised);
+        pal.setColor(QPalette::ButtonText, fg);
+        pal.setColor(QPalette::BrightText, fg);
+        pal.setColor(QPalette::Highlight, fg);
+        pal.setColor(QPalette::HighlightedText, bg);
+        pal.setColor(QPalette::ToolTipBase, raised);
+        pal.setColor(QPalette::ToolTipText, fg);
+        pal.setColor(QPalette::PlaceholderText, disabled);
+        pal.setColor(QPalette::Disabled, QPalette::Text, disabled);
+        pal.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
+        pal.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
+        pal.setColor(QPalette::Disabled, QPalette::HighlightedText, disabled);
+        app.setPalette(pal);
+    }
+
     const QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(logDir);
     g_logFile.setFileName(logDir + QStringLiteral("/prism.log"));
@@ -356,7 +388,14 @@ int main(int argc, char* argv[])
         const bool demoDialog = app.arguments().contains(QStringLiteral("--demo-new-dialog"));
         const bool demoToolOptions = app.arguments().contains(QStringLiteral("--demo-tool-options"));
         const bool demoCursor = app.arguments().contains(QStringLiteral("--demo-cursor"));
-        QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor, &engine]() {
+        const bool demoMenu = app.arguments().contains(QStringLiteral("--demo-menu"));
+        QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
+                                       demoMenu, &engine]() {
+            if (demoMenu && !engine.rootObjects().isEmpty()) {
+                // Opens a dropdown so its colours are visible in a screenshot.
+                controller->setStartPageVisible(false);
+                QMetaObject::invokeMethod(engine.rootObjects().first(), "demoOpenMenu");
+            }
             if (demoDialog && !engine.rootObjects().isEmpty()) {
                 // Opens the New Document dialog so its layout can be checked
                 // from a screenshot.
@@ -366,8 +405,7 @@ int main(int argc, char* argv[])
                 // Switches the color docker to its Tool Options tab.
                 QMetaObject::invokeMethod(engine.rootObjects().first(), "showToolOptions");
             }
-            if (demoCursor && !engine.rootObjects().isEmpty()) {
-                // Pins the brush ring so its size/colour is visible in the
+            if (demoCursor && !engine.rootObjects().isEmpty()) {                // Pins the brush ring so its size/colour is visible in the
                 // screenshot (a non-foreground window gets no hover events).
                 controller->setStartPageVisible(false);
                 controller->setBrushSize(60.0F);
