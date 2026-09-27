@@ -30,7 +30,9 @@ std::size_t Document::addLayer(std::unique_ptr<Layer> layer)
 
 std::size_t Document::addRasterLayer(std::string name)
 {
-    return addLayer(std::make_unique<Layer>(Layer::Type::Raster, std::move(name)));
+    auto layer = std::make_unique<Layer>(Layer::Type::Raster, std::move(name));
+    layer->pixels() = raster::RasterBuffer(m_size.width, m_size.height);
+    return addLayer(std::move(layer));
 }
 
 bool Document::moveLayer(std::size_t fromIndex, std::size_t toIndex)

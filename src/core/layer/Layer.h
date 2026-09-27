@@ -1,6 +1,7 @@
 #pragma once
 
 #include "layer/BlendMode.h"
+#include "raster/RasterBuffer.h"
 
 #include <string>
 
@@ -12,8 +13,8 @@ namespace prism::core {
 /// Flow is a brush-stroke property and intentionally does NOT live here —
 /// mixing the two is a known bug farm (see AGENTS.md).
 ///
-/// Pixel data is not owned yet: the raster buffer arrives with the canvas
-/// module, and all mutations must go through history Commands.
+/// Raster layers own their pixel buffer. All buffer mutations must go
+/// through history Commands or undo silently breaks.
 class Layer {
 public:
     enum class Type {
@@ -41,6 +42,11 @@ public:
     [[nodiscard]] BlendMode blendMode() const noexcept { return m_blendMode; }
     void setBlendMode(BlendMode mode) noexcept { m_blendMode = mode; }
 
+    /// Pixel buffer. Empty for vector/group layers. Resizing invalidates
+    /// content — only do it via a history Command.
+    [[nodiscard]] raster::RasterBuffer& pixels() noexcept { return m_pixels; }
+    [[nodiscard]] const raster::RasterBuffer& pixels() const noexcept { return m_pixels; }
+
 private:
     Type m_type;
     std::string m_name;
@@ -48,6 +54,7 @@ private:
     bool m_locked = false;
     float m_opacity = 1.0F;
     BlendMode m_blendMode = BlendMode::Normal;
+    raster::RasterBuffer m_pixels;
 };
 
 } // namespace prism::core

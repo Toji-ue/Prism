@@ -20,6 +20,12 @@ qt_standard_project_setup()
 # prism_core — framework-agnostic domain logic (no Qt/GPU types allowed)
 add_subdirectory(src/core)
 
+# prism_canvas — CPU compositing + brush (reference implementation)
+add_subdirectory(src/canvas)
+
+# prism_ui — QML bridge (controller, canvas view)
+add_subdirectory(src/ui)
+
 # --------------------------------------------------------------------------- #
 # prism app
 qt_add_executable(prism
@@ -35,6 +41,8 @@ qt_add_qml_module(prism
 
 target_link_libraries(prism PRIVATE
     Prism::core
+    Prism::canvas
+    Prism::ui
     Qt6::Quick)
 
 # --------------------------------------------------------------------------- #

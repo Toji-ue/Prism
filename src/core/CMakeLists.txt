@@ -1,6 +1,8 @@
 # prism_core — domain logic. No Qt / GPU types allowed in this target.
 
 add_library(prism_core STATIC
+    commands/Commands.cpp
+    commands/Commands.h
     document/Document.cpp
     document/Document.h
     layer/Layer.cpp
@@ -9,7 +11,11 @@ add_library(prism_core STATIC
     history/Command.h
     history/History.cpp
     history/History.h
-    geometry/Types.h)
+    geometry/Types.h
+    raster/RasterBuffer.cpp
+    raster/RasterBuffer.h
+    raster/Blend.cpp
+    raster/Blend.h)
 
 add_library(Prism::core ALIAS prism_core)
 
