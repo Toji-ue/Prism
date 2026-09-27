@@ -37,3 +37,19 @@ QImage LayerThumbnailProvider::requestImage(const QString& id, QSize* size,
         *size = thumb.size();
     return thumb;
 }
+
+SelectionOverlayProvider::SelectionOverlayProvider(AppController* controller)
+    : QQuickImageProvider(QQuickImageProvider::Image)
+    , m_controller(controller)
+{
+}
+
+QImage SelectionOverlayProvider::requestImage(const QString&, QSize* size,
+                                              const QSize& requestedSize)
+{
+    Q_UNUSED(requestedSize);
+    const QImage overlay = m_controller->selectionOverlay();
+    if (size)
+        *size = overlay.size();
+    return overlay;
+}

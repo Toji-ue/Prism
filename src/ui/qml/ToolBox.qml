@@ -23,6 +23,8 @@ Rectangle {
         { icon: "pan",         name: qsTr("Pan"),                tool: AppController.PanTool,        key: "" },
         { icon: "zoom",        name: qsTr("Zoom"),               tool: AppController.ZoomTool,       key: "" },
         { icon: "select-rect", name: qsTr("Rectangular Select"), tool: AppController.RectSelectTool, key: "M" },
+        { icon: "lasso",       name: qsTr("Freehand Select"),     tool: AppController.LassoSelectTool, key: "L" },
+        { icon: "wand",        name: qsTr("Similar Color Select"), tool: AppController.MagicWandTool,  key: "W" },
         { icon: "move",        name: qsTr("Move Layer"),         tool: AppController.MoveTool,       key: "V" }
     ]
 

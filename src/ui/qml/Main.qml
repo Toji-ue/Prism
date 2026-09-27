@@ -25,8 +25,25 @@ ApplicationWindow {
     // (prism --demo-new-dialog --screenshot=...).
     function openNewDocumentDialog() { newDocDialog.open() }
 
+    // Start page is shown until a document exists (or File ? Start Page).
+    StartPage {
+        id: startPage
+        anchors.fill: parent
+        z: 100
+        visible: root.controller.startPageVisible
+        controller: root.controller
+        onRequestNew: newDocDialog.open()
+        onRequestOpen: openDialog.open()
+    }
+
     // Switches the Advanced Color Selector docker to its Tool Options tab.
     function showToolOptions() { mainColorSelector.tab = 1 }
+
+    // Verification hook (prism --demo-cursor): pins the brush ring at a
+    // canvas position so a screenshot can prove its size and colour, since
+    // Windows will not deliver hover events to a non-foreground window.
+    property var demoPointer: null
+    function demoCursor(x, y) { demoPointer = Qt.point(x, y) }
 
     // The active tool's keyboard shortcut, for the status bar hint.
     readonly property string toolHint: {
@@ -54,6 +71,10 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+E"; onActivated: controller.exportPng ? exportDialog.open() : {} }
     Shortcut { sequence: "Ctrl+A"; onActivated: controller.selectAll() }
     Shortcut { sequence: "Ctrl+D"; onActivated: controller.clearSelection() }
+    Shortcut { sequence: "Ctrl+Shift+I"; onActivated: controller.invertSelection() }
+    Shortcut { sequence: "Ctrl+Shift+M"; onActivated: controller.mirrorHorizontal = !controller.mirrorHorizontal }
+    Shortcut { sequence: "L"; onActivated: controller.tool = AppController.LassoSelectTool }
+    Shortcut { sequence: "W"; onActivated: controller.tool = AppController.MagicWandTool }
     Shortcut { sequence: "M"; onActivated: controller.tool = AppController.RectSelectTool }
     Shortcut { sequence: "V"; onActivated: controller.tool = AppController.MoveTool }
     Shortcut { sequence: "Z"; onActivated: controller.tool = AppController.ZoomTool }
@@ -74,6 +95,11 @@ ApplicationWindow {
             MenuSeparator {}
             Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
             Action { text: qsTr("&Export PNGâ€¦\tCtrl+E"); onTriggered: exportDialog.open() }
+            MenuSeparator {}
+            Action {
+                text: qsTr("&Start Page")
+                onTriggered: controller.startPageVisible = true
+            }
             MenuSeparator {}
             Action { text: qsTr("&Quit\tCtrl+Q"); onTriggered: Qt.quit() }
         }
@@ -115,8 +141,9 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Select")
-            Action { text: qsTr("Select All"); enabled: false }
-            Action { text: qsTr("Deselect"); enabled: false }
+            Action { text: qsTr("Select &All\tCtrl+A"); onTriggered: controller.selectAll() }
+            Action { text: qsTr("&Deselect\tCtrl+D"); onTriggered: controller.clearSelection() }
+            Action { text: qsTr("&Invert Selection\tCtrl+Shift+I"); onTriggered: controller.invertSelection() }
         }
         Menu {
             title: qsTr("Fi&lter")
@@ -304,6 +331,41 @@ ApplicationWindow {
                 onMoved: controller.brushHardness = value
             }
 
+            Rectangle { width: 1; height: 20; color: T.border }
+
+            // Mirror canvas (Krita's mirror tools)
+            Repeater {
+                model: [
+                    { icon: "mirror-h", tip: qsTr("Mirror canvas horizontally (Ctrl+Shift+M)"), act: "h" },
+                    { icon: "mirror-v", tip: qsTr("Mirror canvas vertically"), act: "v" },
+                    { icon: "invert",   tip: qsTr("Invert selection (Ctrl+Shift+I)"), act: "inv" }
+                ]
+                delegate: Rectangle {
+                    width: 24; height: 24
+                    readonly property bool on: (modelData.act === "h" && root.controller.mirrorHorizontal)
+                                               || (modelData.act === "v" && root.controller.mirrorVertical)
+                    color: on ? T.highlight : (mh.hovered ? T.buttonHover : "transparent")
+                    Icon {
+                        anchors.centerIn: parent
+                        width: 15; height: 15
+                        name: modelData.icon
+                        color: on ? T.highlightText : T.text
+                    }
+                    HoverHandler { id: mh }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (modelData.act === "h") root.controller.mirrorHorizontal = !root.controller.mirrorHorizontal
+                            else if (modelData.act === "v") root.controller.mirrorVertical = !root.controller.mirrorVertical
+                            else root.controller.invertSelection()
+                        }
+                    }
+                    ToolTip.visible: mh.hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: modelData.tip
+                }
+            }
+
             Item { Layout.fillWidth: true }
 
             // color swatch (opens the picker popup)
@@ -374,18 +436,85 @@ ApplicationWindow {
                             controller: root.controller
                         }
 
+                        // Selection tint — works for any shape (rect, lasso,
+                        // magic wand) because it renders the selection mask.
+                        Image {
+                            anchors.fill: parent
+                            visible: root.controller.hasSelection
+                            fillMode: Image.Stretch
+                            cache: false
+                            source: root.controller.hasSelection
+                                    ? "image://selection/" + root.controller.selectionRevision
+                                    : ""
+                        }
+
+                        // Mirror indicators, like Krita's mirror lines.
+                        Rectangle {
+                            visible: root.controller.mirrorHorizontal
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 1; height: parent.height
+                            color: "#3daee9"
+                            opacity: 0.6
+                        }
+                        Rectangle {
+                            visible: root.controller.mirrorVertical
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width; height: 1
+                            color: "#3daee9"
+                            opacity: 0.6
+                        }
+
                         MouseArea {
                             id: canvasMouse
                             anchors.fill: parent
                             acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                            // The brush draws its own grey size ring; the
+                            // system cursor is hidden while painting so the
+                            // ring is the only pointer.
                             cursorShape: {
                                 switch (controller.tool) {
+                                case AppController.BrushTool:
+                                case AppController.EraserTool:
+                                    return Qt.BlankCursor
                                 case AppController.PanTool: return Qt.OpenHandCursor
                                 case AppController.ZoomTool: return Qt.PointingHandCursor
                                 case AppController.MoveTool: return Qt.SizeAllCursor
-                                case AppController.RectSelectTool: return Qt.CrossCursor
                                 }
                                 return Qt.CrossCursor
+                            }
+                            hoverEnabled: true
+
+                            // ---- grey brush cursor ----
+                            Rectangle {
+                                id: brushCursor
+                                visible: (controller.tool === AppController.BrushTool
+                                          || controller.tool === AppController.EraserTool)
+                                         && (canvasMouse.containsMouse || root.demoPointer !== null)
+                                width: Math.max(4, controller.brushSize * 2 * controller.zoom)
+                                height: width
+                                radius: width / 2
+                                color: "transparent"
+                                border.color: "#808080"
+                                border.width: 1
+                                readonly property real pointerX: root.demoPointer !== null
+                                                                 ? root.demoPointer.x
+                                                                 : canvasMouse.mouseX
+                                readonly property real pointerY: root.demoPointer !== null
+                                                                 ? root.demoPointer.y
+                                                                 : canvasMouse.mouseY
+                                x: pointerX - width / 2
+                                y: pointerY - height / 2
+
+                                // inner dark ring keeps it readable on white
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: parent.width - 2
+                                    height: width
+                                    radius: width / 2
+                                    color: "transparent"
+                                    border.color: "#00000040"
+                                    border.width: 1
+                                }
                             }
 
                             property real lastX: 0
@@ -393,9 +522,22 @@ ApplicationWindow {
                             property real startX: 0
                             property real startY: 0
                             property bool draggingLayer: false
+                            /// Freehand lasso points collected during a drag.
+                            property var lassoPoints: []
 
-                            function canvasX(mx) { return mx / controller.zoom }
-                            function canvasY(my) { return my / controller.zoom }
+                            // Mirroring flips what the artist sees, so input
+                            // must be flipped the same way to keep the brush
+                            // under the cursor.
+                            function canvasX(mx) {
+                                const x = mx / controller.zoom
+                                return controller.mirrorHorizontal
+                                       ? controller.canvasWidth - x : x
+                            }
+                            function canvasY(my) {
+                                const y = my / controller.zoom
+                                return controller.mirrorVertical
+                                       ? controller.canvasHeight - y : y
+                            }
 
                             onPressed: mouse => {
                                 const cx = canvasX(mouse.x)
@@ -427,6 +569,12 @@ ApplicationWindow {
                                 case AppController.RectSelectTool:
                                     controller.setSelection(cx, cy, 0, 0)
                                     break
+                                case AppController.LassoSelectTool:
+                                    lassoPoints = [Qt.point(cx, cy)]
+                                    break
+                                case AppController.MagicWandTool:
+                                    controller.magicWandAt(cx, cy, 32)
+                                    break
                                 default:
                                     controller.beginStroke(cx, cy)
                                     break
@@ -455,6 +603,17 @@ ApplicationWindow {
                                 case AppController.RectSelectTool:
                                     controller.setSelection(startX, startY, cx - startX, cy - startY)
                                     break
+                                case AppController.LassoSelectTool: {
+                                    // Sample sparsely: the polygon only needs
+                                    // enough points to describe its outline.
+                                    const pts = lassoPoints.slice()
+                                    const last = pts[pts.length - 1]
+                                    if (!last || Math.abs(last.x - cx) + Math.abs(last.y - cy) > 3) {
+                                        pts.push(Qt.point(cx, cy))
+                                        lassoPoints = pts
+                                    }
+                                    break
+                                }
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
                                     controller.extendStroke(cx, cy)
@@ -471,6 +630,12 @@ ApplicationWindow {
                                     if (dx !== 0 || dy !== 0)
                                         controller.moveActiveLayer(dx, dy)
                                     draggingLayer = false
+                                    return
+                                }
+                                if (controller.tool === AppController.LassoSelectTool) {
+                                    if (lassoPoints.length >= 3)
+                                        controller.setLassoSelection(lassoPoints)
+                                    lassoPoints = []
                                     return
                                 }
                                 if (controller.tool === AppController.BrushTool

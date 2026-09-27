@@ -7,11 +7,14 @@
 #include "document/Document.h"
 #include "history/History.h"
 #include "raster/ColorMath.h"
+#include "selection/Selection.h"
 
 #include <QObject>
 #include <QImage>
 #include <QColor>
 #include <QUrl>
+#include <QStringList>
+#include <QVariantList>
 
 #include <vector>
 
@@ -58,6 +61,8 @@ public:
         ZoomTool,
         RectSelectTool,
         MoveTool,
+        LassoSelectTool,
+        MagicWandTool,
     };
     Q_ENUM(Tool)
 
@@ -126,13 +131,42 @@ public:
 
     // --- selection --------------------------------------------------------
     Q_INVOKABLE void setSelection(float x, float y, float w, float h);
+    /// Freehand lasso: \p points is a list of QPointF in canvas coordinates.
+    Q_INVOKABLE void setLassoSelection(const QVariantList& points);
+    /// Magic wand: selects the connected similar-color region under (x, y).
+    Q_INVOKABLE void magicWandAt(float x, float y, int tolerance);
     Q_INVOKABLE void clearSelection();
     Q_INVOKABLE void selectAll();
+    Q_INVOKABLE void invertSelection();
     bool hasSelection() const;
     int selectionX() const;
     int selectionY() const;
     int selectionW() const;
     int selectionH() const;
+    int selectionRevision() const;
+    /// Selection rendered as a tinted overlay for the canvas (image://selection).
+    QImage selectionOverlay() const;
+
+    // --- view -------------------------------------------------------------
+    Q_PROPERTY(bool mirrorHorizontal READ mirrorHorizontal WRITE setMirrorHorizontal
+                   NOTIFY viewChanged)
+    Q_PROPERTY(bool mirrorVertical READ mirrorVertical WRITE setMirrorVertical
+                   NOTIFY viewChanged)
+    bool mirrorHorizontal() const { return m_mirrorH; }
+    void setMirrorHorizontal(bool on);
+    bool mirrorVertical() const { return m_mirrorV; }
+    void setMirrorVertical(bool on);
+
+    // --- start page / recent files ---------------------------------------
+    Q_PROPERTY(bool startPageVisible READ startPageVisible WRITE setStartPageVisible
+                   NOTIFY startPageChanged)
+    Q_PROPERTY(QVariantList recentFiles READ recentFiles NOTIFY recentFilesChanged)
+    bool startPageVisible() const { return m_startPageVisible; }
+    void setStartPageVisible(bool visible);
+    QVariantList recentFiles() const;
+    Q_INVOKABLE void clearRecentFiles();
+    /// Version string shown on the start page.
+    Q_INVOKABLE QString versionString() const;
 
     // --- layer state ------------------------------------------------------
     Q_INVOKABLE void setLayerLocked(int index, bool locked);
@@ -196,11 +230,15 @@ signals:
     void selectionChanged();
     void presetsChanged();
     void documentNameChanged();
+    void startPageChanged();
+    void recentFilesChanged();
     void canvasChanged(int x, int y, int w, int h);
 
 private:
     void rebuildFullComposite();
     void rebuildStrokePreview();
+    void addRecentFile(const QString& path);
+    void loadRecentFiles();
 
     prism::core::Document m_doc{ prism::core::CanvasSize{ 1280, 800, 72 } };
     prism::core::History m_history;
@@ -219,7 +257,12 @@ private:
     int m_customPresetCounter = 0;
     int m_layerRevision = 0;
     /// Active selection in canvas pixels; empty means "no selection".
-    prism::core::geometry::Rect m_selection;
+    /// Active selection. Mask-based so lasso and magic wand work too.
+    prism::canvas::Selection m_selection;
+    bool m_mirrorH = false;
+    bool m_mirrorV = false;
+    bool m_startPageVisible = true;
+    QStringList m_recentFiles;
     QString m_documentName = tr("Untitled");
     /// True until the user moves a brush slider — controls the "Custom" label.
     bool m_presetIntact = true;

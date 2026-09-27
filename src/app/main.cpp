@@ -152,6 +152,7 @@ int main(int argc, char* argv[])
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("Prism"));
     QGuiApplication::setOrganizationName(QStringLiteral("Prism"));
+    QGuiApplication::setApplicationVersion(QStringLiteral("0.3"));
 
     const QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(logDir);
@@ -177,6 +178,8 @@ int main(int argc, char* argv[])
                             new PresetImageProvider(controller));
     engine.addImageProvider(QStringLiteral("layerthumb"),
                             new LayerThumbnailProvider(controller));
+    engine.addImageProvider(QStringLiteral("selection"),
+                            new SelectionOverlayProvider(controller));
     engine.setInitialProperties(
         { { QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject*>(controller)) } });
 
@@ -196,11 +199,14 @@ int main(int argc, char* argv[])
     // --screenshot-only exits right after saving (used by UI checks).
     QString shotPath;
     bool shotOnly = false;
+    int shotDelayMs = 2500;
     for (const QString& arg : app.arguments()) {
         if (arg.startsWith(QStringLiteral("--screenshot=")))
             shotPath = arg.section('=', 1);
         else if (arg == QStringLiteral("--screenshot-only"))
             shotOnly = true;
+        else if (arg.startsWith(QStringLiteral("--screenshot-delay=")))
+            shotDelayMs = arg.section('=', 1).toInt();
     }
     if (!shotPath.isEmpty()) {
         // --demo-drawing paints a known test pattern before the shot so the
@@ -208,7 +214,8 @@ int main(int argc, char* argv[])
         const bool demo = app.arguments().contains(QStringLiteral("--demo-drawing"));
         const bool demoDialog = app.arguments().contains(QStringLiteral("--demo-new-dialog"));
         const bool demoToolOptions = app.arguments().contains(QStringLiteral("--demo-tool-options"));
-        QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, &engine]() {
+        const bool demoCursor = app.arguments().contains(QStringLiteral("--demo-cursor"));
+        QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor, &engine]() {
             if (demoDialog && !engine.rootObjects().isEmpty()) {
                 // Opens the New Document dialog so its layout can be checked
                 // from a screenshot.
@@ -218,8 +225,19 @@ int main(int argc, char* argv[])
                 // Switches the color docker to its Tool Options tab.
                 QMetaObject::invokeMethod(engine.rootObjects().first(), "showToolOptions");
             }
+            if (demoCursor && !engine.rootObjects().isEmpty()) {
+                // Pins the brush ring so its size/colour is visible in the
+                // screenshot (a non-foreground window gets no hover events).
+                controller->setStartPageVisible(false);
+                controller->setBrushSize(60.0F);
+                QMetaObject::invokeMethod(engine.rootObjects().first(), "demoCursor",
+                                          Q_ARG(QVariant, QVariant(560.0)),
+                                          Q_ARG(QVariant, QVariant(280.0)));
+            }
             if (!demo || !controller)
                 return;
+            // The demo draws on a document, so the start page must be gone.
+            controller->setStartPageVisible(false);
             // Corner-to-corner diagonal plus centre cross: any offset or
             // scale error in the view is obvious in the screenshot.
             const qreal w = controller->canvasWidth();
@@ -242,7 +260,7 @@ int main(int argc, char* argv[])
             controller->endStroke();
         });
 
-        QTimer::singleShot(2500, &app, [&engine, shotPath, shotOnly]() {
+        QTimer::singleShot(shotDelayMs, &app, [&engine, shotPath, shotOnly]() {
             if (!engine.rootObjects().isEmpty()) {
                 if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
                     const QImage shot = window->grabWindow();

@@ -27,3 +27,14 @@ public:
 private:
     AppController* m_controller;
 };
+
+/// Serves the active selection as a tinted overlay: image://selection/<rev>.
+class SelectionOverlayProvider : public QQuickImageProvider {
+public:
+    explicit SelectionOverlayProvider(AppController* controller);
+
+    QImage requestImage(const QString& id, QSize* size, const QSize& requestedSize) override;
+
+private:
+    AppController* m_controller;
+};

@@ -385,6 +385,89 @@ Canvas {
             ctx.stroke()
             break
 
+        case "lasso":
+            // freehand loop with a tail
+            ctx.beginPath()
+            ctx.moveTo(8, 3.5)
+            ctx.quadraticCurveTo(13.5, 3.5, 13.5, 8)
+            ctx.quadraticCurveTo(13.5, 12.5, 8, 12.5)
+            ctx.quadraticCurveTo(2.5, 12.5, 2.5, 8)
+            ctx.quadraticCurveTo(2.5, 5.5, 5, 4.4)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(5, 4.4)
+            ctx.lineTo(5.5, 7)
+            ctx.stroke()
+            break
+
+        case "wand":
+            // magic wand over a sparkle
+            ctx.beginPath()
+            ctx.moveTo(3.5, 13)
+            ctx.lineTo(10, 6.5)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(9, 5.5)
+            ctx.lineTo(12.5, 2)
+            ctx.lineTo(14, 3.5)
+            ctx.lineTo(10.5, 7)
+            ctx.closePath()
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(4, 3.5)
+            ctx.lineTo(4, 6.5)
+            ctx.moveTo(2.5, 5)
+            ctx.lineTo(5.5, 5)
+            ctx.moveTo(11.5, 10.5)
+            ctx.lineTo(11.5, 13)
+            ctx.moveTo(10.2, 11.7)
+            ctx.lineTo(12.7, 11.7)
+            ctx.stroke()
+            break
+
+        case "mirror-h":
+            ctx.beginPath()
+            ctx.moveTo(8, 2)
+            ctx.lineTo(8, 14)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(6, 4.5)
+            ctx.lineTo(2.5, 8)
+            ctx.lineTo(6, 11.5)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(10, 4.5)
+            ctx.lineTo(13.5, 8)
+            ctx.lineTo(10, 11.5)
+            ctx.stroke()
+            break
+
+        case "mirror-v":
+            ctx.beginPath()
+            ctx.moveTo(2, 8)
+            ctx.lineTo(14, 8)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(4.5, 6)
+            ctx.lineTo(8, 2.5)
+            ctx.lineTo(11.5, 6)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(4.5, 10)
+            ctx.lineTo(8, 13.5)
+            ctx.lineTo(11.5, 10)
+            ctx.stroke()
+            break
+
+        case "invert":
+            ctx.beginPath()
+            ctx.arc(8, 8, 5.5, 0, Math.PI * 2)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.arc(8, 8, 5.5, -Math.PI * 0.5, Math.PI * 0.5)
+            ctx.fill()
+            break
+
         case "chevron-down":
             ctx.beginPath()
             ctx.moveTo(4.5, 6.5)

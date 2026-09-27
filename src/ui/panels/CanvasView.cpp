@@ -33,9 +33,15 @@ void CanvasView::paint(QPainter* painter)
 {
     if (!m_controller)
         return;
-    const QImage canvas = m_controller->canvasImage();
+    QImage canvas = m_controller->canvasImage();
     if (canvas.isNull())
         return;
+
+    // View mirroring: the artist asked to see the canvas flipped. Input
+    // mapping in QML mirrors the same way, so strokes stay under the cursor.
+    if (m_controller->mirrorHorizontal() || m_controller->mirrorVertical())
+        canvas = canvas.mirrored(m_controller->mirrorHorizontal(),
+                                 m_controller->mirrorVertical());
 
     // Scale the canvas pixels to the item's zoomed size. Drawing the image
     // 1:1 (the previous behaviour) showed only a crop of the canvas whenever

@@ -7,6 +7,10 @@
 #include "project/ProjectIO.h"
 #include "selection/Selection.h"
 
+#include <QCoreApplication>
+#include <QFileInfo>
+#include <QSettings>
+
 #include <algorithm>
 #include <cmath>
 
@@ -42,6 +46,8 @@ AppController::AppController(QObject* parent)
     m_doc.addRasterLayer("Layer 1");
     m_layersModel->setDocument(&m_doc);
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    loadRecentFiles();
     // Start on the first preset so the toolbar/status bar read like a real app.
     selectPreset(0);
     rebuildFullComposite();
@@ -367,10 +373,11 @@ void AppController::moveActiveLayer(int dx, int dy)
 // ------------------------------------------------------------------ selection
 
 bool AppController::hasSelection() const { return !m_selection.isEmpty(); }
-int AppController::selectionX() const { return m_selection.x; }
-int AppController::selectionY() const { return m_selection.y; }
-int AppController::selectionW() const { return m_selection.width; }
-int AppController::selectionH() const { return m_selection.height; }
+int AppController::selectionX() const { return m_selection.bounds().x; }
+int AppController::selectionY() const { return m_selection.bounds().y; }
+int AppController::selectionW() const { return m_selection.bounds().width; }
+int AppController::selectionH() const { return m_selection.bounds().height; }
+int AppController::selectionRevision() const { return m_selection.revision(); }
 
 void AppController::setSelection(float x, float y, float w, float h)
 {
@@ -379,20 +386,147 @@ void AppController::setSelection(float x, float y, float w, float h)
     const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, s.height);
     const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, s.width);
     const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, s.height);
-    m_selection = core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 };
+    m_selection.selectRect(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
+    emit selectionChanged();
+}
+
+void AppController::setLassoSelection(const QVariantList& points)
+{
+    std::vector<core::geometry::Point> poly;
+    poly.reserve(points.size());
+    for (const auto& v : points) {
+        const QPointF p = v.toPointF();
+        poly.push_back(core::geometry::Point{ static_cast<int>(p.x()), static_cast<int>(p.y()) });
+    }
+    m_selection.selectPolygon(poly);
+    emit selectionChanged();
+}
+
+void AppController::magicWandAt(float x, float y, int tolerance)
+{
+    // Sample the flattened canvas: selecting by what the artist sees is the
+    // least surprising behaviour when several layers overlap.
+    m_selection.selectSimilar(m_compositor.result(), static_cast<int>(std::floor(x)),
+                              static_cast<int>(std::floor(y)), tolerance);
     emit selectionChanged();
 }
 
 void AppController::clearSelection()
 {
-    m_selection = {};
+    m_selection.clear();
     emit selectionChanged();
 }
 
 void AppController::selectAll()
 {
-    m_selection = fullRect(m_doc);
+    m_selection.selectAll();
     emit selectionChanged();
+}
+
+void AppController::invertSelection()
+{
+    m_selection.invert();
+    emit selectionChanged();
+}
+
+QImage AppController::selectionOverlay() const
+{
+    const int w = m_doc.canvasSize().width;
+    const int h = m_doc.canvasSize().height;
+    if (m_selection.isEmpty() || w <= 0 || h <= 0)
+        return {};
+
+    // Tint the selected area so any shape (lasso, wand) is visible.
+    core::raster::RasterBuffer out(w, h);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const std::uint8_t cov = m_selection.coverageAt(x, y);
+            if (cov == 0)
+                continue;
+            out.set(x, y, core::raster::Color{ 61, 174, 233,
+                                               static_cast<std::uint8_t>(cov / 5) });
+        }
+    }
+    return QImage(out.data(), out.width(), out.height(), out.width() * 4,
+                  QImage::Format_RGBA8888)
+        .copy();
+}
+
+// ----------------------------------------------------------------------- view
+
+void AppController::setMirrorHorizontal(bool on)
+{
+    if (m_mirrorH == on)
+        return;
+    m_mirrorH = on;
+    emit viewChanged();
+}
+
+void AppController::setMirrorVertical(bool on)
+{
+    if (m_mirrorV == on)
+        return;
+    m_mirrorV = on;
+    emit viewChanged();
+}
+
+// -------------------------------------------------- start page / recent files
+
+void AppController::setStartPageVisible(bool visible)
+{
+    if (m_startPageVisible == visible)
+        return;
+    m_startPageVisible = visible;
+    emit startPageChanged();
+}
+
+void AppController::loadRecentFiles()
+{
+    QSettings settings;
+    m_recentFiles = settings.value(QStringLiteral("recentFiles")).toStringList();
+}
+
+void AppController::addRecentFile(const QString& path)
+{
+    if (path.isEmpty())
+        return;
+    m_recentFiles.removeAll(path);
+    m_recentFiles.prepend(path);
+    while (m_recentFiles.size() > 12)
+        m_recentFiles.removeLast();
+    QSettings settings;
+    settings.setValue(QStringLiteral("recentFiles"), m_recentFiles);
+    emit recentFilesChanged();
+}
+
+QVariantList AppController::recentFiles() const
+{
+    QVariantList out;
+    for (const QString& path : m_recentFiles) {
+        const QFileInfo info(path);
+        if (!info.exists())
+            continue; // don't offer files the user deleted
+        QVariantMap entry;
+        entry["name"] = info.fileName();
+        entry["path"] = path;
+        entry["url"] = QUrl::fromLocalFile(path).toString();
+        out.append(entry);
+    }
+    return out;
+}
+
+void AppController::clearRecentFiles()
+{
+    m_recentFiles.clear();
+    QSettings settings;
+    settings.remove(QStringLiteral("recentFiles"));
+    emit recentFilesChanged();
+}
+
+QString AppController::versionString() const
+{
+    // Version only: callers add the product name, so it isn't duplicated.
+    return QCoreApplication::applicationVersion();
 }
 
 // ---------------------------------------------------------------- layer state
@@ -596,7 +730,12 @@ void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight)
 
 bool AppController::saveProject(const QUrl& url)
 {
-    return io::ProjectIO::save(m_doc, url.toLocalFile());
+    const bool ok = io::ProjectIO::save(m_doc, url.toLocalFile());
+    if (ok) {
+        addRecentFile(url.toLocalFile());
+        setDocumentName(QFileInfo(url.toLocalFile()).fileName());
+    }
+    return ok;
 }
 
 bool AppController::openProject(const QUrl& url)
@@ -609,9 +748,12 @@ bool AppController::openProject(const QUrl& url)
     m_compositor.canvasResized();
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_layersModel->setDocument(&m_doc);
+    addRecentFile(url.toLocalFile());
     emit layersChanged();
     emit historyChanged();
+    emit selectionChanged();
     rebuildFullComposite();
     return true;
 }
@@ -626,9 +768,12 @@ bool AppController::importImage(const QUrl& url)
     m_compositor.canvasResized();
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_layersModel->setDocument(&m_doc);
+    addRecentFile(url.toLocalFile());
     emit layersChanged();
     emit historyChanged();
+    emit selectionChanged();
     rebuildFullComposite();
     return true;
 }
@@ -690,13 +835,14 @@ void AppController::createDocument(int width, int height, const QString& name, i
     m_compositor.canvasResized();
     // Select the topmost paint layer so drawing can start immediately.
     m_activeLayer = layers - 1;
-    m_selection = {};
+    m_selection.reset(w, h);
     m_preview = core::raster::RasterBuffer(w, h);
     m_layersModel->setDocument(&m_doc);
     emit layersChanged();
     emit historyChanged();
     emit documentNameChanged();
     emit selectionChanged();
+    setStartPageVisible(false);
     rebuildFullComposite();
 }
 
