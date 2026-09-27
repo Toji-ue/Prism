@@ -1,0 +1,11 @@
+# Dependencies manifest (vcpkg manifest mode).
+#
+# NOTE: on this dev machine Qt6 + GoogleTest currently come from MSYS2
+# (ucrt64) — building Qt through vcpkg is not worth the hours. vcpkg is the
+# plan of record for future pure-C/C++ libs (LittleCMS, codecs, PSD);
+# add them here when first used, with license noted per AGENTS.md.
+{
+  "name": "prism",
+  "version": "0.1.0",
+  "dependencies": []
+}

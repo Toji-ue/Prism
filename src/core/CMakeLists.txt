@@ -1,0 +1,22 @@
+# prism_core — domain logic. No Qt / GPU types allowed in this target.
+
+add_library(prism_core STATIC
+    document/Document.cpp
+    document/Document.h
+    layer/Layer.cpp
+    layer/Layer.h
+    layer/BlendMode.h
+    history/Command.h
+    history/History.cpp
+    history/History.h
+    geometry/Types.h)
+
+add_library(Prism::core ALIAS prism_core)
+
+target_include_directories(prism_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+if (MSVC)
+    target_compile_options(prism_core PRIVATE /W4)
+else()
+    target_compile_options(prism_core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
