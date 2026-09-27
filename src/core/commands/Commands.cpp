@@ -1,6 +1,7 @@
 #include "commands/Commands.h"
 
 #include "layer/Layer.h"
+#include "raster/Blend.h"
 
 #include <stdexcept>
 
@@ -177,6 +178,53 @@ void MoveLayerContentCommand::redo()
     raster::RasterBuffer moved(pixels.width(), pixels.height());
     moved.blit(m_before, m_dx, m_dy);
     pixels = std::move(moved);
+}
+
+// ---------------------------------------------------------- MergeLayerDown
+
+MergeLayerDownCommand::MergeLayerDownCommand(Document& doc, std::size_t upperIndex)
+    : m_doc(doc)
+    , m_upperIndex(upperIndex)
+{
+    auto& upper = *doc.layers().at(upperIndex);
+    auto& lower = *doc.layers().at(upperIndex - 1);
+    m_lowerBefore = lower.pixels();
+    m_merged = lower.pixels();
+
+    // Composite the upper layer onto the lower using its own blend mode and
+    // opacity — the same math the compositor uses, so the result matches what
+    // the artist already saw on screen.
+    const std::uint8_t scaledAlphaOf = static_cast<std::uint8_t>(upper.opacity() * 255.0F);
+    for (int y = 0; y < m_merged.height(); ++y) {
+        for (int x = 0; x < m_merged.width(); ++x) {
+            raster::Color src = upper.pixels().at(x, y);
+            if (src.a == 0)
+                continue;
+            if (upper.opacity() < 1.0F)
+                src.a = static_cast<std::uint8_t>(
+                    static_cast<float>(src.a) * upper.opacity() + 0.5F);
+            (void)scaledAlphaOf;
+            m_merged.set(x, y,
+                         raster::blendPixel(m_merged.at(x, y), src, upper.blendMode()));
+        }
+    }
+}
+
+void MergeLayerDownCommand::undo()
+{
+    // Put the upper layer back above the lower one, and restore the lower.
+    if (m_upper)
+        m_doc.layers().at(m_upperIndex - 1)->pixels() = m_lowerBefore;
+    if (m_upper)
+        m_doc.insertLayer(m_upperIndex, std::move(m_upper));
+}
+
+void MergeLayerDownCommand::redo()
+{
+    m_upper = m_doc.takeLayer(m_upperIndex);
+    if (!m_upper)
+        return;
+    m_doc.layers().at(m_upperIndex - 1)->pixels() = m_merged;
 }
 
 // ----------------------------------------------------------- SetLayerProperty

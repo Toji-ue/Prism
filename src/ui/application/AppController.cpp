@@ -3,6 +3,7 @@
 #include "application/LayerListModel.h"
 #include "commands/Commands.h"
 #include "fill/FloodFill.h"
+#include "filters/Filters.h"
 #include "layer/Layer.h"
 #include "project/ProjectIO.h"
 #include "selection/Selection.h"
@@ -153,7 +154,7 @@ int AppController::activePresetIndex() const { return m_activePreset; }
 QString AppController::statusInfo() const
 {
     const auto s = m_doc.canvasSize();
-    return tr("RGB/Alpha (8-bit integer/channel) · %1 · %2 × %3 px · %4 MiB")
+    return tr("RGB/Alpha (8-bit integer/channel) - %1 - %2 ?- %3 px - %4 MiB")
         .arg(QString::fromStdString(m_doc.colorProfile()))
         .arg(s.width)
         .arg(s.height)
@@ -228,7 +229,7 @@ void AppController::removePreset(int index)
 {
     if (index < 0 || index >= presetCount())
         return;
-    // Always keep at least one preset — an empty brush list is unusable.
+    // Always keep at least one preset - an empty brush list is unusable.
     if (presetCount() <= 1)
         return;
     m_presets.erase(m_presets.begin() + index);
@@ -260,7 +261,7 @@ QImage AppController::layerThumbnail(int index, int width, int height) const
     // Averaged downscale with a BOUNDED sample budget: each destination pixel
     // averages at most 4x4 source samples instead of its whole block. Scanning
     // all 1M source pixels per thumbnail was too slow to regenerate during a
-    // stroke � part of the drawing lag.
+    // stroke - part of the drawing lag.
     constexpr int kMaxSamplesPerAxis = 4;
     core::raster::RasterBuffer out(width, height);
     const float sx = static_cast<float>(src.width()) / static_cast<float>(width);
@@ -346,7 +347,7 @@ QColor AppController::pickColorAt(float x, float y, bool apply)
     if (lx < 0 || ly < 0 || lx >= result.width() || ly >= result.height())
         return brushColor();
 
-    // Sample the flattened canvas — what the artist sees is what they pick.
+    // Sample the flattened canvas - what the artist sees is what they pick.
     const auto c = result.at(lx, ly);
     const QColor picked(c.r, c.g, c.b, 255);
     if (apply)
@@ -359,6 +360,14 @@ void AppController::zoomStep(bool out)
     // The canvas sheet is centred in the viewport, so zooming about the
     // centre keeps the working area in view without scroll bookkeeping.
     setZoom(out ? m_zoom / 1.25 : m_zoom * 1.25);
+}
+
+qreal AppController::zoomAt(qreal anchorX, qreal anchorY, qreal factor)
+{
+    // Exposes the anchor for the view to keep under the cursor; the sheet is
+    // centred, so the value is informational for QML's scrolling.
+    setZoom(m_zoom * factor);
+    return m_zoom;
 }
 
 void AppController::moveActiveLayer(int dx, int dy)
@@ -431,6 +440,15 @@ void AppController::selectAll()
 void AppController::invertSelection()
 {
     m_selection.invert();
+    emit selectionChanged();
+}
+
+void AppController::selectLayerContent()
+{
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+    m_selection.selectFromAlpha(
+        m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels());
     emit selectionChanged();
 }
 
@@ -553,7 +571,7 @@ void AppController::previewLayerOpacity(int index, int percent)
 {
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
-    // Live feedback only — the history entry is created once, on release.
+    // Live feedback only - the history entry is created once, on release.
     m_doc.layers()[static_cast<std::size_t>(index)]->setOpacity(
         static_cast<float>(percent) / 100.0F);
     rebuildFullComposite();
@@ -722,6 +740,66 @@ void AppController::clearCanvas()
     rebuildFullComposite();
 }
 
+bool AppController::canMergeDown() const
+{
+    return activeLayerIndex() > 0;
+}
+
+void AppController::mergeLayerDown()
+{
+    if (!canMergeDown())
+        return;
+    m_history.execute(std::make_unique<core::MergeLayerDownCommand>(
+        m_doc, static_cast<std::size_t>(activeLayerIndex())));
+    m_activeLayer = std::max(0, activeLayerIndex() - 1);
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::applyFilter(const QString& id)
+{
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    if (layer.isLocked() || layer.pixels().isEmpty())
+        return;
+
+    // Filter a working copy so the "before" patch comes from the untouched
+    // layer, then commit through the same command a stroke uses.
+    core::raster::RasterBuffer work = layer.pixels();
+    const core::raster::RasterBuffer original = layer.pixels();
+
+    core::geometry::Rect touched;
+    if (id == QLatin1String("invert"))
+        touched = canvas::filters::invert(work);
+    else if (id == QLatin1String("desaturate"))
+        touched = canvas::filters::desaturate(work);
+    else if (id == QLatin1String("blur"))
+        touched = canvas::filters::gaussianBlurApprox(work, 4);
+    else if (id == QLatin1String("brightness-contrast"))
+        touched = canvas::filters::brightnessContrast(work, 1.1F, 1.2F);
+    else
+        return;
+
+    if (touched.isEmpty())
+        return;
+
+    // A selection confines the filter; outside pixels come back untouched.
+    canvas::clipToSelection(work, m_selection, &original);
+
+    auto before = original.copyRect(touched.x, touched.y, touched.width, touched.height);
+    auto after = work.copyRect(touched.x, touched.y, touched.width, touched.height);
+
+    m_history.execute(std::make_unique<core::StrokeCommand>(
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+        touched.x, touched.y, id.toStdString()));
+
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
 // ----------------------------------------------------------------------- file
 
 void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight)
@@ -863,7 +941,7 @@ void AppController::setDocumentName(const QString& name)
 
 QString AppController::windowTitle() const
 {
-    return tr("%1 (%2 MiB) — Prism").arg(m_documentName).arg(documentMemoryMiB(), 0, 'f', 1);
+    return tr("%1 (%2 MiB) - Prism").arg(m_documentName).arg(documentMemoryMiB(), 0, 'f', 1);
 }
 
 // ------------------------------------------------------------------- stroking

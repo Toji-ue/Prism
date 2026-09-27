@@ -218,50 +218,6 @@ Rectangle {
                 }
             }
         }
-
-        // ---------------- Info panel ----------------
-        // (Krita's "News" column is intentionally dropped — see the request
-        // to keep the start page to start/recent/community.)
-        ColumnLayout {
-            Layout.preferredWidth: 240
-            Layout.fillHeight: true
-            spacing: 10
-
-            Text {
-                text: qsTr("About")
-                color: T.text
-                font.pixelSize: 21
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: T.windowAlt
-                border.color: T.border
-
-                Column {
-                    anchors.centerIn: parent
-                    anchors.margins: 16
-                    spacing: 10
-                    Text {
-                        width: 200
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                        text: qsTr("Prism %1").arg(page.controller.versionString())
-                        color: T.text
-                        font.pixelSize: 13
-                    }
-                    Text {
-                        width: 200
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                        text: qsTr("A native drawing app built with Qt and a custom brush engine.")
-                        color: T.textDim
-                        font.pixelSize: 11
-                    }
-                }
-            }
-        }
     }
 
     // ---------------- footer ----------------

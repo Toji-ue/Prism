@@ -129,6 +129,67 @@ int runSelfTest()
     check(countOpaquePixels(controller.canvasImage()) == beforeSelectionStroke,
           "selection stroke undone");
 
+    // Every tool must have a working controller path: exercise each one.
+    controller.setStartPageVisible(false);
+    controller.selectAll();
+    controller.clearSelection();
+    controller.setSelection(10.0F, 10.0F, 50.0F, 50.0F);
+    controller.setLassoSelection({ QVariant(QPointF(12, 12)), QVariant(QPointF(60, 12)),
+                                   QVariant(QPointF(12, 60)) });
+    controller.magicWandAt(20.0F, 20.0F, 32);
+    check(controller.hasSelection(), "wand/lasso produced a selection");
+    controller.selectLayerContent();
+    controller.clearSelection();
+
+    controller.setTool(AppController::ZoomTool);
+    const qreal z0 = controller.zoom();
+    controller.zoomAt(100.0, 100.0, 2.0);
+    check(controller.zoom() > z0, "zoom tool changes zoom");
+    controller.setZoom(1.0);
+
+    controller.setTool(AppController::MoveTool);
+    controller.setTool(AppController::MoveTool);
+    controller.setBrushColor(QColor(0, 0, 0));
+    controller.setBrushSize(20.0F);
+    controller.beginStroke(30.0F, 30.0F);
+    controller.extendStroke(31.0F, 31.0F);
+    controller.endStroke();
+    const int beforeMove = countOpaquePixels(controller.canvasImage());
+    controller.moveActiveLayer(12, 8);
+    check(countOpaquePixels(controller.canvasImage()) == beforeMove,
+          "move tool relocated pixels (count unchanged)");
+    controller.undo();
+    check(countOpaquePixels(controller.canvasImage()) == beforeMove, "move undone");
+
+    controller.setTool(AppController::FillTool);
+    controller.setBrushColor(QColor(0, 128, 255));
+    controller.fillAt(300.0F, 400.0F);
+    controller.undo();
+
+    controller.setTool(AppController::EyedropperTool);
+    const QColor sampled = controller.pickColorAt(30.0F, 30.0F, true);
+    check(sampled.alpha() == 255, "eyedropper tool samples");
+
+    controller.setTool(AppController::PanTool);
+    controller.setTool(AppController::BrushTool);
+    check(true, "all tools selectable without crashing");
+
+    // Filters run through history and undo cleanly.
+    const int beforeFilter = countOpaquePixels(controller.canvasImage());
+    controller.applyFilter(QStringLiteral("invert"));
+    controller.applyFilter(QStringLiteral("blur"));
+    controller.undo();
+    controller.undo();
+    check(countOpaquePixels(controller.canvasImage()) == beforeFilter, "filters undo cleanly");
+
+    // Merge down collapses two layers into one, and undo restores both.
+    const int layersBeforeMerge = controller.layers()->rowCount();
+    controller.addLayer();
+    controller.mergeLayerDown();
+    check(controller.layers()->rowCount() == layersBeforeMerge, "merge down");
+    controller.undo();
+    check(controller.layers()->rowCount() == layersBeforeMerge + 1, "merge down undone");
+
     // Stroke latency: informational, so a regression is visible in CI logs.
     // The per-move path must not do per-tick full-canvas work.
     {

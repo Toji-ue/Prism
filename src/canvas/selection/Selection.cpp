@@ -174,8 +174,33 @@ void Selection::selectSimilar(const RasterBuffer& source, int x, int y, int tole
     ++m_revision;
 }
 
-void Selection::recomputeBounds()
+void Selection::selectFromAlpha(const RasterBuffer& source)
 {
+    m_mask.fill(kTransparent);
+    if (source.isEmpty() || source.width() != m_mask.width()
+        || source.height() != m_mask.height()) {
+        m_empty = true;
+        m_bounds = {};
+        ++m_revision;
+        return;
+    }
+
+    bool any = false;
+    for (int y = 0; y < m_mask.height(); ++y) {
+        for (int x = 0; x < m_mask.width(); ++x) {
+            const std::uint8_t a = source.at(x, y).a;
+            if (a == 0)
+                continue;
+            m_mask.set(x, y, Color{ 255, 255, 255, a });
+            any = true;
+        }
+    }
+    m_empty = !any;
+    recomputeBounds();
+    ++m_revision;
+}
+
+void Selection::recomputeBounds(){
     int minX = m_mask.width(), minY = m_mask.height(), maxX = -1, maxY = -1;
     for (int y = 0; y < m_mask.height(); ++y) {
         for (int x = 0; x < m_mask.width(); ++x) {

@@ -126,6 +126,10 @@ public:
     int layerRevision() const { return m_layerRevision; }
     /// Multiplies the zoom (zoom tool click). \p out zooms out instead.
     Q_INVOKABLE void zoomStep(bool out);
+    /// Zooms while keeping the canvas point under the cursor pinned, which is
+    /// what makes the zoom tool feel anchored rather than jumping to centre.
+    /// \p anchorX / \p anchorY are canvas coordinates.
+    Q_INVOKABLE qreal zoomAt(qreal anchorX, qreal anchorY, qreal factor);
     /// Translates the active layer's content by (dx, dy) canvas pixels.
     Q_INVOKABLE void moveActiveLayer(int dx, int dy);
 
@@ -138,6 +142,8 @@ public:
     Q_INVOKABLE void clearSelection();
     Q_INVOKABLE void selectAll();
     Q_INVOKABLE void invertSelection();
+    /// Selects the active layer's opaque pixels (Krita's "Select Opaque").
+    Q_INVOKABLE void selectLayerContent();
     bool hasSelection() const;
     int selectionX() const;
     int selectionY() const;
@@ -191,6 +197,14 @@ public:
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void clearCanvas();
+    /// Merges the active layer into the one below it.
+    Q_INVOKABLE void mergeLayerDown();
+    /// True when the active layer has a layer below it.
+    Q_INVOKABLE bool canMergeDown() const;
+    /// Filter menu entry point. \p id is one of: invert, desaturate, blur,
+    /// brightness-contrast. Applies to the active layer, respecting the
+    /// selection and the layer lock; always one undo step.
+    Q_INVOKABLE void applyFilter(const QString& id);
 
     // --- file -------------------------------------------------------------
     Q_INVOKABLE bool saveProject(const QUrl& url);

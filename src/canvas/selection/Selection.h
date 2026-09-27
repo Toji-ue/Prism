@@ -42,6 +42,10 @@ public:
     /// \p tolerance becomes the selection.
     void selectSimilar(const RasterBuffer& source, int x, int y, int tolerance);
 
+    /// Select Opaque: every pixel of \p source with non-zero alpha, with the
+    /// alpha itself as coverage (Krita's "Select Opaque").
+    void selectFromAlpha(const RasterBuffer& source);
+
     /// Read-only mask access for rendering the marching-ants overlay.
     [[nodiscard]] const RasterBuffer& mask() const noexcept { return m_mask; }
     /// Bumped on every change, so QML can re-fetch the overlay image.

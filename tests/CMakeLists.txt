@@ -6,6 +6,7 @@ add_executable(core_tests
     TestColorMath.cpp
     TestCompositor.cpp
     TestDocument.cpp
+    TestFilters.cpp
     TestFloodFill.cpp
     TestGeometry.cpp
     TestHistory.cpp

@@ -142,6 +142,78 @@ Rectangle {
         }
     }
 
+    // ---- layer context menu (right click on a row) ----
+    Menu {
+        id: layerMenu
+        property int targetIndex: 0
+
+        MenuItem {
+            text: qsTr("New Layer")
+            onTriggered: controller.addLayer()
+        }
+        MenuItem {
+            text: qsTr("Duplicate Layer")
+            onTriggered: controller.duplicateLayer()
+        }
+        MenuItem {
+            text: qsTr("Merge with Layer Below")
+            enabled: layerMenu.targetIndex > 0
+            onTriggered: controller.mergeLayerDown()
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: qsTr("Move Layer Up")
+            onTriggered: controller.moveLayerUp()
+        }
+        MenuItem {
+            text: qsTr("Move Layer Down")
+            onTriggered: controller.moveLayerDown()
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: qsTr("Toggle Visibility")
+            onTriggered: {
+                const rows = controller.layers
+                const visible = rows.data(rows.index(layerMenu.targetIndex, 0),
+                                          LayerListModel.VisibleRole)
+                controller.setLayerVisible(layerMenu.targetIndex, !visible)
+            }
+        }
+        MenuItem {
+            text: qsTr("Toggle Lock")
+            onTriggered: {
+                const rows = controller.layers
+                const locked = rows.data(rows.index(layerMenu.targetIndex, 0),
+                                         LayerListModel.LockedRole)
+                controller.setLayerLocked(layerMenu.targetIndex, !locked)
+            }
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: qsTr("Select Layer Content")
+            onTriggered: {
+                controller.activeLayerIndex = layerMenu.targetIndex
+                controller.selectLayerContent()
+            }
+        }
+        MenuItem {
+            text: qsTr("Clear Layer")
+            onTriggered: {
+                controller.activeLayerIndex = layerMenu.targetIndex
+                controller.clearCanvas()
+            }
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: qsTr("Delete Layer")
+            enabled: controller.layers.rowCount() > 1
+            onTriggered: {
+                controller.activeLayerIndex = layerMenu.targetIndex
+                controller.deleteLayer()
+            }
+        }
+    }
+
     // ---- layer list ----
     ListView {
         id: list
@@ -157,13 +229,24 @@ Rectangle {
         model: controller.layers
 
         delegate: Rectangle {
+            id: layerRow
             width: list.width
             height: 28
             color: controller.activeLayerIndex === index ? T.highlight : "transparent"
 
+            // Left click selects; right click opens the layer context menu
+            // (Krita's layer menu: new / duplicate / merge / move / remove).
             MouseArea {
                 anchors.fill: parent
-                onClicked: controller.activeLayerIndex = index
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onClicked: mouse => {
+                    controller.activeLayerIndex = index
+                    if (mouse.button === Qt.RightButton) {
+                        layerMenu.targetIndex = index
+                        layerMenu.parent = layerRow
+                        layerMenu.open()
+                    }
+                }
             }
 
             Row {

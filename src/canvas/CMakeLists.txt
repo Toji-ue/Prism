@@ -11,6 +11,8 @@ add_library(prism_canvas STATIC
     brush/BrushPresets.h
     fill/FloodFill.cpp
     fill/FloodFill.h
+    filters/Filters.cpp
+    filters/Filters.h
     selection/Selection.cpp
     selection/Selection.h)
 

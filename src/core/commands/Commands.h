@@ -124,6 +124,28 @@ private:
     raster::RasterBuffer m_after;
 };
 
+/// Merges a layer into the one below it (Krita's "Merge with Layer Below"):
+/// the upper layer is composited onto the lower with its blend mode and
+/// opacity, then removed. Undo restores both layers exactly.
+class MergeLayerDownCommand final : public Command {
+public:
+    /// \p upperIndex must have a layer below it.
+    MergeLayerDownCommand(Document& doc, std::size_t upperIndex);
+
+    const char* description() const override { return "Merge with layer below"; }
+
+    void undo() override;
+    void redo() override;
+
+private:
+    Document& m_doc;
+    std::size_t m_upperIndex;
+    raster::RasterBuffer m_lowerBefore;
+    /// The merged result, computed once so redo is deterministic.
+    raster::RasterBuffer m_merged;
+    std::unique_ptr<Layer> m_upper;
+};
+
 /// Moves a raster layer's whole content by (dx, dy) pixels. Undo restores
 /// the pre-move pixels exactly (one full-buffer snapshot).
 class MoveLayerContentCommand final : public Command {

@@ -90,11 +90,11 @@ ApplicationWindow {
     menuBar: MenuBar {
         Menu {
             title: qsTr("&File")
-            Action { text: qsTr("&New…\tCtrl+N"); onTriggered: newDocDialog.open() }
-            Action { text: qsTr("&Open…\tCtrl+O"); onTriggered: openDialog.open() }
+            Action { text: qsTr("&New...\tCtrl+N"); onTriggered: newDocDialog.open() }
+            Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
             MenuSeparator {}
             Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
-            Action { text: qsTr("&Export PNG…\tCtrl+E"); onTriggered: exportDialog.open() }
+            Action { text: qsTr("&Export PNG...\tCtrl+E"); onTriggered: exportDialog.open() }
             MenuSeparator {}
             Action {
                 text: qsTr("&Start Page")
@@ -127,7 +127,7 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Image")
-            Action { text: qsTr("Resize Canvas…"); enabled: false }
+            Action { text: qsTr("Resize Canvas..."); enabled: false }
             Action { text: qsTr("Canvas Information"); enabled: false }
         }
         Menu {
@@ -147,8 +147,13 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("Fi&lter")
-            Action { text: qsTr("Blur"); enabled: false }
-            Action { text: qsTr("Sharpen"); enabled: false }
+            Action { text: qsTr("&Invert"); onTriggered: controller.applyFilter("invert") }
+            Action { text: qsTr("&Desaturate"); onTriggered: controller.applyFilter("desaturate") }
+            Action { text: qsTr("&Blur"); onTriggered: controller.applyFilter("blur") }
+            Action {
+                text: qsTr("&Brightness / Contrast")
+                onTriggered: controller.applyFilter("brightness-contrast")
+            }
         }
         Menu {
             title: qsTr("&Tools")
@@ -159,7 +164,7 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Settings")
-            Action { text: qsTr("Preferences…"); enabled: false }
+            Action { text: qsTr("Preferences..."); enabled: false }
         }
         Menu {
             title: qsTr("&Window")
@@ -309,7 +314,7 @@ ApplicationWindow {
                 value: Math.round(controller.brushSize)
                 onValueModified: v => controller.brushSize = v
             }
-            // Direct size slider � the fastest way to size a brush.
+            // Direct size slider - the fastest way to size a brush.
             PSlider {
                 Layout.preferredWidth: 110
                 from: 1; to: 120
@@ -403,7 +408,11 @@ ApplicationWindow {
                 contentHeight: Math.max(canvasSheet.height, flick.height)
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                interactive: controller.tool === AppController.PanTool
+                // Panning is handled explicitly by the canvas MouseArea (and by
+                // the middle mouse button with any tool). Leaving the Flickable
+                // interactive made it steal drags and fight that logic, which
+                // is why the Pan tool felt dead.
+                interactive: false
 
                 Item {
                     width: flick.contentWidth
@@ -430,7 +439,7 @@ ApplicationWindow {
                             controller: root.controller
                         }
 
-                        // Selection tint � works for any shape (rect, lasso,
+                        // Selection tint - works for any shape (rect, lasso,
                         // magic wand) because it renders the selection mask.
                         Image {
                             anchors.fill: parent
@@ -665,7 +674,7 @@ ApplicationWindow {
         }
 
         // right: dockers. Heights are proportional so all three always fit
-        // the available column — each docker scrolls its own content.
+        // the available column - each docker scrolls its own content.
         Rectangle {
             id: dockerArea
             Layout.preferredWidth: T.dockerWidth
@@ -711,7 +720,7 @@ ApplicationWindow {
             spacing: 12
 
             Text {
-                text: root.toolHint + "  ·  " + controller.brushName
+                text: root.toolHint + "  -  " + controller.brushName
                 color: T.text
                 font.pixelSize: 11
             }
@@ -723,18 +732,18 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             Text {
-                text: qsTr("%1 × %2 px").arg(controller.canvasWidth).arg(controller.canvasHeight)
+                text: qsTr("%1 ?- %2 px").arg(controller.canvasWidth).arg(controller.canvasHeight)
                 color: T.textDim
                 font.pixelSize: 11
             }
             Text {
-                text: qsTr("Selection: %1 × %2").arg(controller.selectionW).arg(controller.selectionH)
+                text: qsTr("Selection: %1 ?- %2").arg(controller.selectionW).arg(controller.selectionH)
                 visible: controller.hasSelection
                 color: T.highlight
                 font.pixelSize: 11
             }
             Text {
-                text: qsTr("0.00°")
+                text: qsTr("0.00deg")
                 color: T.textDim
                 font.pixelSize: 11
             }
