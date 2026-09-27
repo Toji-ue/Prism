@@ -53,16 +53,42 @@ public:
     /// Canvas tools shown in the left toolbox. Only a subset is implemented
     /// today; the rest are presented but inert until their code lands.
     enum Tool {
+        // --- paint ---
         BrushTool = 0,
         EraserTool,
+        LineTool,
+        RectangleTool,
+        EllipseTool,
+        GradientTool,
         FillTool,
         EyedropperTool,
+        // --- view ---
         PanTool,
         ZoomTool,
+        // --- selection ---
         RectSelectTool,
-        MoveTool,
+        EllipseSelectTool,
         LassoSelectTool,
+        PolygonSelectTool,
         MagicWandTool,
+        SimilarColorSelectTool,
+        // --- edit ---
+        MoveTool,
+        // --- not implemented yet: shown disabled in the toolbox ---
+        TextTool,
+        PolylineTool,
+        BezierTool,
+        FreehandPathTool,
+        ArcTool,
+        MultiBrushTool,
+        DynamicBrushTool,
+        BezierSelectTool,
+        MagneticSelectTool,
+        OutlineSelectTool,
+        ContiguousSelectTool,
+        TransformTool,
+        CropTool,
+        PatternTool,
     };
     Q_ENUM(Tool)
 
@@ -133,8 +159,28 @@ public:
     /// Translates the active layer's content by (dx, dy) canvas pixels.
     Q_INVOKABLE void moveActiveLayer(int dx, int dy);
 
+    // --- shape tools (drag to draw) ---------------------------------------
+    /// Press: remembers the anchor and starts a shape preview.
+    Q_INVOKABLE void beginShape(float x, float y);
+    /// Drag: redraws the preview from the anchor to (x, y).
+    Q_INVOKABLE void updateShape(float x, float y);
+    /// Release: commits the shape through History.
+    Q_INVOKABLE void endShape();
+    /// When true, rectangle/ellipse paint a solid interior.
+    Q_INVOKABLE void setShapeFilled(bool filled);
+    Q_INVOKABLE bool shapeFilled() const { return m_shapeFilled; }
+
+    /// Fills the New Document dialog's size fields from the clipboard image
+    /// (Krita's "Create from Clipboard").
+    Q_INVOKABLE QSize clipboardImageSize() const;
+
+    /// Similar-colour selection anywhere on the canvas (not region-limited).
+    Q_INVOKABLE void similarColorAt(float x, float y, int tolerance);
+
     // --- selection --------------------------------------------------------
     Q_INVOKABLE void setSelection(float x, float y, float w, float h);
+    /// Elliptical marquee (same drag as the rectangular one).
+    Q_INVOKABLE void setEllipseSelection(float x, float y, float w, float h);
     /// Freehand lasso: \p points is a list of QPointF in canvas coordinates.
     Q_INVOKABLE void setLassoSelection(const QVariantList& points);
     /// Magic wand: selects the connected similar-color region under (x, y).
@@ -273,6 +319,11 @@ private:
     /// Active selection in canvas pixels; empty means "no selection".
     /// Active selection. Mask-based so lasso and magic wand work too.
     prism::canvas::Selection m_selection;
+    /// Shape-tool drag state (line / rectangle / ellipse / gradient).
+    prism::core::geometry::Point m_shapeStart;
+    prism::core::geometry::Point m_shapeEnd;
+    bool m_shapeActive = false;
+    bool m_shapeFilled = false;
     bool m_mirrorH = false;
     bool m_mirrorV = false;
     bool m_startPageVisible = true;

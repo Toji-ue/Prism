@@ -14,7 +14,9 @@ add_library(prism_canvas STATIC
     filters/Filters.cpp
     filters/Filters.h
     selection/Selection.cpp
-    selection/Selection.h)
+    selection/Selection.h
+    shapes/Shapes.cpp
+    shapes/Shapes.h)
 
 add_library(Prism::canvas ALIAS prism_canvas)
 

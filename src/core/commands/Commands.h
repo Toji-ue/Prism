@@ -53,6 +53,9 @@ private:
     int m_rectX;
     int m_rectY;
     std::string m_label = "Brush stroke";
+    /// true = the patch replaces the rect (erase/filter/shape/fill);
+    /// false = the patch is painted over it (brush stroke).
+    bool m_replace = false;
     raster::RasterBuffer m_before;
     raster::RasterBuffer m_after;
 };

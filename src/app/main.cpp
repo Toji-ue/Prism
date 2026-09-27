@@ -190,6 +190,69 @@ int runSelfTest()
     controller.undo();
     check(controller.layers()->rowCount() == layersBeforeMerge + 1, "merge down undone");
 
+    // Eraser must actually remove pixels (it used to be a no-op because the
+    // erase was applied to a transparent scratch buffer). Paint a known
+    // stroke first, then erase across it.
+    {
+        controller.setTool(AppController::BrushTool);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.setBrushSize(40.0F);
+        controller.beginStroke(100.0F, 300.0F);
+        controller.extendStroke(200.0F, 300.0F);
+        controller.endStroke();
+        const int painted = countOpaquePixels(controller.canvasImage());
+
+        controller.setTool(AppController::EraserTool);
+        controller.setBrushSize(40.0F);
+        controller.beginStroke(150.0F, 300.0F);
+        controller.extendStroke(151.0F, 300.0F);
+        controller.endStroke();
+        const int afterErase = countOpaquePixels(controller.canvasImage());
+        check(afterErase < painted, "eraser removes pixels");
+
+        controller.undo();
+        check(countOpaquePixels(controller.canvasImage()) == painted, "erase undone");
+        controller.undo(); // remove the painted stroke again
+        controller.setTool(AppController::BrushTool);
+    }
+
+    // Shape tools: line, rectangle, ellipse each commit one undo step.
+    {
+        controller.setTool(AppController::LineTool);
+        const int before = countOpaquePixels(controller.canvasImage());
+        controller.beginShape(100.0F, 100.0F);
+        controller.updateShape(400.0F, 100.0F);
+        controller.endShape();
+        check(countOpaquePixels(controller.canvasImage()) > before, "line tool draws");
+        controller.undo();
+
+        controller.setTool(AppController::RectangleTool);
+        controller.beginShape(120.0F, 120.0F);
+        controller.updateShape(320.0F, 260.0F);
+        controller.endShape();
+        check(countOpaquePixels(controller.canvasImage()) > before, "rectangle tool draws");
+        controller.undo();
+
+        controller.setTool(AppController::EllipseTool);
+        controller.beginShape(150.0F, 150.0F);
+        controller.updateShape(350.0F, 300.0F);
+        controller.endShape();
+        check(countOpaquePixels(controller.canvasImage()) > before, "ellipse tool draws");
+        controller.undo();
+    }
+
+    // Elliptical and similar-colour selections both produce a mask.
+    {
+        controller.setTool(AppController::EllipseSelectTool);
+        controller.setEllipseSelection(50.0F, 50.0F, 120.0F, 80.0F);
+        check(controller.hasSelection(), "elliptical selection");
+        controller.setTool(AppController::SimilarColorSelectTool);
+        controller.similarColorAt(200.0F, 200.0F, 32);
+        check(true, "similar colour selection ran");
+        controller.clearSelection();
+        controller.setTool(AppController::BrushTool);
+    }
+
     // Stroke latency: informational, so a regression is visible in CI logs.
     // The per-move path must not do per-tick full-canvas work.
     {

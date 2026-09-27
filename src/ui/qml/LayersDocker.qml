@@ -85,7 +85,7 @@ Rectangle {
         anchors.margins: 6
         spacing: 4
 
-        ComboBox {
+        PComboBox {
             id: blendCombo
             width: parent.width
             height: 22

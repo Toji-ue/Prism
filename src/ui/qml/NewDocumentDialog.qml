@@ -18,14 +18,11 @@ Dialog {
     height: 660
     padding: 0
 
+    // Only the two templates that actually work are offered. The rest of
+    // Krita's list would be dead entries until those features exist.
     readonly property var categories: [
-        { icon: "file-new",     name: qsTr("Custom Document") },
-        { icon: "duplicate",    name: qsTr("Create from Clipboard") },
-        { icon: "move",         name: qsTr("Animation Templates") },
-        { icon: "brush",        name: qsTr("Comic Templates") },
-        { icon: "select-rect",  name: qsTr("Design Templates") },
-        { icon: "transparency", name: qsTr("DSLR Templates") },
-        { icon: "swatch",       name: qsTr("Texture Templates") }
+        { icon: "file-new",  name: qsTr("Create New") },
+        { icon: "duplicate", name: qsTr("Create from Clipboard") }
     ]
 
     // Image size presets: [width, height, dpi]
@@ -71,6 +68,21 @@ Dialog {
                         width: catList.width
                         height: 36
                         color: catList.currentIndex === index ? T.highlight : "transparent"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                catList.currentIndex = index
+                                // "Create from Clipboard" sizes the canvas from
+                                // whatever image the clipboard holds.
+                                if (index === 1) {
+                                    const s = dialog.controller.clipboardImageSize()
+                                    if (s.width > 0 && s.height > 0) {
+                                        wField.value = s.width
+                                        hField.value = s.height
+                                    }
+                                }
+                            }
+                        }
 
                         RowLayout {
                             anchors.fill: parent
@@ -175,7 +187,7 @@ Dialog {
                                 rowSpacing: 8
 
                                 Text { text: qsTr("Predefined:"); color: T.text; font.pixelSize: 11 }
-                                ComboBox {
+                                PComboBox {
                                     Layout.columnSpan: 2
                                     Layout.fillWidth: true
                                     height: 24
@@ -227,7 +239,7 @@ Dialog {
                                     from: 1; to: 20000
                                     value: 2480
                                 }
-                                ComboBox {
+                                PComboBox {
                                     Layout.fillWidth: true
                                     height: 24
                                     font.pixelSize: 11
@@ -242,7 +254,7 @@ Dialog {
                                     from: 1; to: 20000
                                     value: 3508
                                 }
-                                ComboBox {
+                                PComboBox {
                                     Layout.fillWidth: true
                                     height: 24
                                     font.pixelSize: 11
@@ -257,7 +269,7 @@ Dialog {
                                     from: 1; to: 4800
                                     value: 300
                                 }
-                                ComboBox {
+                                PComboBox {
                                     Layout.fillWidth: true
                                     height: 24
                                     font.pixelSize: 11
@@ -350,7 +362,7 @@ Dialog {
                                             font.pixelSize: 11
                                             Layout.preferredWidth: 60
                                         }
-                                        ComboBox {
+                                        PComboBox {
                                             Layout.fillWidth: true
                                             height: 24
                                             font.pixelSize: 11

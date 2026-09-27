@@ -468,6 +468,188 @@ Canvas {
             ctx.fill()
             break
 
+        case "line":
+            ctx.beginPath()
+            ctx.moveTo(2.5, 13.5)
+            ctx.lineTo(13.5, 2.5)
+            ctx.stroke()
+            break
+
+        case "ellipse":
+            ctx.beginPath()
+            ctx.ellipse(8, 8, 5.5, 4, 0, 0, Math.PI * 2)
+            ctx.stroke()
+            break
+
+        case "gradient":
+            for (var gi = 0; gi < 4; ++gi) {
+                ctx.beginPath()
+                ctx.rect(2.5 + gi * 3, 3.5, 2, 9)
+                ctx.globalAlpha = 1 - gi * 0.25
+                ctx.fill()
+            }
+            ctx.globalAlpha = 1
+            break
+
+        case "polygon":
+            ctx.beginPath()
+            ctx.moveTo(8, 2.5)
+            ctx.lineTo(14, 7)
+            ctx.lineTo(11.5, 14)
+            ctx.lineTo(4.5, 14)
+            ctx.lineTo(2, 7)
+            ctx.closePath()
+            ctx.stroke()
+            break
+
+        case "polyline":
+            ctx.beginPath()
+            ctx.moveTo(2.5, 11)
+            ctx.lineTo(6, 5.5)
+            ctx.lineTo(9.5, 10)
+            ctx.lineTo(13.5, 4)
+            ctx.stroke()
+            break
+
+        case "bezier":
+            ctx.beginPath()
+            ctx.moveTo(2, 12)
+            ctx.bezierCurveTo(5, 2, 11, 14, 14, 4)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.arc(2, 12, 1.6, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.beginPath()
+            ctx.arc(14, 4, 1.6, 0, Math.PI * 2)
+            ctx.fill()
+            break
+
+        case "path":
+            ctx.beginPath()
+            ctx.moveTo(2.5, 13)
+            ctx.quadraticCurveTo(5, 3, 8, 8)
+            ctx.quadraticCurveTo(11, 13, 13.5, 3.5)
+            ctx.stroke()
+            break
+
+        case "arc":
+            ctx.beginPath()
+            ctx.arc(8, 10, 5.5, Math.PI, Math.PI * 2)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(2.5, 10)
+            ctx.lineTo(13.5, 10)
+            ctx.stroke()
+            break
+
+        case "multibrush":
+            ctx.beginPath()
+            ctx.moveTo(3, 13)
+            ctx.lineTo(8, 3)
+            ctx.moveTo(8, 13)
+            ctx.lineTo(13, 3)
+            ctx.moveTo(5.5, 8)
+            ctx.lineTo(10.5, 8)
+            ctx.stroke()
+            break
+
+        case "dynamic":
+            ctx.beginPath()
+            ctx.moveTo(2.5, 10)
+            ctx.quadraticCurveTo(6, 2, 9, 9)
+            ctx.quadraticCurveTo(11, 13, 13.5, 5)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.arc(9, 9, 1.8, 0, Math.PI * 2)
+            ctx.fill()
+            break
+
+        case "similar":
+            ctx.beginPath()
+            ctx.rect(2.5, 2.5, 6, 6)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.rect(7.5, 7.5, 6, 6)
+            ctx.stroke()
+            break
+
+        case "magnetic":
+            ctx.beginPath()
+            ctx.moveTo(3, 13)
+            ctx.quadraticCurveTo(4, 4, 8, 4.5)
+            ctx.quadraticCurveTo(12.5, 5, 13, 12)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(3, 13)
+            ctx.lineTo(3.5, 9)
+            ctx.moveTo(13, 12)
+            ctx.lineTo(12.5, 8)
+            ctx.stroke()
+            break
+
+        case "outline":
+            ctx.beginPath()
+            ctx.moveTo(8, 2)
+            ctx.lineTo(8, 6)
+            ctx.moveTo(8, 10)
+            ctx.lineTo(8, 14)
+            ctx.moveTo(2, 8)
+            ctx.lineTo(6, 8)
+            ctx.moveTo(10, 8)
+            ctx.lineTo(14, 8)
+            ctx.stroke()
+            break
+
+        case "transform":
+            ctx.beginPath()
+            ctx.rect(3.5, 3.5, 9, 9)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(3.5, 3.5)
+            ctx.lineTo(6, 3.5)
+            ctx.moveTo(3.5, 3.5)
+            ctx.lineTo(3.5, 6)
+            ctx.moveTo(12.5, 12.5)
+            ctx.lineTo(10, 12.5)
+            ctx.moveTo(12.5, 12.5)
+            ctx.lineTo(12.5, 10)
+            ctx.stroke()
+            break
+
+        case "crop":
+            ctx.beginPath()
+            ctx.moveTo(4.5, 1.5)
+            ctx.lineTo(4.5, 11.5)
+            ctx.lineTo(14.5, 11.5)
+            ctx.moveTo(1.5, 4.5)
+            ctx.lineTo(11.5, 4.5)
+            ctx.lineTo(11.5, 14.5)
+            ctx.stroke()
+            break
+
+        case "pattern":
+            ctx.beginPath()
+            ctx.rect(2.5, 2.5, 11, 11)
+            ctx.stroke()
+            for (var pi = 0; pi < 3; ++pi) {
+                ctx.beginPath()
+                ctx.arc(5 + pi * 3, 6, 1.1, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.beginPath()
+                ctx.arc(6.5 + pi * 3, 10, 1.1, 0, Math.PI * 2)
+                ctx.fill()
+            }
+            break
+
+        case "text":
+            ctx.beginPath()
+            ctx.moveTo(3, 3.5)
+            ctx.lineTo(13, 3.5)
+            ctx.moveTo(8, 3.5)
+            ctx.lineTo(8, 13)
+            ctx.stroke()
+            break
+
         case "chevron-down":
             ctx.beginPath()
             ctx.moveTo(4.5, 6.5)

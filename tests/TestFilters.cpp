@@ -82,6 +82,40 @@ TEST_F(FilterTest, BrightnessContrastIdentityKeepsValues)
     EXPECT_NEAR(c.b, 200, 1);
 }
 
+// A replacement patch must be able to REMOVE alpha. Compositing it
+// source-over silently discarded every erase — the bug that made the eraser
+// look broken while strokes kept working.
+TEST_F(FilterTest, ReplacementPatchCanRemoveAlpha)
+{
+    layer().pixels().set(4, 4, raster::kOpaqueWhite);
+    const auto before = layer().pixels().copyRect(4, 4, 1, 1);
+
+    raster::RasterBuffer after(1, 1);
+    after.set(0, 0, raster::kTransparent);
+
+    history.execute(std::make_unique<StrokeCommand>(doc, 0, before, after, 4, 4, "Erase"));
+    EXPECT_EQ(layer().pixels().at(4, 4), raster::kTransparent);
+
+    history.undo();
+    EXPECT_EQ(layer().pixels().at(4, 4), raster::kOpaqueWhite);
+    history.redo();
+    EXPECT_EQ(layer().pixels().at(4, 4), raster::kTransparent);
+}
+
+// Paint patches still blend over what is underneath (soft brush edges).
+TEST_F(FilterTest, PaintPatchCompositesOverExisting)
+{
+    layer().pixels().set(2, 2, raster::Color{ 0, 0, 0, 255 });
+    raster::RasterBuffer painted(1, 1);
+    painted.set(0, 0, raster::Color{ 255, 255, 255, 128 }); // half-alpha white
+
+    history.execute(std::make_unique<StrokeCommand>(doc, 0, std::move(painted), 2, 2));
+    const auto c = layer().pixels().at(2, 2);
+    // White over black at 50% => mid grey, and alpha stays opaque.
+    EXPECT_NEAR(c.r, 128, 2);
+    EXPECT_EQ(c.a, 255);
+}
+
 // ------------------------------------------------------------- merge down
 
 TEST_F(FilterTest, MergeDownCompositesUpperOntoLower)

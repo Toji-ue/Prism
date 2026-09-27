@@ -7,9 +7,12 @@
 #include "layer/Layer.h"
 #include "project/ProjectIO.h"
 #include "selection/Selection.h"
+#include "shapes/Shapes.h"
 
 #include <QCoreApplication>
+#include <QClipboard>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QSettings>
 
 #include <algorithm>
@@ -450,6 +453,130 @@ void AppController::selectLayerContent()
     m_selection.selectFromAlpha(
         m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels());
     emit selectionChanged();
+}
+
+void AppController::setEllipseSelection(float x, float y, float w, float h)
+{
+    const auto s = m_doc.canvasSize();
+    const int x0 = std::clamp(static_cast<int>(std::floor(std::min(x, x + w))), 0, s.width);
+    const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, s.height);
+    const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, s.width);
+    const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, s.height);
+    m_selection.selectEllipse(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
+    emit selectionChanged();
+}
+
+void AppController::similarColorAt(float x, float y, int tolerance)
+{
+    m_selection.selectSimilarGlobal(m_compositor.result(), static_cast<int>(std::floor(x)),
+                                    static_cast<int>(std::floor(y)), tolerance);
+    emit selectionChanged();
+}
+
+// ------------------------------------------------------------ shape tools
+
+void AppController::beginShape(float x, float y)
+{
+    m_shapeStart = core::geometry::Point{ static_cast<int>(std::floor(x)),
+                                          static_cast<int>(std::floor(y)) };
+    m_shapeEnd = m_shapeStart;
+    m_shapeActive = true;
+    m_preview.fill(core::raster::kTransparent);
+    m_strokeDirty = {};
+}
+
+void AppController::updateShape(float x, float y)
+{
+    if (!m_shapeActive)
+        return;
+    const auto previous = m_strokeDirty;
+    m_shapeEnd = core::geometry::Point{ static_cast<int>(std::floor(x)),
+                                        static_cast<int>(std::floor(y)) };
+
+    // Redraw the preview from scratch (a shape is replaced, not accumulated).
+    m_preview.fill(core::raster::kTransparent);
+    const canvas::ShapeKind kind =
+        m_tool == Tool::LineTool       ? canvas::ShapeKind::Line
+        : m_tool == Tool::RectangleTool ? canvas::ShapeKind::Rectangle
+                                        : canvas::ShapeKind::Ellipse;
+    const auto shapeRect =
+        canvas::rasterizeShape(m_preview, kind, m_shapeStart, m_shapeEnd, m_brush, m_shapeFilled);
+
+    // Repaint the union of where the shape was and where it is now, so the
+    // stale outline is erased from the screen.
+    core::geometry::Rect dirty = shapeRect;
+    if (!previous.isEmpty()) {
+        dirty = core::geometry::Rect{
+            std::min(previous.x, shapeRect.x), std::min(previous.y, shapeRect.y),
+            std::max(previous.x + previous.width, shapeRect.x + shapeRect.width)
+                - std::min(previous.x, shapeRect.x),
+            std::max(previous.y + previous.height, shapeRect.y + shapeRect.height)
+                - std::min(previous.y, shapeRect.y) };
+    }
+    m_strokeDirty = shapeRect;
+    const auto composited = m_compositor.composite(dirty, &m_preview);
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+}
+
+void AppController::endShape()
+{
+    if (!m_shapeActive)
+        return;
+    m_shapeActive = false;
+    m_preview.fill(core::raster::kTransparent);
+
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size())) {
+        rebuildFullComposite();
+        return;
+    }
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    if (layer.isLocked()) {
+        rebuildFullComposite();
+        return;
+    }
+
+    // Draw on a copy of the layer so the "before" patch stays accurate, then
+    // commit with the same command the brush uses.
+    const core::raster::RasterBuffer original = layer.pixels();
+    core::raster::RasterBuffer work = original;
+
+    core::geometry::Rect rect;
+    if (m_tool == Tool::GradientTool) {
+        rect = canvas::linearGradient(work, m_shapeStart, m_shapeEnd, m_brush.color,
+                                      core::raster::kTransparent);
+    } else {
+        const canvas::ShapeKind kind =
+            m_tool == Tool::LineTool       ? canvas::ShapeKind::Line
+            : m_tool == Tool::RectangleTool ? canvas::ShapeKind::Rectangle
+                                            : canvas::ShapeKind::Ellipse;
+        rect = canvas::rasterizeShape(work, kind, m_shapeStart, m_shapeEnd, m_brush, m_shapeFilled);
+    }
+
+    if (rect.isEmpty()) {
+        rebuildFullComposite();
+        return;
+    }
+    canvas::clipToSelection(work, m_selection, &original);
+
+    auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
+    auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
+    m_history.execute(std::make_unique<core::StrokeCommand>(
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+        rect.x, rect.y, m_tool == Tool::GradientTool ? "Gradient" : "Shape"));
+
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::setShapeFilled(bool filled)
+{
+    m_shapeFilled = filled;
+}
+
+QSize AppController::clipboardImageSize() const
+{
+    const QImage image = QGuiApplication::clipboard()->image();
+    return image.isNull() ? QSize() : image.size();
 }
 
 QImage AppController::selectionOverlay() const
@@ -992,17 +1119,50 @@ void AppController::endStroke()
         return;
 
     auto& activeLayer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    if (activeLayer.isLocked()) {
+        // Locked layers swallow the edit rather than silently ignoring lock.
+        m_currentStroke.clear();
+        m_preview.fill(core::raster::kTransparent);
+        rebuildFullComposite();
+        return;
+    }
 
-    // Re-paint the full stroke fresh into the scratch (the accumulated
-    // preview is identical, but a clean repaint keeps snapshots consistent).
-    // Note: the point list must survive until after the paint call.
+    if (m_brush.erase) {
+        // Erasing subtracts from the layer's own pixels. The preview scratch
+        // starts transparent, so "erasing" into it is a no-op — the erase has
+        // to run against a copy of the layer. Deciding this BEFORE painting is
+        // what makes the eraser work.
+        const core::raster::RasterBuffer original = activeLayer.pixels();
+        core::raster::RasterBuffer work = original;
+        const auto rect = canvas::BrushStroke::paint(work, m_brush, m_currentStroke);
+        m_currentStroke.clear();
+        m_preview.fill(core::raster::kTransparent);
+
+        if (rect.isEmpty()) {
+            rebuildFullComposite();
+            return;
+        }
+        canvas::clipToSelection(work, m_selection, &original);
+
+        auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
+        auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
+        m_history.execute(std::make_unique<core::StrokeCommand>(
+            m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+            rect.x, rect.y, "Erase"));
+        emit historyChanged();
+        rebuildFullComposite();
+        return;
+    }
+
+    // Paint stroke: repaint the full stroke fresh into the scratch (the
+    // accumulated preview is identical, but a clean repaint keeps the
+    // before/after snapshots consistent).
     core::raster::RasterBuffer scratch(m_doc.canvasSize().width, m_doc.canvasSize().height);
     const auto rect = canvas::BrushStroke::paint(scratch, m_brush, m_currentStroke);
     m_currentStroke.clear();
     m_preview.fill(core::raster::kTransparent);
 
-    if (activeLayer.isLocked() || rect.isEmpty()) {
-        // Locked layers swallow the edit rather than silently ignoring lock.
+    if (rect.isEmpty()) {
         rebuildFullComposite();
         return;
     }

@@ -34,7 +34,7 @@ void CanvasView::paint(QPainter* painter)
     if (!m_controller)
         return;
     QImage canvas = m_controller->canvasImage();
-    if (canvas.isNull())
+    if (canvas.isNull() || width() <= 0 || height() <= 0)
         return;
 
     // View mirroring: the artist asked to see the canvas flipped. Input
@@ -44,10 +44,31 @@ void CanvasView::paint(QPainter* painter)
                                  m_controller->mirrorVertical());
 
     // Scale the canvas pixels to the item's zoomed size. Drawing the image
-    // 1:1 (the previous behaviour) showed only a crop of the canvas whenever
+    // 1:1 (an earlier bug) showed only a crop of the canvas whenever
     // zoom != 100%, which made every stroke land in the wrong place.
-    painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    painter->drawImage(QRectF(0.0, 0.0, width(), height()), canvas);
+    //
+    // Only the region Qt actually asked to repaint is rasterized: partial
+    // updates pass a clip, and scaling the whole 1M-pixel canvas per stroke
+    // tick was a large part of the remaining input lag.
+    QRect target = painter->clipBoundingRect().toAlignedRect()
+                       .intersected(QRect(0, 0, static_cast<int>(width()),
+                                          static_cast<int>(height())));
+    if (target.isEmpty())
+        target = QRect(0, 0, static_cast<int>(width()), static_cast<int>(height()));
+
+    const qreal sx = static_cast<qreal>(canvas.width()) / width();
+    const qreal sy = static_cast<qreal>(canvas.height()) / height();
+    QRect source(static_cast<int>(target.x() * sx), static_cast<int>(target.y() * sy),
+                 static_cast<int>(target.width() * sx) + 1,
+                 static_cast<int>(target.height() * sy) + 1);
+    source = source.intersected(QRect(0, 0, canvas.width(), canvas.height()));
+    if (source.isEmpty())
+        return;
+
+    // Smoothing only pays off when zooming out; at 100%+ nearest is cheaper
+    // and crisper for pixel work.
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, m_controller->zoom() < 1.0);
+    painter->drawImage(target, canvas, source);
 }
 
 void CanvasView::onCanvasChanged(int x, int y, int w, int h)

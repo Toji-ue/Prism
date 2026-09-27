@@ -88,6 +88,8 @@ ApplicationWindow {
 
     // ---------------- menu bar ----------------
     menuBar: MenuBar {
+        // Everything except the ways to open a document is inert while the
+        // start page is up, so menu entries that need a canvas are disabled.
         Menu {
             title: qsTr("&File")
             Action { text: qsTr("&New...\tCtrl+N"); onTriggered: newDocDialog.open() }
@@ -105,6 +107,7 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Edit")
+            enabled: !controller.startPageVisible
             Action {
                 text: qsTr("&Undo\tCtrl+Z")
                 enabled: controller.canUndo
@@ -120,6 +123,7 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&View")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("Zoom &In"); onTriggered: controller.zoom = Math.min(8, controller.zoom * 1.25) }
             Action { text: qsTr("Zoom &Out"); onTriggered: controller.zoom = Math.max(0.05, controller.zoom / 1.25) }
             Action { text: qsTr("&100%"); onTriggered: controller.zoom = 1.0 }
@@ -127,11 +131,13 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Image")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("Resize Canvas..."); enabled: false }
             Action { text: qsTr("Canvas Information"); enabled: false }
         }
         Menu {
             title: qsTr("&Layer")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("&New Layer\tCtrl+Shift+N"); onTriggered: controller.addLayer() }
             Action { text: qsTr("&Duplicate Layer"); onTriggered: controller.duplicateLayer() }
             Action { text: qsTr("&Delete Layer"); onTriggered: controller.deleteLayer() }
@@ -141,12 +147,14 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Select")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("Select &All\tCtrl+A"); onTriggered: controller.selectAll() }
             Action { text: qsTr("&Deselect\tCtrl+D"); onTriggered: controller.clearSelection() }
             Action { text: qsTr("&Invert Selection\tCtrl+Shift+I"); onTriggered: controller.invertSelection() }
         }
         Menu {
             title: qsTr("Fi&lter")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("&Invert"); onTriggered: controller.applyFilter("invert") }
             Action { text: qsTr("&Desaturate"); onTriggered: controller.applyFilter("desaturate") }
             Action { text: qsTr("&Blur"); onTriggered: controller.applyFilter("blur") }
@@ -157,6 +165,7 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Tools")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("Freehand Brush\tB"); onTriggered: controller.tool = AppController.BrushTool }
             Action { text: qsTr("Eraser\tE"); onTriggered: controller.tool = AppController.EraserTool }
             Action { text: qsTr("Fill\tF"); onTriggered: controller.tool = AppController.FillTool }
@@ -164,14 +173,17 @@ ApplicationWindow {
         }
         Menu {
             title: qsTr("&Settings")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("Preferences..."); enabled: false }
         }
         Menu {
             title: qsTr("&Window")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("Show Dockers"); enabled: false }
         }
         Menu {
             title: qsTr("&Help")
+            enabled: !controller.startPageVisible
             Action { text: qsTr("About Prism"); enabled: false }
         }
     }
@@ -574,11 +586,24 @@ ApplicationWindow {
                                 case AppController.RectSelectTool:
                                     controller.setSelection(cx, cy, 0, 0)
                                     break
+                                case AppController.EllipseSelectTool:
+                                    controller.setEllipseSelection(cx, cy, 0, 0)
+                                    break
                                 case AppController.LassoSelectTool:
+                                case AppController.PolygonSelectTool:
                                     lassoPoints = [Qt.point(cx, cy)]
                                     break
                                 case AppController.MagicWandTool:
                                     controller.magicWandAt(cx, cy, 32)
+                                    break
+                                case AppController.SimilarColorSelectTool:
+                                    controller.similarColorAt(cx, cy, 32)
+                                    break
+                                case AppController.LineTool:
+                                case AppController.RectangleTool:
+                                case AppController.EllipseTool:
+                                case AppController.GradientTool:
+                                    controller.beginShape(cx, cy)
                                     break
                                 default:
                                     controller.beginStroke(cx, cy)
@@ -608,7 +633,12 @@ ApplicationWindow {
                                 case AppController.RectSelectTool:
                                     controller.setSelection(startX, startY, cx - startX, cy - startY)
                                     break
-                                case AppController.LassoSelectTool: {
+                                case AppController.EllipseSelectTool:
+                                    controller.setEllipseSelection(startX, startY, cx - startX,
+                                                                   cy - startY)
+                                    break
+                                case AppController.LassoSelectTool:
+                                case AppController.PolygonSelectTool: {
                                     // Sample sparsely: the polygon only needs
                                     // enough points to describe its outline.
                                     const pts = lassoPoints.slice()
@@ -619,6 +649,12 @@ ApplicationWindow {
                                     }
                                     break
                                 }
+                                case AppController.LineTool:
+                                case AppController.RectangleTool:
+                                case AppController.EllipseTool:
+                                case AppController.GradientTool:
+                                    controller.updateShape(cx, cy)
+                                    break
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
                                     controller.extendStroke(cx, cy)
@@ -637,7 +673,15 @@ ApplicationWindow {
                                     draggingLayer = false
                                     return
                                 }
-                                if (controller.tool === AppController.LassoSelectTool) {
+                                if (controller.tool === AppController.LineTool
+                                        || controller.tool === AppController.RectangleTool
+                                        || controller.tool === AppController.EllipseTool
+                                        || controller.tool === AppController.GradientTool) {
+                                    controller.endShape()
+                                    return
+                                }
+                                if (controller.tool === AppController.LassoSelectTool
+                                        || controller.tool === AppController.PolygonSelectTool) {
                                     if (lassoPoints.length >= 3)
                                         controller.setLassoSelection(lassoPoints)
                                     lassoPoints = []
@@ -750,7 +794,7 @@ ApplicationWindow {
                 color: T.textDim
                 font.pixelSize: 11
             }
-            ComboBox {
+            PComboBox {
                 width: 108; height: 20
                 font.pixelSize: 10
                 model: ["Fit View (100%)", "25%", "50%", "100%", "200%", "400%", "800%"]

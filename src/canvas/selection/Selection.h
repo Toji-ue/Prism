@@ -46,6 +46,13 @@ public:
     /// alpha itself as coverage (Krita's "Select Opaque").
     void selectFromAlpha(const RasterBuffer& source);
 
+    /// Elliptical marquee inscribed in \p rect (Krita's Elliptical Selection).
+    void selectEllipse(const Rect& rect);
+
+    /// Similar Colour Selection: every pixel on the canvas matching the seed
+    /// within \p tolerance, connected or not (unlike the magic wand).
+    void selectSimilarGlobal(const RasterBuffer& source, int x, int y, int tolerance);
+
     /// Read-only mask access for rendering the marching-ants overlay.
     [[nodiscard]] const RasterBuffer& mask() const noexcept { return m_mask; }
     /// Bumped on every change, so QML can re-fetch the overlay image.

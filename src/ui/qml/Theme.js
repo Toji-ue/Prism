@@ -59,6 +59,13 @@ var danger = light
 var cursorRing = tint(0.55)
 var cursorRingInner = fade(dark, 0.35)
 
+// ---- dropdowns / menus ----
+// The popup list is a touch darker than the panels so it reads as a layer
+// above them, and disabled entries stay legible but obviously inert.
+var popup = tint(0.07)
+var popupBorder = tint(0.22)
+var disabledText = tint(0.34)
+
 // ---- metrics ----
 var rowHeight = 22
 var dockerHeaderHeight = 24

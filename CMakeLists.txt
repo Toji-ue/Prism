@@ -44,6 +44,7 @@ qt_add_qml_module(prism
         src/ui/qml/Icon.qml
         src/ui/qml/PSlider.qml
         src/ui/qml/PSpinBox.qml
+        src/ui/qml/PComboBox.qml
         src/ui/qml/Main.qml
         src/ui/qml/StartPage.qml
         src/ui/qml/ToolBox.qml

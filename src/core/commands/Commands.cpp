@@ -51,6 +51,7 @@ StrokeCommand::StrokeCommand(Document& doc, std::size_t layerIndex, raster::Rast
     , m_rectX(rectX)
     , m_rectY(rectY)
     , m_label(std::move(label))
+    , m_replace(true)
     , m_before(std::move(before))
     , m_after(std::move(after))
 {
@@ -70,7 +71,16 @@ void StrokeCommand::redo()
 {
     auto& px = layer().pixels();
     px.blit(m_before, m_rectX, m_rectY);
-    px.compositeOver(m_after, m_rectX, m_rectY);
+    if (m_replace) {
+        // Replacement edits (erase, filters, shapes, fill) must overwrite the
+        // patch. Compositing it source-over could never REMOVE alpha, which is
+        // exactly why the eraser appeared to do nothing.
+        px.blit(m_after, m_rectX, m_rectY);
+    } else {
+        // Paint strokes blend over the restored pixels so soft edges and
+        // partial opacity behave like a real brush.
+        px.compositeOver(m_after, m_rectX, m_rectY);
+    }
 }
 
 // ---------------------------------------------------------------- RemoveLayer

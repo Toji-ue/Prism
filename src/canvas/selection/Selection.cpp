@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 
 namespace prism::canvas {
@@ -192,6 +193,69 @@ void Selection::selectFromAlpha(const RasterBuffer& source)
             if (a == 0)
                 continue;
             m_mask.set(x, y, Color{ 255, 255, 255, a });
+            any = true;
+        }
+    }
+    m_empty = !any;
+    recomputeBounds();
+    ++m_revision;
+}
+
+void Selection::selectEllipse(const Rect& rect)
+{
+    m_mask.fill(kTransparent);
+    const Rect area = rect.intersected(Rect{ 0, 0, m_mask.width(), m_mask.height() });
+    if (area.isEmpty()) {
+        m_empty = true;
+        m_bounds = {};
+        ++m_revision;
+        return;
+    }
+
+    const float cx = static_cast<float>(area.x) + static_cast<float>(area.width) * 0.5F;
+    const float cy = static_cast<float>(area.y) + static_cast<float>(area.height) * 0.5F;
+    const float rx = static_cast<float>(area.width) * 0.5F;
+    const float ry = static_cast<float>(area.height) * 0.5F;
+
+    const Color on{ 255, 255, 255, 255 };
+    for (int y = area.y; y < area.y + area.height; ++y) {
+        for (int x = area.x; x < area.x + area.width; ++x) {
+            const float dx = (static_cast<float>(x) + 0.5F - cx) / std::max(rx, 0.5F);
+            const float dy = (static_cast<float>(y) + 0.5F - cy) / std::max(ry, 0.5F);
+            if (dx * dx + dy * dy <= 1.0F)
+                m_mask.set(x, y, on);
+        }
+    }
+    m_empty = false;
+    recomputeBounds();
+    ++m_revision;
+}
+
+void Selection::selectSimilarGlobal(const RasterBuffer& source, int x, int y, int tolerance)
+{
+    m_mask.fill(kTransparent);
+    if (source.isEmpty() || x < 0 || y < 0 || x >= source.width() || y >= source.height()) {
+        m_empty = true;
+        m_bounds = {};
+        ++m_revision;
+        return;
+    }
+
+    const auto seed = source.at(x, y);
+    const Color on{ 255, 255, 255, 255 };
+    const auto close = [tolerance](Color a, Color b) {
+        return std::abs(static_cast<int>(a.r) - static_cast<int>(b.r)) <= tolerance
+            && std::abs(static_cast<int>(a.g) - static_cast<int>(b.g)) <= tolerance
+            && std::abs(static_cast<int>(a.b) - static_cast<int>(b.b)) <= tolerance
+            && std::abs(static_cast<int>(a.a) - static_cast<int>(b.a)) <= tolerance;
+    };
+
+    bool any = false;
+    for (int py = 0; py < source.height(); ++py) {
+        for (int px = 0; px < source.width(); ++px) {
+            if (!close(source.at(px, py), seed))
+                continue;
+            m_mask.set(px, py, on);
             any = true;
         }
     }
