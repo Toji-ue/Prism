@@ -638,17 +638,81 @@ bool AppController::exportPng(const QUrl& url)
     return io::ProjectIO::exportPng(m_compositor, url.toLocalFile());
 }
 
-void AppController::newDocument(int width, int height){
-    m_doc = core::Document(core::CanvasSize{ width, height, 72 });
-    m_doc.addRasterLayer("Layer 1");
+void AppController::newDocument(int width, int height)
+{
+    createDocument(width, height, tr("Untitled"), 1, QColor(255, 255, 255), 100,
+                   BackgroundAsRasterLayer);
+}
+
+void AppController::createDocument(int width, int height, const QString& name, int layerCount,
+                                  const QColor& background, int backgroundOpacity,
+                                  int backgroundMode)
+{
+    const int w = std::max(1, width);
+    const int h = std::max(1, height);
+    m_doc = core::Document(core::CanvasSize{ w, h, 72 });
+
+    const int layers = std::max(1, layerCount);
+    for (int i = 0; i < layers; ++i)
+        m_doc.addRasterLayer(layers == 1 ? "Layer 1" : ("Layer " + std::to_string(i + 1)));
+
+    auto& bottom = *m_doc.layers().front();
+    const auto fill = core::raster::Color{
+        static_cast<std::uint8_t>(background.red()),
+        static_cast<std::uint8_t>(background.green()),
+        static_cast<std::uint8_t>(background.blue()),
+        static_cast<std::uint8_t>(std::clamp(backgroundOpacity, 0, 100) * 255 / 100)
+    };
+
+    switch (backgroundMode) {
+    case BackgroundAsCanvasColor:
+        // Krita's "canvas color" lives outside the layer stack; the closest
+        // equivalent here is a filled bottom layer at the given opacity.
+        bottom.setName("Background");
+        bottom.pixels().fill(fill);
+        break;
+    case BackgroundAsFillLayer: {
+        // A separate fill layer beneath the working layers.
+        auto layer = std::make_unique<core::Layer>(core::Layer::Type::Raster, "Fill Layer");
+        layer->pixels() = core::raster::RasterBuffer(w, h);
+        layer->pixels().fill(fill);
+        m_doc.insertLayer(0, std::move(layer));
+        break;
+    }
+    case BackgroundAsRasterLayer:
+    default:
+        // Leave layer 1 blank; artists usually want to paint from scratch.
+        break;
+    }
+
+    m_documentName = name.isEmpty() ? tr("Untitled") : name;
     m_history.clear();
     m_compositor.canvasResized();
-    m_activeLayer = 0;
-    m_preview = core::raster::RasterBuffer(width, height);
+    // Select the topmost paint layer so drawing can start immediately.
+    m_activeLayer = layers - 1;
+    m_selection = {};
+    m_preview = core::raster::RasterBuffer(w, h);
     m_layersModel->setDocument(&m_doc);
     emit layersChanged();
     emit historyChanged();
+    emit documentNameChanged();
+    emit selectionChanged();
     rebuildFullComposite();
+}
+
+QString AppController::documentName() const { return m_documentName; }
+
+void AppController::setDocumentName(const QString& name)
+{
+    if (m_documentName == name)
+        return;
+    m_documentName = name;
+    emit documentNameChanged();
+}
+
+QString AppController::windowTitle() const
+{
+    return tr("%1 (%2 MiB) — Prism").arg(m_documentName).arg(documentMemoryMiB(), 0, 'f', 1);
 }
 
 // ------------------------------------------------------------------- stroking
@@ -667,17 +731,25 @@ void AppController::extendStroke(float x, float y)
         return;
     const auto prev = m_currentStroke.back();
     m_currentStroke.push_back({ x, y, 1.0F });
-    const auto r = canvas::BrushStroke::paintSegment(m_preview, m_brush, prev,
-                                                     { x, y, 1.0F });
-    if (!r.isEmpty()) {
-        m_strokeDirty = core::geometry::Rect{
-            std::min(m_strokeDirty.x, r.x), std::min(m_strokeDirty.y, r.y),
-            std::max(m_strokeDirty.x + m_strokeDirty.width, r.x + r.width)
-                - std::min(m_strokeDirty.x, r.x),
-            std::max(m_strokeDirty.y + m_strokeDirty.height, r.y + r.height)
-                - std::min(m_strokeDirty.y, r.y) };
-    }
-    rebuildStrokePreview();
+    const auto segment = canvas::BrushStroke::paintSegment(m_preview, m_brush, prev,
+                                                           { x, y, 1.0F });
+    if (segment.isEmpty())
+        return;
+
+    // Track the whole stroke's extent for the final commit,
+    m_strokeDirty = core::geometry::Rect{
+        std::min(m_strokeDirty.x, segment.x), std::min(m_strokeDirty.y, segment.y),
+        std::max(m_strokeDirty.x + m_strokeDirty.width, segment.x + segment.width)
+            - std::min(m_strokeDirty.x, segment.x),
+        std::max(m_strokeDirty.y + m_strokeDirty.height, segment.y + segment.height)
+            - std::min(m_strokeDirty.y, segment.y) };
+
+    // but only recomposite the band this tick actually painted. Everything
+    // else already holds base+preview from previous ticks, so redrawing the
+    // entire stroke bbox every mouse move was wasted work.
+    const auto composited = m_compositor.composite(segment, &m_preview);
+    ++m_layerRevision;
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
 void AppController::endStroke()
@@ -733,5 +805,6 @@ void AppController::rebuildFullComposite()
 void AppController::rebuildStrokePreview()
 {
     const auto rect = m_compositor.composite(m_strokeDirty, &m_preview);
+    ++m_layerRevision;
     emit canvasChanged(rect.x, rect.y, rect.width, rect.height);
 }

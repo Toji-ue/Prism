@@ -203,6 +203,45 @@ int main(int argc, char* argv[])
             shotOnly = true;
     }
     if (!shotPath.isEmpty()) {
+        // --demo-drawing paints a known test pattern before the shot so the
+        // canvas mapping (zoom / offset) can be verified from the image.
+        const bool demo = app.arguments().contains(QStringLiteral("--demo-drawing"));
+        const bool demoDialog = app.arguments().contains(QStringLiteral("--demo-new-dialog"));
+        const bool demoToolOptions = app.arguments().contains(QStringLiteral("--demo-tool-options"));
+        QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, &engine]() {
+            if (demoDialog && !engine.rootObjects().isEmpty()) {
+                // Opens the New Document dialog so its layout can be checked
+                // from a screenshot.
+                QMetaObject::invokeMethod(engine.rootObjects().first(), "openNewDocumentDialog");
+            }
+            if (demoToolOptions && !engine.rootObjects().isEmpty()) {
+                // Switches the color docker to its Tool Options tab.
+                QMetaObject::invokeMethod(engine.rootObjects().first(), "showToolOptions");
+            }
+            if (!demo || !controller)
+                return;
+            // Corner-to-corner diagonal plus centre cross: any offset or
+            // scale error in the view is obvious in the screenshot.
+            const qreal w = controller->canvasWidth();
+            const qreal h = controller->canvasHeight();
+            controller->setBrushColor(QColor(20, 20, 40));
+            controller->setBrushSize(6.0F);
+            controller->beginStroke(20.0F, 20.0F);
+            controller->extendStroke(static_cast<float>(w) - 20.0F, 20.0F);
+            controller->extendStroke(static_cast<float>(w) - 20.0F,
+                                     static_cast<float>(h) - 20.0F);
+            controller->extendStroke(20.0F, static_cast<float>(h) - 20.0F);
+            controller->extendStroke(20.0F, 20.0F);
+            controller->endStroke();
+
+            controller->setBrushColor(QColor(200, 40, 60));
+            controller->setBrushSize(40.0F);
+            controller->beginStroke(static_cast<float>(w) / 2.0F, static_cast<float>(h) / 2.0F);
+            controller->extendStroke(static_cast<float>(w) / 2.0F + 0.5F,
+                                     static_cast<float>(h) / 2.0F + 0.5F);
+            controller->endStroke();
+        });
+
         QTimer::singleShot(2500, &app, [&engine, shotPath, shotOnly]() {
             if (!engine.rootObjects().isEmpty()) {
                 if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {

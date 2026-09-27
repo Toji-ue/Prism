@@ -12,6 +12,8 @@ Rectangle {
     color: T.panel
 
     readonly property color current: controller.brushColor
+    /// 0 = Advanced Color Selector, 1 = Tool Options (Krita's docker tabs).
+    property int tab: 0
 
     // ---- docker header with tab look ----
     Rectangle {
@@ -26,18 +28,19 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 10
 
-            Text {
-                text: qsTr("Advanced Color Selector")
-                color: T.highlight
-                font.pixelSize: 11
-                anchors.verticalCenter: parent.verticalCenter
-                bottomPadding: 2
-            }
-            Text {
-                text: qsTr("Tool Options")
-                color: T.textDim
-                font.pixelSize: 11
-                anchors.verticalCenter: parent.verticalCenter
+            Repeater {
+                model: [qsTr("Advanced Color Selector"), qsTr("Tool Options")]
+                delegate: Text {
+                    text: modelData
+                    color: docker.tab === index ? T.highlight : T.textDim
+                    font.pixelSize: 11
+                    anchors.verticalCenter: parent.verticalCenter
+                    bottomPadding: 2
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: docker.tab = index
+                    }
+                }
             }
         }
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: T.border }
@@ -54,6 +57,7 @@ Rectangle {
         contentWidth: width
         contentHeight: content.height + 16
         clip: true
+        visible: docker.tab === 0
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -288,6 +292,139 @@ Rectangle {
                 }
             }
         }
+        }
+    }
+
+    // ---- Tool Options tab (Krita keeps brush settings in this docker) ----
+    Flickable {
+        id: toolOptions
+        anchors.top: header.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        contentWidth: width
+        contentHeight: toolColumn.height + 16
+        clip: true
+        visible: docker.tab === 1
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        Column {
+            id: toolColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.margins: 8
+            spacing: 10
+
+            Text {
+                text: qsTr("BRUSH")
+                color: T.textDim
+                font.pixelSize: 10
+                font.bold: true
+            }
+
+            // Size
+            Column {
+                width: parent.width
+                spacing: 2
+                Row {
+                    width: parent.width
+                    Text { text: qsTr("Size"); color: T.text; font.pixelSize: 11 }
+                    Item { width: parent.width - 80; height: 1 }
+                    Text {
+                        text: Math.round(controller.brushSize) + " px"
+                        color: T.textDim
+                        font.pixelSize: 11
+                    }
+                }
+                PSlider {
+                    width: parent.width
+                    from: 1; to: 200
+                    value: controller.brushSize
+                    onMoved: controller.brushSize = Math.round(value)
+                }
+            }
+
+            // Opacity (flow)
+            Column {
+                width: parent.width
+                spacing: 2
+                Row {
+                    width: parent.width
+                    Text { text: qsTr("Opacity"); color: T.text; font.pixelSize: 11 }
+                    Item { width: parent.width - 80; height: 1 }
+                    Text {
+                        text: Math.round(controller.brushFlow * 100) + "%"
+                        color: T.textDim
+                        font.pixelSize: 11
+                    }
+                }
+                PSlider {
+                    width: parent.width
+                    from: 0.05; to: 1
+                    value: controller.brushFlow
+                    onMoved: controller.brushFlow = value
+                }
+            }
+
+            // Hardness
+            Column {
+                width: parent.width
+                spacing: 2
+                Row {
+                    width: parent.width
+                    Text { text: qsTr("Hardness"); color: T.text; font.pixelSize: 11 }
+                    Item { width: parent.width - 80; height: 1 }
+                    Text {
+                        text: Math.round(controller.brushHardness * 100) + "%"
+                        color: T.textDim
+                        font.pixelSize: 11
+                    }
+                }
+                PSlider {
+                    width: parent.width
+                    from: 0; to: 1
+                    value: controller.brushHardness
+                    onMoved: controller.brushHardness = value
+                }
+            }
+
+            // Eraser toggle
+            Rectangle {
+                width: parent.width
+                height: 26
+                color: controller.eraser ? T.highlight : T.panelRaised
+                border.color: T.border
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 6
+                    Icon {
+                        width: 14; height: 14
+                        name: "eraser"
+                        color: controller.eraser ? T.highlightText : T.text
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: qsTr("Eraser mode")
+                        color: controller.eraser ? T.highlightText : T.text
+                        font.pixelSize: 11
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: controller.eraser = !controller.eraser
+                }
+            }
+
+            // Current preset summary
+            Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                text: qsTr("Preset: %1").arg(controller.brushName)
+                color: T.textDim
+                font.pixelSize: 10
+            }
         }
     }
 }

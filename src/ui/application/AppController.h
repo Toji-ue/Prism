@@ -91,6 +91,10 @@ public:
     QString brushName() const;
     int activePresetIndex() const;
     QString statusInfo() const;
+    QString documentName() const;
+    void setDocumentName(const QString& name);
+    /// Window title in Krita's shape: "name (mem MiB) — Prism".
+    QString windowTitle() const;
 
     Q_INVOKABLE QImage canvasImage() const;
 
@@ -160,6 +164,20 @@ public:
     Q_INVOKABLE bool importImage(const QUrl& url);
     Q_INVOKABLE bool exportPng(const QUrl& url);
     Q_INVOKABLE void newDocument(int width, int height);
+    /// Full document creation, mirroring Krita's dialog: name, layer count,
+    /// and how the background color is applied.
+    enum BackgroundMode {
+        BackgroundAsRasterLayer = 0,
+        BackgroundAsCanvasColor,
+        BackgroundAsFillLayer,
+    };
+    Q_ENUM(BackgroundMode)
+    Q_INVOKABLE void createDocument(int width, int height, const QString& name, int layerCount,
+                                    const QColor& background, int backgroundOpacity,
+                                    int backgroundMode);
+    Q_PROPERTY(QString documentName READ documentName WRITE setDocumentName
+                   NOTIFY documentNameChanged)
+    Q_PROPERTY(QString windowTitle READ windowTitle NOTIFY documentNameChanged)
     /// Picks the zoom that fits the whole canvas into a viewport of the
     /// given size (never above 100%). Called on first layout by the UI.
     Q_INVOKABLE void fitToViewport(qreal viewportWidth, qreal viewportHeight);
@@ -177,6 +195,7 @@ signals:
     void toolChanged();
     void selectionChanged();
     void presetsChanged();
+    void documentNameChanged();
     void canvasChanged(int x, int y, int w, int h);
 
 private:
@@ -201,6 +220,7 @@ private:
     int m_layerRevision = 0;
     /// Active selection in canvas pixels; empty means "no selection".
     prism::core::geometry::Rect m_selection;
+    QString m_documentName = tr("Untitled");
     /// True until the user moves a brush slider — controls the "Custom" label.
     bool m_presetIntact = true;
 };

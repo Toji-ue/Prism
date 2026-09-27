@@ -25,6 +25,7 @@ signals:
 
 private slots:
     void onCanvasChanged(int x, int y, int w, int h);
+    void onViewChanged();
 
 private:
     AppController* m_controller = nullptr;

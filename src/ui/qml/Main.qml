@@ -12,7 +12,7 @@ ApplicationWindow {
     height: 780
     minimumWidth: 1000
     minimumHeight: 620
-    title: qsTr("Prism â€” untitled")
+    title: controller.windowTitle
     visible: true
     color: T.window
 
@@ -20,6 +20,13 @@ ApplicationWindow {
     required property AppController controller
 
     Component.onCompleted: showMaximized()
+
+    // Opens the New Document dialog. Also used by the UI verification hook
+    // (prism --demo-new-dialog --screenshot=...).
+    function openNewDocumentDialog() { newDocDialog.open() }
+
+    // Switches the Advanced Color Selector docker to its Tool Options tab.
+    function showToolOptions() { mainColorSelector.tab = 1 }
 
     // The active tool's keyboard shortcut, for the status bar hint.
     readonly property string toolHint: {
@@ -276,10 +283,17 @@ ApplicationWindow {
 
             Text { text: qsTr("Size:"); color: T.text; font.pixelSize: 11 }
             PSpinBox {
-                Layout.preferredWidth: 96
+                Layout.preferredWidth: 84
                 from: 1; to: 200
                 value: Math.round(controller.brushSize)
                 onValueModified: v => controller.brushSize = v
+            }
+            // Direct size slider — the fastest way to size a brush.
+            PSlider {
+                Layout.preferredWidth: 110
+                from: 1; to: 120
+                value: Math.min(120, controller.brushSize)
+                onMoved: controller.brushSize = Math.round(value)
             }
 
             Text { text: qsTr("Hardness:"); color: T.text; font.pixelSize: 11 }
@@ -505,6 +519,7 @@ ApplicationWindow {
                 spacing: 2
 
                 ColorSelector {
+                    id: mainColorSelector
                     controller: root.controller
                     width: parent.width
                     height: dockerArea.height * 0.44
