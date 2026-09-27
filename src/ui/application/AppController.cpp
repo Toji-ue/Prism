@@ -459,14 +459,15 @@ QImage AppController::selectionOverlay() const
     if (m_selection.isEmpty() || w <= 0 || h <= 0)
         return {};
 
-    // Tint the selected area so any shape (lasso, wand) is visible.
+    // Tint the selected area so any shape (lasso, wand) is visible. Neutral
+    // white keeps the overlay inside the app's two-colour palette.
     core::raster::RasterBuffer out(w, h);
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const std::uint8_t cov = m_selection.coverageAt(x, y);
             if (cov == 0)
                 continue;
-            out.set(x, y, core::raster::Color{ 61, 174, 233,
+            out.set(x, y, core::raster::Color{ 255, 255, 255,
                                                static_cast<std::uint8_t>(cov / 5) });
         }
     }

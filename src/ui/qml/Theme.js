@@ -1,22 +1,65 @@
 .pragma library
 
-// Breeze-inspired dark palette matching the Krita reference layout.
-var window = "#31363b"
-var windowAlt = "#232629"
-var base = "#1b1e20"
-var panel = "#31363b"
-var panelRaised = "#3b4045"
-var panelSunken = "#272b2f"
-var canvasBackdrop = "#5a5a5a"
-var border = "#1f2225"
-var text = "#eff0f1"
-var textDim = "#9aa0a6"
-var highlight = "#3daee9"
-var highlightText = "#ffffff"
-var buttonHover = "#3f454b"
-var sliderGroove = "#1b1e20"
-var danger = "#da4453"
+// Two-colour palette.
+//
+//   light = #ffffff   (foreground: text, icons, highlights)
+//   dark  = #1f1f1f   (background: window, panels, canvas backdrop)
+//
+// Every other shade is mixed from those two, so the whole UI is literally two
+// colours plus automatic tints. That constraint is deliberate: it keeps the
+// interface calm, and it means adding a screen never means inventing a colour.
+var light = "#ffffff"
+var dark = "#1f1f1f"
 
+/// Mix two #rrggbb colours; t = 0 returns a, t = 1 returns b.
+function mix(a, b, t) {
+    function channel(hex, i) { return parseInt(hex.substr(1 + i * 2, 2), 16) }
+    var out = "#"
+    for (var i = 0; i < 3; ++i) {
+        var v = Math.round(channel(a, i) * (1 - t) + channel(b, i) * t)
+        out += ("0" + v.toString(16)).slice(-2)
+    }
+    return out
+}
+
+/// A translucent version of a colour (used for overlays and dim text).
+function fade(c, alpha) {
+    return Qt.rgba(parseInt(c.substr(1, 2), 16) / 255,
+                   parseInt(c.substr(3, 2), 16) / 255,
+                   parseInt(c.substr(5, 2), 16) / 255,
+                   alpha)
+}
+
+function tint(t) { return mix(dark, light, t) }
+
+// ---- surfaces ----
+var window = dark
+var windowAlt = tint(0.04)
+var base = dark
+var panel = dark
+var panelRaised = tint(0.09)
+var panelSunken = tint(0.02)
+var canvasBackdrop = tint(0.34)
+
+// ---- lines and text ----
+var border = tint(0.18)
+var text = light
+var textDim = tint(0.62)
+
+// ---- interaction ----
+// Selection is the foreground colour with inverted text, so "selected" reads
+// instantly without a second hue.
+var highlight = tint(0.88)
+var highlightText = dark
+var buttonHover = tint(0.11)
+var sliderGroove = tint(0.06)
+var danger = light
+
+// ---- brush cursor (grey ring, per the drawing-tools convention) ----
+var cursorRing = tint(0.55)
+var cursorRingInner = fade(dark, 0.35)
+
+// ---- metrics ----
 var rowHeight = 22
 var dockerHeaderHeight = 24
 var toolboxWidth = 60

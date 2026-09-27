@@ -178,6 +178,8 @@ ApplicationWindow {
 
     // ---------------- toolbar ----------------
     header: ToolBar {
+        // Hidden on the start page: the welcome screen owns the whole window.
+        visible: !controller.startPageVisible
         height: 34
         background: Rectangle {
             color: T.window
@@ -428,8 +430,8 @@ ApplicationWindow {
 
                         Rectangle {
                             anchors.fill: parent
-                            color: "#ffffff"
-                            border.color: "#1c1c1c"
+                            color: T.light
+                            border.color: T.dark
                             border.width: 1
                         }
 
@@ -456,14 +458,14 @@ ApplicationWindow {
                             visible: root.controller.mirrorHorizontal
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: 1; height: parent.height
-                            color: "#3daee9"
+                            color: T.tint(0.8)
                             opacity: 0.6
                         }
                         Rectangle {
                             visible: root.controller.mirrorVertical
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width; height: 1
-                            color: "#3daee9"
+                            color: T.tint(0.8)
                             opacity: 0.6
                         }
 
@@ -497,7 +499,7 @@ ApplicationWindow {
                                 height: width
                                 radius: width / 2
                                 color: "transparent"
-                                border.color: "#808080"
+                                border.color: T.cursorRing
                                 border.width: 1
                                 readonly property real pointerX: root.demoPointer !== null
                                                                  ? root.demoPointer.x
@@ -515,7 +517,7 @@ ApplicationWindow {
                                     height: width
                                     radius: width / 2
                                     color: "transparent"
-                                    border.color: "#00000040"
+                                    border.color: T.cursorRingInner
                                     border.width: 1
                                 }
                             }
@@ -655,7 +657,7 @@ ApplicationWindow {
                             width: controller.selectionW * controller.zoom
                             height: controller.selectionH * controller.zoom
                             color: "transparent"
-                            border.color: "#ffffff"
+                            border.color: T.light
                             border.width: 1
 
                             // dark inner line keeps the selection readable on
@@ -664,7 +666,7 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 1
                                 color: "transparent"
-                                border.color: "#000000"
+                                border.color: T.dark
                                 border.width: 1
                             }
                         }
@@ -708,6 +710,7 @@ ApplicationWindow {
 
     // ---------------- footer / status bar ----------------
     footer: Rectangle {
+        visible: !controller.startPageVisible
         height: 24
         color: T.windowAlt
 
