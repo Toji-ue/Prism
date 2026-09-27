@@ -37,7 +37,10 @@ Menu {
             visible: !item.isSeparator
             leftPadding: 10
             rightPadding: 10
-            text: item.text
+            // Qt texts use '&' to mark a keyboard mnemonic (e.g. "&New"). QML
+            // Text renders it literally, so strip it: the marker must never
+            // show up in the menu, and the toolbar/menu labels stay clean.
+            text: item.text.replace(/&/g, "")
             font.pixelSize: 11
             color: !item.enabled ? T.disabledText
                                  : (item.highlighted ? T.highlightText : T.text)
