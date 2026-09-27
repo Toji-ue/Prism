@@ -242,12 +242,17 @@ public:
     Q_PROPERTY(bool startPageVisible READ startPageVisible WRITE setStartPageVisible
                    NOTIFY startPageChanged)
     Q_PROPERTY(QVariantList recentFiles READ recentFiles NOTIFY recentFilesChanged)
+    /// Last file error, shown in the status bar. Empty when all is well — a
+    /// failed open must never look like nothing happened.
+    Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     bool startPageVisible() const { return m_startPageVisible; }
     void setStartPageVisible(bool visible);
     QVariantList recentFiles() const;
     Q_INVOKABLE void clearRecentFiles();
     /// Version string shown on the start page.
     Q_INVOKABLE QString versionString() const;
+    QString lastError() const { return m_lastError; }
+    void setLastError(const QString& error);
 
     // --- layer state ------------------------------------------------------
     Q_INVOKABLE void setLayerLocked(int index, bool locked);
@@ -331,6 +336,7 @@ signals:
     void documentNameChanged();
     void startPageChanged();
     void recentFilesChanged();
+    void lastErrorChanged();
     void canvasChanged(int x, int y, int w, int h);
 
 private:
@@ -379,6 +385,7 @@ private:
     bool m_startPageVisible = true;
     QStringList m_recentFiles;
     QString m_documentName = tr("Untitled");
+    QString m_lastError;
     /// True until the user moves a brush slider — controls the "Custom" label.
     bool m_presetIntact = true;
 };

@@ -893,6 +893,13 @@ ApplicationWindow {
                 color: T.text
                 font.pixelSize: 11
             }
+            // A failed open/save must be visible, never silent.
+            Text {
+                visible: controller.lastError.length > 0
+                text: controller.lastError
+                color: T.text
+                font.pixelSize: 11
+            }
             Item { Layout.fillWidth: true }
             Text {
                 text: controller.statusInfo

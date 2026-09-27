@@ -291,6 +291,13 @@ int runSelfTest()
         const int layersBefore = controller.layers()->rowCount();
         check(controller.openFile(QUrl::fromLocalFile(tmp)), "openFile reopens the project");
         check(controller.layers()->rowCount() == layersBefore, "reopened project keeps layers");
+        // Opening from the start page must dismiss it, otherwise the loaded
+        // document is hidden behind the welcome screen and nothing appears to
+        // happen (this was the reported "open does nothing" bug).
+        controller.setStartPageVisible(true);
+        check(controller.openFile(QUrl::fromLocalFile(tmp)), "openFile works from the start page");
+        check(!controller.startPageVisible(), "opening a document dismisses the start page");
+        check(controller.lastError().isEmpty(), "no error recorded for a good open");
 
         // A name without a suffix must still land as .prism, otherwise the
         // Open dialog's filter cannot see it again.

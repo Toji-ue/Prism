@@ -964,6 +964,16 @@ QString AppController::versionString() const
     return QCoreApplication::applicationVersion();
 }
 
+void AppController::setLastError(const QString& error)
+{
+    if (m_lastError == error)
+        return;
+    m_lastError = error;
+    emit lastErrorChanged();
+    if (!error.isEmpty())
+        qWarning() << "file error:" << error;
+}
+
 // ---------------------------------------------------------------- layer state
 
 void AppController::setLayerLocked(int index, bool locked)
@@ -1275,19 +1285,28 @@ QStringList AppController::writableFormatNames() const
 bool AppController::openProject(const QUrl& url)
 {
     auto doc = io::ProjectIO::load(url.toLocalFile());
-    if (!doc)
+    if (!doc) {
+        setLastError(tr("Could not open %1 — it is not a valid Prism project.")
+                         .arg(QFileInfo(url.toLocalFile()).fileName()));
         return false;
+    }
+    setLastError(QString());
     m_doc = std::move(*doc);
     m_history.clear();
     m_compositor.canvasResized();
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    m_documentName = QFileInfo(url.toLocalFile()).fileName();
     m_layersModel->setDocument(&m_doc);
     addRecentFile(url.toLocalFile());
+    emit documentNameChanged();
     emit layersChanged();
     emit historyChanged();
     emit selectionChanged();
+    // The start page was covering the canvas, so a successfully opened file
+    // looked like nothing happened. Opening a document must dismiss it.
+    setStartPageVisible(false);
     rebuildFullComposite();
     return true;
 }
@@ -1295,19 +1314,26 @@ bool AppController::openProject(const QUrl& url)
 bool AppController::importImage(const QUrl& url)
 {
     auto doc = io::ProjectIO::importImage(url.toLocalFile());
-    if (!doc)
+    if (!doc) {
+        setLastError(tr("Could not open %1 — unsupported or unreadable image.")
+                         .arg(QFileInfo(url.toLocalFile()).fileName()));
         return false;
+    }
+    setLastError(QString());
     m_doc = std::move(*doc);
     m_history.clear();
     m_compositor.canvasResized();
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    m_documentName = QFileInfo(url.toLocalFile()).fileName();
     m_layersModel->setDocument(&m_doc);
     addRecentFile(url.toLocalFile());
+    emit documentNameChanged();
     emit layersChanged();
     emit historyChanged();
     emit selectionChanged();
+    setStartPageVisible(false);
     rebuildFullComposite();
     return true;
 }
