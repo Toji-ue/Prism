@@ -6,3 +6,6 @@ compile_commands.json
 .vscode/
 .idea/
 *.user
+
+deploy/
+screen_check.png
