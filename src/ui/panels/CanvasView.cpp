@@ -65,9 +65,10 @@ void CanvasView::paint(QPainter* painter)
     if (source.isEmpty())
         return;
 
-    // Smoothing only pays off when zooming out; at 100%+ nearest is cheaper
-    // and crisper for pixel work.
-    painter->setRenderHint(QPainter::SmoothPixmapTransform, m_controller->zoom() < 1.0);
+    // Pixel-exact rendering: nearest-neighbour at every zoom so what is on the
+    // canvas is exactly what is stored. Smoothing would blur single pixels,
+    // which is wrong for a pixel-oriented drawing app.
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter->drawImage(target, canvas, source);
 }
 

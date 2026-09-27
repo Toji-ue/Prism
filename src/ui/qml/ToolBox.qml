@@ -51,8 +51,38 @@ Rectangle {
         { icon: "pattern",     name: qsTr("Pattern"),                key: "",  tool: AppController.PatternTool,           ready: true }
     ]
 
+    // Current tool, always visible at the top so it is obvious which tool is
+    // active and how to get back to the brush (Freehand Brush, key B).
+    Rectangle {
+        id: currentToolBar
+        width: parent.width
+        height: 30
+        color: T.windowAlt
+        Text {
+            anchors.centerIn: parent
+            width: parent.width - 8
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            text: toolbox.currentToolName
+            color: T.text
+            font.pixelSize: 9
+        }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: T.border }
+    }
+
+    // Name of the active tool, derived from the same table the buttons use.
+    readonly property string currentToolName: {
+        for (let i = 0; i < tools.length; ++i)
+            if (tools[i].tool === controller.tool)
+                return tools[i].name
+        return qsTr("(no tool)")
+    }
+
     Flickable {
-        anchors.fill: parent
+        anchors.top: currentToolBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         contentWidth: width
         contentHeight: grid.height + colors.y + colors.height + 12
         clip: true

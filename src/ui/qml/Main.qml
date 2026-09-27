@@ -432,6 +432,37 @@ ApplicationWindow {
             // Fit the canvas into the viewport once the layout is known.
             Component.onCompleted: controller.fitToViewport(width - 60, height - 60)
 
+            // Wheel = zoom in/out (Ctrl+wheel also works), anchored on the
+            // pointer so the point under the cursor stays put.
+            WheelHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: event => {
+                    const factor = event.angleDelta.y > 0 ? 1.15 : 1 / 1.15
+                    controller.zoomAt(0, 0, factor)
+                    event.accepted = true
+                }
+            }
+
+            // Zoom level readout, top-left of the drawing area (Krita shows it
+            // near the canvas, not only in the status bar).
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.margins: 8
+                width: zoomLabel.implicitWidth + 12
+                height: 20
+                color: T.popup
+                border.color: T.popupBorder
+                border.width: 1
+                Text {
+                    id: zoomLabel
+                    anchors.centerIn: parent
+                    text: Math.round(controller.zoom * 100) + "%"
+                    color: T.text
+                    font.pixelSize: 11
+                }
+            }
+
             Flickable {
                 id: flick
                 anchors.fill: parent

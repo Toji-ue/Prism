@@ -39,7 +39,7 @@ var base = dark
 var panel = dark
 var panelRaised = tint(0.09)
 var panelSunken = tint(0.02)
-var canvasBackdrop = tint(0.34)
+var canvasBackdrop = tint(0.55)   // light grey desk behind the drawing area
 
 // ---- lines and text ----
 var border = tint(0.18)
