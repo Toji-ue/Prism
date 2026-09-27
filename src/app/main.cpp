@@ -371,6 +371,20 @@ int runSelfTest()
         check(QFile::exists(png), "PNG exists on disk");
     }
 
+    // Tool shortcuts are configurable and persisted; conflicts are resolved.
+    {
+        const QString brushDefault = controller.toolShortcut(0); // BrushTool
+        controller.setToolShortcut(1, brushDefault);             // give Eraser the brush key
+        check(controller.toolShortcut(0).isEmpty(),
+              "assigning an occupied key frees it on the other tool");
+        controller.setToolShortcut(1, QStringLiteral("e"));
+        check(controller.toolShortcut(1) == QStringLiteral("E"),
+              "shortcut normalizes to a single uppercase character");
+        controller.setToolShortcut(0, QStringLiteral("B"));      // restore defaults
+        check(controller.toolShortcut(0) == QStringLiteral("B"), "defaults restore");
+        check(controller.toolShortcutList().size() > 0, "shortcut list exposes every tool");
+    }
+
     // Stroke latency: informational, so a regression is visible in CI logs.
     // The per-move path must not do per-tick full-canvas work.
     {

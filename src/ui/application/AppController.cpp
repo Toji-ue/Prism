@@ -958,6 +958,116 @@ void AppController::clearRecentFiles()
     emit recentFilesChanged();
 }
 
+// ------------------------------------------------------------ tool shortcuts
+
+namespace {
+
+/// Built-in single-key defaults. Tools without a natural key start keyless;
+/// the user can assign one in Settings.
+struct ToolDefault {
+    int tool;
+    const char* name;
+    const char* key;
+};
+
+const std::vector<ToolDefault>& toolDefaults()
+{
+    static const std::vector<ToolDefault> defaults = {
+        { 0, "Freehand Brush", "B" },          // BrushTool
+        { 1, "Eraser", "E" },                  // EraserTool
+        { 2, "Line", "L" },                    // LineTool
+        { 3, "Rectangle", "R" },               // RectangleTool
+        { 4, "Ellipse", "O" },                 // EllipseTool
+        { 5, "Gradient", "G" },                // GradientTool
+        { 6, "Fill", "F" },                    // FillTool
+        { 7, "Color Picker", "I" },            // EyedropperTool
+        { 8, "Pan", "" },                      // PanTool
+        { 9, "Zoom", "Z" },                    // ZoomTool
+        { 10, "Rectangular Selection", "M" },  // RectSelectTool
+        { 11, "Elliptical Selection", "" },    // EllipseSelectTool
+        { 12, "Freehand Selection", "" },      // LassoSelectTool
+        { 13, "Polygon Selection", "" },       // PolygonSelectTool
+        { 14, "Contiguous Selection", "W" },   // MagicWandTool
+        { 15, "Similar Color Selection", "" }, // SimilarColorSelectTool
+        { 16, "Move Layer", "V" },             // MoveTool
+        { 17, "Text", "" },                    // TextTool
+        { 18, "Polyline", "" },                // PolylineTool
+        { 19, "Bezier Curve", "" },            // BezierTool
+        { 20, "Freehand Path", "" },           // FreehandPathTool
+        { 21, "Arc", "" },                     // ArcTool
+        { 22, "Multibrush", "" },              // MultiBrushTool
+        { 23, "Dynamic Brush", "" },           // DynamicBrushTool
+        { 24, "Bezier Selection", "" },        // BezierSelectTool
+        { 25, "Magnetic Selection", "" },      // MagneticSelectTool
+        { 26, "Outline Selection", "" },       // OutlineSelectTool
+        { 27, "Contiguous Selection (all)", "" }, // ContiguousSelectTool
+        { 28, "Transform", "" },               // TransformTool
+        { 29, "Crop", "" },                    // CropTool
+        { 30, "Pattern", "" },                 // PatternTool
+    };
+    return defaults;
+}
+
+QString settingsKeyForTool(int tool)
+{
+    return QStringLiteral("shortcuts/%1").arg(tool);
+}
+
+} // namespace
+
+QString AppController::defaultToolShortcut(int tool) const
+{
+    for (const auto& d : toolDefaults())
+        if (d.tool == tool)
+            return QString::fromLatin1(d.key);
+    return {};
+}
+
+QString AppController::toolShortcut(int tool) const
+{
+    QSettings settings;
+    // An override exists only when it was explicitly set; otherwise default.
+    return settings.contains(settingsKeyForTool(tool))
+               ? settings.value(settingsKeyForTool(tool)).toString()
+               : defaultToolShortcut(tool);
+}
+
+void AppController::setToolShortcut(int tool, const QString& key)
+{
+    // Normalize: a single character, uppercase; "" is a valid (keyless) value.
+    QString normalized = key.trimmed().toUpper();
+    if (normalized.size() > 1)
+        normalized = normalized.left(1);
+
+    // A shortcut claimed twice would fire ambiguously, so any other tool that
+    // currently answers to this key is reset to keyless.
+    if (!normalized.isEmpty()) {
+        for (const auto& d : toolDefaults()) {
+            if (d.tool == tool)
+                continue;
+            if (toolShortcut(d.tool) == normalized)
+                QSettings().setValue(settingsKeyForTool(d.tool), QString());
+        }
+    }
+
+    QSettings().setValue(settingsKeyForTool(tool), normalized);
+    emit toolShortcutsChanged();
+}
+
+QVariantList AppController::toolShortcutList() const
+{
+    QVariantList out;
+    for (const auto& d : toolDefaults()) {
+        QVariantMap entry;
+        entry["tool"] = d.tool;
+        entry["name"] = QString::fromLatin1(d.name);
+        entry["key"] = toolShortcut(d.tool);
+        entry["defaultKey"] = QString::fromLatin1(d.key);
+        out.append(entry);
+    }
+    return out;
+}
+
 QString AppController::versionString() const
 {
     // Version only: callers add the product name, so it isn't duplicated.

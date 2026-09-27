@@ -298,6 +298,18 @@ public:
     Q_INVOKABLE bool openFile(const QUrl& url);
     /// Formats the Save dialog offers (Qt format names, e.g. "png", "jpg").
     Q_INVOKABLE QStringList writableFormatNames() const;
+
+    // --- tool shortcuts -----------------------------------------------------
+    /// Per-tool hotkey, user-configurable and persisted (QSettings). Tools are
+    /// single-key shortcuts like Krita's; an empty key disables the shortcut.
+    Q_PROPERTY(QVariantList toolShortcutList READ toolShortcutList NOTIFY toolShortcutsChanged)
+    Q_INVOKABLE QVariantList toolShortcutList() const;
+    Q_INVOKABLE QString toolShortcut(int tool) const;
+    Q_INVOKABLE QString defaultToolShortcut(int tool) const;
+    /// \p key is a single character ("" clears the shortcut). Assigning a key
+    /// that another tool already uses resets that tool to a keyless state so
+    /// two tools can never claim the same shortcut.
+    Q_INVOKABLE void setToolShortcut(int tool, const QString& key);
     Q_INVOKABLE bool openProject(const QUrl& url);
     Q_INVOKABLE bool importImage(const QUrl& url);
     Q_INVOKABLE bool exportPng(const QUrl& url);
@@ -337,6 +349,7 @@ signals:
     void startPageChanged();
     void recentFilesChanged();
     void lastErrorChanged();
+    void toolShortcutsChanged();
     void canvasChanged(int x, int y, int w, int h);
 
 private:

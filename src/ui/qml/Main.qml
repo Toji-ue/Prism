@@ -77,11 +77,6 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+D"; onActivated: controller.clearSelection() }
     Shortcut { sequence: "Ctrl+Shift+I"; onActivated: controller.invertSelection() }
     Shortcut { sequence: "Ctrl+Shift+M"; onActivated: controller.mirrorHorizontal = !controller.mirrorHorizontal }
-    Shortcut { sequence: "L"; onActivated: controller.tool = AppController.LassoSelectTool }
-    Shortcut { sequence: "W"; onActivated: controller.tool = AppController.MagicWandTool }
-    Shortcut { sequence: "M"; onActivated: controller.tool = AppController.RectSelectTool }
-    Shortcut { sequence: "V"; onActivated: controller.tool = AppController.MoveTool }
-    Shortcut { sequence: "Z"; onActivated: controller.tool = AppController.ZoomTool }
     // Finish an in-progress click path (polyline / bezier / selection paths).
     Shortcut {
         sequence: "Return"
@@ -94,13 +89,22 @@ ApplicationWindow {
         }
     }
     Shortcut { sequence: "Escape"; onActivated: controller.cancelPath() }
-    Shortcut { sequence: "B"; onActivated: controller.tool = AppController.BrushTool }
-    Shortcut { sequence: "E"; onActivated: controller.tool = AppController.EraserTool }
-    Shortcut { sequence: "F"; onActivated: controller.tool = AppController.FillTool }
-    Shortcut { sequence: "I"; onActivated: controller.tool = AppController.EyedropperTool }
     Shortcut { sequence: "+"; onActivated: controller.brushSize = Math.min(200, controller.brushSize + 2) }
     Shortcut { sequence: "-"; onActivated: controller.brushSize = Math.max(1, controller.brushSize - 2) }
     Shortcut { sequence: "Delete"; onActivated: controller.clearCanvas() }
+
+    // Tool hotkeys are user-configurable (Settings > Configure Tool
+    // Shortcuts). The list comes from the controller; the Instantiator
+    // rebuilds the Shortcut objects whenever an assignment changes.
+    Instantiator {
+        model: root.controller.toolShortcutList
+        delegate: Shortcut {
+            enabled: modelData.key.length > 0
+            sequence: modelData.key
+            context: Qt.ApplicationShortcut
+            onActivated: root.controller.tool = modelData.tool
+        }
+    }
 
     // ---------------- menu bar ----------------
     menuBar: MenuBar {
@@ -191,7 +195,10 @@ ApplicationWindow {
         PMenu {
             title: qsTr("&Settings")
             enabled: !controller.startPageVisible
-            Action { text: qsTr("Preferences..."); enabled: false }
+            Action {
+                text: qsTr("Configure Tool Shortcuts...")
+                onTriggered: shortcutDialog.open()
+            }
         }
         PMenu {
             title: qsTr("&Window")
@@ -1037,6 +1044,100 @@ ApplicationWindow {
         ]
         fileMode: FileDialog.SaveFile
         onAccepted: if (!controller.saveFile(selectedFile)) console.warn("export failed")
+    }
+
+    // Tool-shortcut editor. Single-key shortcuts (like Krita's tool keys):
+    // type one character, or leave blank to disable that tool's key.
+    Popup {
+        id: shortcutDialog
+        anchors.centerIn: parent
+        width: 420; height: 520
+        padding: 0
+
+        background: Rectangle { color: T.window; border.color: T.border; border.width: 1 }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: qsTr("Configure Tool Shortcuts")
+                    color: T.text
+                    font.pixelSize: 14
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: qsTr("Close")
+                    implicitHeight: 24
+                    onClicked: shortcutDialog.close()
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("Type one character per tool, or leave it empty to disable its shortcut. Assigning a key that another tool uses takes the key from that tool.")
+                color: T.textDim
+                font.pixelSize: 10
+            }
+
+            ListView {
+                id: shortcutList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: root.controller.toolShortcutList
+
+                delegate: RowLayout {
+                    width: shortcutList.width
+                    height: 26
+                    spacing: 8
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: modelData.name
+                        color: T.text
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        text: modelData.key.length > 0 ? modelData.key : qsTr("(none)")
+                        color: T.textDim
+                        font.pixelSize: 10
+                        Layout.preferredWidth: 40
+                    }
+                    Rectangle {
+                        width: 56; height: 22
+                        color: T.panelRaised
+                        border.color: T.border
+                        TextInput {
+                            id: keyField
+                            anchors.fill: parent
+                            anchors.leftMargin: 6
+                            verticalAlignment: TextInput.AlignVCenter
+                            color: T.text
+                            font.pixelSize: 11
+                            maximumLength: 1
+                            clip: true
+                            Text {
+                                visible: keyField.text.length === 0 && !keyField.activeFocus
+                                anchors.fill: parent
+                                anchors.leftMargin: 6
+                                verticalAlignment: Text.AlignVCenter
+                                text: qsTr("set...")
+                                color: T.textDim
+                                font.pixelSize: 10
+                            }
+                            onEditingFinished:
+                                root.controller.setToolShortcut(modelData.tool, text)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // brush preset dropdown from the toolbar button
