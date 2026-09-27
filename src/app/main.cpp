@@ -268,6 +268,35 @@ int runSelfTest()
         controller.setTool(AppController::BrushTool);
     }
 
+    // A multi-segment drag must not leave any erased pixel behind: the commit
+    // rect has to cover everything the drag removed, not just the last repaint.
+    {
+        controller.setTool(AppController::BrushTool);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.setBrushSize(40.0F);
+        controller.beginStroke(100.0F, 700.0F);
+        controller.extendStroke(500.0F, 700.0F);
+        controller.endStroke();
+
+        controller.setTool(AppController::EraserTool);
+        controller.setBrushSize(30.0F);
+        controller.beginStroke(150.0F, 700.0F);
+        controller.extendStroke(250.0F, 700.0F);
+        controller.extendStroke(350.0F, 700.0F);
+        controller.extendStroke(450.0F, 700.0F);
+        controller.endStroke();
+
+        const QImage img = controller.canvasImage();
+        bool allGone = true;
+        for (int x = 150; x <= 450; x += 25)
+            if (qAlpha(img.pixel(x, 700)) > 0)
+                allGone = false;
+        check(allGone, "a multi-segment erase leaves no restored pixels behind");
+        controller.undo();
+        controller.undo();
+        controller.setTool(AppController::BrushTool);
+    }
+
     // Shape tools: line, rectangle, ellipse each commit one undo step.
     {
         controller.setTool(AppController::LineTool);

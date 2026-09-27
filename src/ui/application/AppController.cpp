@@ -1557,13 +1557,18 @@ void AppController::endStroke()
     }
 
     if (m_erasing) {
-        // The preview already built the erased layer; commit that exact result
-        // so nothing other than the active layer was ever affected.
+        // The drag already built the erased layer incrementally, so commit
+        // exactly that. Re-painting the whole stroke here used to shrink the
+        // patch rect (pixels already at alpha 0 report "no change"), which left
+        // part of the erase uncommitted — erased strokes came back. It also
+        // subtracted alpha twice, over-erasing soft edges.
         m_erasing = false;
         m_compositor.clearLayerOverride();
-        const auto rect = canvas::BrushStroke::paint(m_eraseWork, m_brush, m_currentStroke);
         m_currentStroke.clear();
         m_preview.fill(core::raster::kTransparent);
+
+        const auto rect = m_strokeDirty; // union of everything erased this drag
+        m_strokeDirty = {};
         if (rect.isEmpty()) {
             rebuildFullComposite();
             return;
