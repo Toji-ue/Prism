@@ -384,6 +384,13 @@ private:
     void commitPatch(const prism::core::raster::RasterBuffer& original,
                      const prism::core::raster::RasterBuffer& work,
                      const prism::core::geometry::Rect& rect, const char* label);
+
+    /// Paints one stroke segment, plus its mirror images when the Multibrush
+    /// tool is active (Krita mirrors about the canvas centre).
+    prism::core::geometry::Rect paintSegmentSymmetrical(prism::core::raster::RasterBuffer& buffer,
+                                                        const prism::canvas::BrushSettings& brush,
+                                                        const prism::canvas::StrokePoint& a,
+                                                        const prism::canvas::StrokePoint& b);
     bool m_mirrorH = false;
     bool m_mirrorV = false;
     bool m_startPageVisible = true;

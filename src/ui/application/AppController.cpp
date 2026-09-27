@@ -1162,6 +1162,39 @@ void AppController::clearCanvas()
     rebuildFullComposite();
 }
 
+core::geometry::Rect AppController::paintSegmentSymmetrical(
+    core::raster::RasterBuffer& buffer, const canvas::BrushSettings& brush,
+    const canvas::StrokePoint& a, const canvas::StrokePoint& b)
+{
+    auto rect = canvas::BrushStroke::paintSegment(buffer, brush, a, b);
+    if (m_tool != Tool::MultiBrushTool || !brush.erase)
+        return rect;
+
+    // Krita's Multibrush repeats each stroke mirrored about the canvas centre.
+    const float w = static_cast<float>(m_doc.canvasSize().width);
+    const float h = static_cast<float>(m_doc.canvasSize().height);
+    const canvas::StrokePoint mirrorX[2] = { { w - a.x, a.y, a.pressure },
+                                             { w - b.x, b.y, b.pressure } };
+    const canvas::StrokePoint mirrorY[2] = { { a.x, h - a.y, a.pressure },
+                                             { b.x, h - b.y, b.pressure } };
+    const canvas::StrokePoint mirrorXY[2] = { { w - a.x, h - a.y, a.pressure },
+                                              { w - b.x, h - b.y, b.pressure } };
+
+    const canvas::StrokePoint* variants[3][2] = { { mirrorX, mirrorX + 1 },
+                                                  { mirrorY, mirrorY + 1 },
+                                                  { mirrorXY, mirrorXY + 1 } };
+    for (auto& v : variants) {
+        const auto r = canvas::BrushStroke::paintSegment(buffer, brush, v[0][0], v[1][0]);
+        if (r.isEmpty())
+            continue;
+        rect = core::geometry::Rect{
+            std::min(rect.x, r.x), std::min(rect.y, r.y),
+            std::max(rect.x + rect.width, r.x + r.width) - std::min(rect.x, r.x),
+            std::max(rect.y + rect.height, r.y + r.height) - std::min(rect.y, r.y) };
+    }
+    return rect;
+}
+
 bool AppController::canMergeDown() const
 {
     return activeLayerIndex() > 0;
@@ -1429,6 +1462,7 @@ void AppController::beginStroke(float x, float y)
     m_currentStroke.push_back({ x, y, 1.0F });
     m_preview.fill(core::raster::kTransparent);
     m_strokeDirty = core::geometry::Rect{ static_cast<int>(x), static_cast<int>(y), 0, 0 };
+    m_dynamicPos = { x, y, 1.0F };
 
     // The eraser previews by substituting an erased copy of the ACTIVE layer,
     // so nothing on any other layer is touched on screen either.
@@ -1448,13 +1482,22 @@ void AppController::extendStroke(float x, float y)
     if (m_currentStroke.empty())
         return;
     const auto prev = m_currentStroke.back();
-    m_currentStroke.push_back({ x, y, 1.0F });
+    // Dynamic Brush lags behind the pointer: the painted point eases toward the
+    // input instead of jumping to it, which is what gives the tool its weight.
+    if (m_tool == Tool::DynamicBrushTool) {
+        constexpr float kFollow = 0.35F;
+        m_dynamicPos.x += (x - m_dynamicPos.x) * kFollow;
+        m_dynamicPos.y += (y - m_dynamicPos.y) * kFollow;
+        m_currentStroke.push_back(m_dynamicPos);
+    } else {
+        m_currentStroke.push_back({ x, y, 1.0F });
+    }
+    const auto current = m_currentStroke.back();
 
     if (m_erasing) {
         // Erase into the substituted layer copy and re-composite that band.
         // No overlay is used, so only the active layer's pixels change.
-        const auto segment = canvas::BrushStroke::paintSegment(m_eraseWork, m_brush, prev,
-                                                               { x, y, 1.0F });
+        const auto segment = paintSegmentSymmetrical(m_eraseWork, m_brush, prev, current);
         if (segment.isEmpty())
             return;
         m_strokeDirty = core::geometry::Rect{
@@ -1475,8 +1518,7 @@ void AppController::extendStroke(float x, float y)
     canvas::BrushSettings previewBrush = m_brush;
     previewBrush.erase = false;
 
-    const auto segment = canvas::BrushStroke::paintSegment(m_preview, previewBrush, prev,
-                                                           { x, y, 1.0F });
+    const auto segment = paintSegmentSymmetrical(m_preview, previewBrush, prev, current);
     if (segment.isEmpty())
         return;
 
