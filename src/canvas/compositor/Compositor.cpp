@@ -22,7 +22,8 @@ void Compositor::canvasResized()
 }
 
 prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect dirty,
-                                                  const RasterBuffer* overlay)
+                                                  const RasterBuffer* overlay,
+                                                  bool overlayErases)
 {
     const auto& size = m_doc.canvasSize();
     const prism::core::geometry::Rect canvasRect{ 0, 0, size.width, size.height };
@@ -56,14 +57,25 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
         }
     }
 
-    // Live-preview overlay paints last, normal blend, same coordinates.
+    // Live-preview overlay paints last. For the eraser it removes coverage
+    // instead, so the stroke disappears under the pointer as it is dragged.
     if (overlay && !overlay->isEmpty()) {
         for (int y = area.y; y < area.y + area.height; ++y) {
             for (int x = area.x; x < area.x + area.width; ++x) {
                 const Color s = overlay->at(x, y);
                 if (s.a == 0)
                     continue;
-                m_result.set(x, y, blendPixel(m_result.at(x, y), s, prism::core::BlendMode::Normal));
+                if (!overlayErases) {
+                    m_result.set(x, y,
+                                 blendPixel(m_result.at(x, y), s, prism::core::BlendMode::Normal));
+                    continue;
+                }
+                const Color dst = m_result.at(x, y);
+                const int remaining = static_cast<int>(dst.a) - static_cast<int>(s.a);
+                m_result.set(x, y,
+                             remaining <= 0 ? prism::core::raster::kTransparent
+                                            : Color{ dst.r, dst.g, dst.b,
+                                                     static_cast<std::uint8_t>(remaining) });
             }
         }
     }

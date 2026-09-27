@@ -18,11 +18,14 @@ public:
     explicit Compositor(prism::core::Document& doc);
 
     /// Recomputes \p dirty of the composite. Passing the full buffer rect
-    /// recomputes everything. If \p overlay is non-null it is composited
-    /// last (normal blend) — used for live brush preview before a stroke
-    /// commits. Returns the rect actually composited (dirty ∩ canvas).
+    /// recomputes everything. If \p overlay is non-null it is applied last.
+    /// With \p overlayErases the overlay's alpha is SUBTRACTED from the
+    /// composite instead of painted over it — that is what gives the eraser
+    /// live feedback while the pointer is still down.
+    /// Returns the rect actually composited (dirty intersected with canvas).
     prism::core::geometry::Rect composite(prism::core::geometry::Rect dirty,
-                                          const prism::core::raster::RasterBuffer* overlay = nullptr);
+                                          const prism::core::raster::RasterBuffer* overlay = nullptr,
+                                          bool overlayErases = false);
 
     /// The flattened canvas. Owned here so it survives between frames.
     [[nodiscard]] const prism::core::raster::RasterBuffer& result() const noexcept

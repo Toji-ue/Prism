@@ -217,6 +217,29 @@ int runSelfTest()
         controller.setTool(AppController::BrushTool);
     }
 
+    // Erasing must be visible DURING the drag, not only after release.
+    {
+        controller.setTool(AppController::BrushTool);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.setBrushSize(40.0F);
+        controller.beginStroke(300.0F, 500.0F);
+        controller.extendStroke(400.0F, 500.0F);
+        controller.endStroke();
+        const int painted = countOpaquePixels(controller.canvasImage());
+
+        controller.setTool(AppController::EraserTool);
+        controller.setBrushSize(40.0F);
+        controller.beginStroke(350.0F, 500.0F);
+        controller.extendStroke(351.0F, 500.0F); // mid-drag: no release yet
+        const int duringDrag = countOpaquePixels(controller.canvasImage());
+        check(duringDrag < painted, "erase is visible while dragging");
+        controller.endStroke();
+        check(countOpaquePixels(controller.canvasImage()) < painted, "erase committed on release");
+        controller.undo();
+        controller.undo();
+        controller.setTool(AppController::BrushTool);
+    }
+
     // Shape tools: line, rectangle, ellipse each commit one undo step.
     {
         controller.setTool(AppController::LineTool);

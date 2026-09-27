@@ -1372,7 +1372,15 @@ void AppController::extendStroke(float x, float y)
         return;
     const auto prev = m_currentStroke.back();
     m_currentStroke.push_back({ x, y, 1.0F });
-    const auto segment = canvas::BrushStroke::paintSegment(m_preview, m_brush, prev,
+
+    // The eraser preview accumulates COVERAGE (a normal stamp into the scratch);
+    // the compositor then subtracts it, so the erase is visible live instead of
+    // only appearing when the button is released.
+    const bool erasing = m_brush.erase;
+    canvas::BrushSettings previewBrush = m_brush;
+    previewBrush.erase = false;
+
+    const auto segment = canvas::BrushStroke::paintSegment(m_preview, previewBrush, prev,
                                                            { x, y, 1.0F });
     if (segment.isEmpty())
         return;
@@ -1391,7 +1399,7 @@ void AppController::extendStroke(float x, float y)
     // The layer-revision counter is deliberately NOT bumped here: doing so
     // made every layer thumbnail re-render on each mouse move, which was the
     // cause of the drawing lag. Thumbnails refresh when the stroke commits.
-    const auto composited = m_compositor.composite(segment, &m_preview);
+    const auto composited = m_compositor.composite(segment, &m_preview, erasing);
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
