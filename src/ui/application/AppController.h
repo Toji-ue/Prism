@@ -176,6 +176,8 @@ public:
 
     /// Similar-colour selection anywhere on the canvas (not region-limited).
     Q_INVOKABLE void similarColorAt(float x, float y, int tolerance);
+    /// Outline Selection: selects the connected opaque run under (x, y).
+    Q_INVOKABLE void selectOutlineAt(float x, float y);
 
     // --- extra tools ------------------------------------------------------
     /// Polyline / Bezier / Bezier-selection: click to add a point.

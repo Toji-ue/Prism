@@ -475,6 +475,14 @@ void AppController::similarColorAt(float x, float y, int tolerance)
     emit selectionChanged();
 }
 
+void AppController::selectOutlineAt(float x, float y)
+{
+    const auto& flat = m_compositor.result();
+    m_selection.selectContiguousOpaque(flat, static_cast<int>(std::floor(x)),
+                                       static_cast<int>(std::floor(y)));
+    emit selectionChanged();
+}
+
 // ------------------------------------------------------------ shape tools
 
 void AppController::beginShape(float x, float y)

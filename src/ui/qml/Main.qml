@@ -82,6 +82,18 @@ ApplicationWindow {
     Shortcut { sequence: "M"; onActivated: controller.tool = AppController.RectSelectTool }
     Shortcut { sequence: "V"; onActivated: controller.tool = AppController.MoveTool }
     Shortcut { sequence: "Z"; onActivated: controller.tool = AppController.ZoomTool }
+    // Finish an in-progress click path (polyline / bezier / selection paths).
+    Shortcut {
+        sequence: "Return"
+        onActivated: {
+            const t = controller.tool
+            if (t === AppController.PolylineTool) controller.finishPath(0)
+            else if (t === AppController.BezierTool) controller.finishPath(1)
+            else if (t === AppController.BezierSelectTool) controller.finishPath(2)
+            else if (t === AppController.MagneticSelectTool) controller.finishPath(3)
+        }
+    }
+    Shortcut { sequence: "Escape"; onActivated: controller.cancelPath() }
     Shortcut { sequence: "B"; onActivated: controller.tool = AppController.BrushTool }
     Shortcut { sequence: "E"; onActivated: controller.tool = AppController.EraserTool }
     Shortcut { sequence: "F"; onActivated: controller.tool = AppController.FillTool }
@@ -110,7 +122,7 @@ ApplicationWindow {
             MenuSeparator {}
             Action { text: qsTr("&Quit\tCtrl+Q"); onTriggered: Qt.quit() }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Edit")
             enabled: !controller.startPageVisible
             Action {
@@ -126,7 +138,7 @@ ApplicationWindow {
             MenuSeparator {}
             Action { text: qsTr("Clear Layer\tDelete"); onTriggered: controller.clearCanvas() }
         }
-        Menu {
+        PMenu {
             title: qsTr("&View")
             enabled: !controller.startPageVisible
             Action { text: qsTr("Zoom &In"); onTriggered: controller.zoom = Math.min(8, controller.zoom * 1.25) }
@@ -134,13 +146,13 @@ ApplicationWindow {
             Action { text: qsTr("&100%"); onTriggered: controller.zoom = 1.0 }
             Action { text: qsTr("&Fit to Window"); onTriggered: controller.zoom = 0.5 }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Image")
             enabled: !controller.startPageVisible
             Action { text: qsTr("Resize Canvas..."); enabled: false }
             Action { text: qsTr("Canvas Information"); enabled: false }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Layer")
             enabled: !controller.startPageVisible
             Action { text: qsTr("&New Layer\tCtrl+Shift+N"); onTriggered: controller.addLayer() }
@@ -150,14 +162,14 @@ ApplicationWindow {
             Action { text: qsTr("&Raise Layer"); onTriggered: controller.moveLayerUp() }
             Action { text: qsTr("&Lower Layer"); onTriggered: controller.moveLayerDown() }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Select")
             enabled: !controller.startPageVisible
             Action { text: qsTr("Select &All\tCtrl+A"); onTriggered: controller.selectAll() }
             Action { text: qsTr("&Deselect\tCtrl+D"); onTriggered: controller.clearSelection() }
             Action { text: qsTr("&Invert Selection\tCtrl+Shift+I"); onTriggered: controller.invertSelection() }
         }
-        Menu {
+        PMenu {
             title: qsTr("Fi&lter")
             enabled: !controller.startPageVisible
             Action { text: qsTr("&Invert"); onTriggered: controller.applyFilter("invert") }
@@ -168,7 +180,7 @@ ApplicationWindow {
                 onTriggered: controller.applyFilter("brightness-contrast")
             }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Tools")
             enabled: !controller.startPageVisible
             Action { text: qsTr("Freehand Brush\tB"); onTriggered: controller.tool = AppController.BrushTool }
@@ -176,17 +188,17 @@ ApplicationWindow {
             Action { text: qsTr("Fill\tF"); onTriggered: controller.tool = AppController.FillTool }
             Action { text: qsTr("Color Picker\tI"); onTriggered: controller.tool = AppController.EyedropperTool }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Settings")
             enabled: !controller.startPageVisible
             Action { text: qsTr("Preferences..."); enabled: false }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Window")
             enabled: !controller.startPageVisible
             Action { text: qsTr("Show Dockers"); enabled: false }
         }
-        Menu {
+        PMenu {
             title: qsTr("&Help")
             enabled: !controller.startPageVisible
             Action { text: qsTr("About Prism"); enabled: false }
@@ -601,8 +613,44 @@ ApplicationWindow {
                                 case AppController.MagicWandTool:
                                     controller.magicWandAt(cx, cy, 32)
                                     break
+                                case AppController.OutlineSelectTool:
+                                    controller.selectOutlineAt(cx, cy)
+                                    break
                                 case AppController.SimilarColorSelectTool:
                                     controller.similarColorAt(cx, cy, 32)
+                                    break
+                                // Click-based paths: collect points, finish with Enter.
+                                case AppController.PolylineTool:
+                                case AppController.BezierTool:
+                                case AppController.BezierSelectTool:
+                                case AppController.MagneticSelectTool:
+                                    controller.addPathPoint(cx, cy)
+                                    break
+                                case AppController.FreehandPathTool:
+                                    controller.beginFreePath(cx, cy)
+                                    break
+                                case AppController.ArcTool:
+                                    controller.beginArc(cx, cy)
+                                    break
+                                case AppController.CropTool:
+                                    controller.setSelection(cx, cy, 0, 0)
+                                    break
+                                case AppController.TextTool:
+                                    textPopup.pendingX = cx
+                                    textPopup.pendingY = cy
+                                    textPopup.open()
+                                    break
+                                case AppController.PatternTool:
+                                    controller.fillPattern(patternMenu.index, 16)
+                                    break
+                                case AppController.TransformTool:
+                                    draggingLayer = true
+                                    break
+                                case AppController.MultiBrushTool:
+                                    controller.beginStroke(cx, cy)
+                                    break
+                                case AppController.DynamicBrushTool:
+                                    controller.beginStroke(cx, cy)
                                     break
                                 case AppController.LineTool:
                                 case AppController.RectangleTool:
@@ -660,8 +708,19 @@ ApplicationWindow {
                                 case AppController.GradientTool:
                                     controller.updateShape(cx, cy)
                                     break
+                                case AppController.FreehandPathTool:
+                                    controller.extendFreePath(cx, cy)
+                                    break
+                                case AppController.ArcTool:
+                                    controller.updateArc(cx, cy)
+                                    break
+                                case AppController.CropTool:
+                                    controller.setSelection(startX, startY, cx - startX, cy - startY)
+                                    break
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
+                                case AppController.MultiBrushTool:
+                                case AppController.DynamicBrushTool:
                                     controller.extendStroke(cx, cy)
                                     break
                                 }
@@ -684,6 +743,33 @@ ApplicationWindow {
                                         || controller.tool === AppController.GradientTool) {
                                     controller.endShape()
                                     return
+                                }
+                                if (controller.tool === AppController.FreehandPathTool) {
+                                    controller.endFreePath()
+                                    return
+                                }
+                                if (controller.tool === AppController.ArcTool) {
+                                    controller.endArc()
+                                    return
+                                }
+                                if (controller.tool === AppController.CropTool) {
+                                    controller.cropTo(startX, startY, cx - startX, cy - startY)
+                                    controller.clearSelection()
+                                    return
+                                }
+                                if (controller.tool === AppController.TransformTool && draggingLayer) {
+                                    // Horizontal drag rotates, vertical drag scales.
+                                    const deg = (cx - startX) * 0.5
+                                    const sc = Math.max(0.1, 1.0 + (cy - startY) / 200.0)
+                                    controller.transformLayer(deg, sc)
+                                    draggingLayer = false
+                                    return
+                                }
+                                if (controller.tool === AppController.PolylineTool
+                                        || controller.tool === AppController.BezierTool
+                                        || controller.tool === AppController.BezierSelectTool
+                                        || controller.tool === AppController.MagneticSelectTool) {
+                                    return // click-based: waits for Enter / right click
                                 }
                                 if (controller.tool === AppController.LassoSelectTool
                                         || controller.tool === AppController.PolygonSelectTool) {
@@ -819,6 +905,58 @@ ApplicationWindow {
 
     // ---------------- dialogs & popups ----------------
     NewDocumentDialog { id: newDocDialog; controller: root.controller }
+
+    // Text tool input (Krita keeps text entry in a small popup).
+    Popup {
+        id: textPopup
+        property real pendingX: 0
+        property real pendingY: 0
+        anchors.centerIn: parent
+        width: 300; height: 96
+        padding: 10
+        background: Rectangle { color: T.popup; border.color: T.popupBorder; border.width: 1 }
+        Column {
+            anchors.fill: parent
+            spacing: 6
+            Text { text: qsTr("Text"); color: T.text; font.pixelSize: 11 }
+            Rectangle {
+                width: parent.width; height: 24
+                color: T.panelRaised
+                border.color: T.border
+                TextInput {
+                    id: textField
+                    anchors.fill: parent
+                    anchors.leftMargin: 6
+                    anchors.rightMargin: 6
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: T.text
+                    font.pixelSize: 12
+                    clip: true
+                    onAccepted: {
+                        root.controller.renderText(textPopup.pendingX, textPopup.pendingY,
+                                                   text, Math.round(root.controller.brushSize * 3))
+                        textPopup.close()
+                    }
+                }
+            }
+            Text {
+                text: qsTr("Enter to place it on the active layer")
+                color: T.textDim
+                font.pixelSize: 10
+            }
+        }
+        onOpened: textField.forceActiveFocus()
+    }
+
+    // Pattern picker for the Pattern tool.
+    PMenu {
+        id: patternMenu
+        property int index: 0
+        MenuItem { text: qsTr("Checker"); onTriggered: { patternMenu.index = 0; root.controller.fillPattern(0, 16) } }
+        MenuItem { text: qsTr("Stripes"); onTriggered: { patternMenu.index = 1; root.controller.fillPattern(1, 16) } }
+        MenuItem { text: qsTr("Dots"); onTriggered: { patternMenu.index = 2; root.controller.fillPattern(2, 16) } }
+        MenuItem { text: qsTr("Fine checker"); onTriggered: { patternMenu.index = 0; root.controller.fillPattern(0, 6) } }
+    }
 
     FileDialog {
         id: saveDialog

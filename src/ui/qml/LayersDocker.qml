@@ -143,7 +143,7 @@ Rectangle {
     }
 
     // ---- layer context menu (right click on a row) ----
-    Menu {
+    PMenu {
         id: layerMenu
         property int targetIndex: 0
 

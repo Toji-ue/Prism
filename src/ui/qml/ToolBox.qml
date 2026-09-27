@@ -36,19 +36,19 @@ Rectangle {
         { icon: "wand",        name: qsTr("Contiguous Selection"),   key: "W", tool: AppController.MagicWandTool,         ready: true },
         { icon: "similar",     name: qsTr("Similar Color Selection"), key: "", tool: AppController.SimilarColorSelectTool, ready: true },
         { icon: "move",        name: qsTr("Move Layer"),             key: "V", tool: AppController.MoveTool,              ready: true },
-        { icon: "text",        name: qsTr("Text"),                   key: "",  tool: AppController.TextTool,              ready: false },
-        { icon: "polyline",    name: qsTr("Polyline"),               key: "",  tool: AppController.PolylineTool,          ready: false },
-        { icon: "bezier",      name: qsTr("Bezier Curve"),           key: "",  tool: AppController.BezierTool,            ready: false },
-        { icon: "path",        name: qsTr("Freehand Path"),          key: "",  tool: AppController.FreehandPathTool,      ready: false },
-        { icon: "arc",         name: qsTr("Arc"),                    key: "",  tool: AppController.ArcTool,               ready: false },
-        { icon: "multibrush",  name: qsTr("Multibrush"),             key: "",  tool: AppController.MultiBrushTool,        ready: false },
-        { icon: "dynamic",     name: qsTr("Dynamic Brush"),          key: "",  tool: AppController.DynamicBrushTool,      ready: false },
-        { icon: "bezier",      name: qsTr("Bezier Selection"),       key: "",  tool: AppController.BezierSelectTool,      ready: false },
-        { icon: "magnetic",    name: qsTr("Magnetic Selection"),     key: "",  tool: AppController.MagneticSelectTool,    ready: false },
-        { icon: "outline",     name: qsTr("Outline Selection"),      key: "",  tool: AppController.OutlineSelectTool,     ready: false },
-        { icon: "transform",   name: qsTr("Transform"),              key: "",  tool: AppController.TransformTool,         ready: false },
-        { icon: "crop",        name: qsTr("Crop"),                   key: "",  tool: AppController.CropTool,              ready: false },
-        { icon: "pattern",     name: qsTr("Pattern"),                key: "",  tool: AppController.PatternTool,           ready: false }
+        { icon: "text",        name: qsTr("Text"),                   key: "",  tool: AppController.TextTool,              ready: true },
+        { icon: "polyline",    name: qsTr("Polyline"),               key: "",  tool: AppController.PolylineTool,          ready: true },
+        { icon: "bezier",      name: qsTr("Bezier Curve"),           key: "",  tool: AppController.BezierTool,            ready: true },
+        { icon: "path",        name: qsTr("Freehand Path"),          key: "",  tool: AppController.FreehandPathTool,      ready: true },
+        { icon: "arc",         name: qsTr("Arc"),                    key: "",  tool: AppController.ArcTool,               ready: true },
+        { icon: "multibrush",  name: qsTr("Multibrush"),             key: "",  tool: AppController.MultiBrushTool,        ready: true },
+        { icon: "dynamic",     name: qsTr("Dynamic Brush"),          key: "",  tool: AppController.DynamicBrushTool,      ready: true },
+        { icon: "bezier",      name: qsTr("Bezier Selection"),       key: "",  tool: AppController.BezierSelectTool,      ready: true },
+        { icon: "magnetic",    name: qsTr("Magnetic Selection"),     key: "",  tool: AppController.MagneticSelectTool,    ready: true },
+        { icon: "outline",     name: qsTr("Outline Selection"),      key: "",  tool: AppController.OutlineSelectTool,     ready: true },
+        { icon: "transform",   name: qsTr("Transform"),              key: "",  tool: AppController.TransformTool,         ready: true },
+        { icon: "crop",        name: qsTr("Crop"),                   key: "",  tool: AppController.CropTool,              ready: true },
+        { icon: "pattern",     name: qsTr("Pattern"),                key: "",  tool: AppController.PatternTool,           ready: true }
     ]
 
     Flickable {
