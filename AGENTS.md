@@ -115,6 +115,8 @@ cmake --preset default          # configure
 cmake --build --preset default  # build
 ctest --preset default          # run tests
 
+powershell -File tools/deploy.ps1   # deploy to deploy/ (stops the app, verifies the hash)
+
 clang-format -i <files>         # format
 clang-tidy -p build <files>     # lint
 ```
@@ -145,6 +147,8 @@ Mistakes that are easy to make in this codebase and easy to miss in review:
 - **Silent color-space conversion or clamping.** Any conversion between color spaces (or clamping out-of-gamut values) must be explicit and visible in the diff — never a side effect of an unrelated change.
 - **Breaking an old project-format loader while adding a new one.** Every format version's loader must keep working; "just bump the version and stop supporting the old one" is a data-loss bug for existing users' files.
 - **Testing tablet/GPU-path changes only on a mouse or in a VM.** Pressure curves, tilt, and palm rejection behave differently on real hardware; a change that "feels fine" with a mouse can still be untested for its actual purpose.
+- **Treating a QML argument as a file path.** QML hands file arguments over either as a `url` (`FileDialog.selectedFile`) or as a plain string (scripts, drag-and-drop, `QMetaObject::invokeMethod`). `QUrl("C:\\x.png")` parses `c` as a scheme and percent-encodes the separators, so `toLocalFile()` returns empty or `C:%5Cx.png` and the operation silently dies with "no file name specified". Route every file-taking invokable through `localPathFrom()` in `AppController.cpp`; the selftest covers this.
+- **Assuming a deploy happened.** A running `prism.exe` locks `deploy\prism.exe`, so `Copy-Item` fails with an IOException that is easy to lose in a long build log — leaving a stale binary that "does not have" the change just made, which reads as a broken feature rather than a failed copy. Always deploy with `tools/deploy.ps1` (stops the app, retries, verifies the hash) and check the hash before reporting a feature as shipped.
 
 ## Performance constraints
 

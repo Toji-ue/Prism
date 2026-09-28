@@ -42,6 +42,29 @@ QColor toQColor(prism::core::raster::Color c)
     return QColor(c.r, c.g, c.b, c.a);
 }
 
+/// QML passes file arguments either as a `url` (FileDialog.selectedFile) or as
+/// a plain string (scripts, drag-and-drop, QMetaObject::invokeMethod). A
+/// Windows path string converted to QUrl is NOT a local file URL —
+/// QUrl("C:\\x.png") parses "c" as a scheme — so toLocalFile() returns empty
+/// and the operation silently fails with an empty file name. Accept both.
+QString localPathFrom(const QUrl& url)
+{
+    const QString path = url.toLocalFile();
+    if (!path.isEmpty())
+        return path;
+
+    QString raw = url.toString();
+    if (raw.isEmpty())
+        return raw;
+    // The path string was parsed as a URL, so separators arrived
+    // percent-encoded ("C:%5CUsers%5C..."). Decode before handing it to Qt's
+    // file APIs, which want a plain filesystem path.
+    raw = QUrl::fromPercentEncoding(raw.toUtf8());
+    if (raw.startsWith(QLatin1String("file:"), Qt::CaseInsensitive))
+        raw = QUrl(raw).toLocalFile();
+    return raw;
+}
+
 } // namespace
 
 AppController::AppController(QObject* parent)
@@ -1378,7 +1401,7 @@ void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight)
 
 bool AppController::saveProject(const QUrl& url)
 {
-    QString path = url.toLocalFile();
+    QString path = localPathFrom(url);
     // A project file without the .prism suffix is invisible to the Open
     // dialog's filter — that is why reopened saves appeared to be missing.
     if (!path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
@@ -1396,7 +1419,7 @@ bool AppController::saveProject(const QUrl& url)
 
 bool AppController::saveFile(const QUrl& url)
 {
-    QString path = url.toLocalFile();
+    QString path = localPathFrom(url);
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix.isEmpty() || suffix == QLatin1String("prism"))
         return saveProject(QUrl::fromLocalFile(path));
@@ -1411,10 +1434,10 @@ bool AppController::saveFile(const QUrl& url)
 
 bool AppController::openFile(const QUrl& url)
 {
-    const QString path = url.toLocalFile();
+    const QString path = localPathFrom(url);
     if (path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
-        return openProject(url);
-    return importImage(url);
+        return openProject(QUrl::fromLocalFile(path));
+    return importImage(QUrl::fromLocalFile(path));
 }
 
 QStringList AppController::writableFormatNames() const
@@ -1427,10 +1450,11 @@ QStringList AppController::writableFormatNames() const
 
 bool AppController::openProject(const QUrl& url)
 {
-    auto doc = io::ProjectIO::load(url.toLocalFile());
+    const QString filePath = localPathFrom(url);
+    auto doc = io::ProjectIO::load(filePath);
     if (!doc) {
         setLastError(tr("Could not open %1 — it is not a valid Prism project.")
-                         .arg(QFileInfo(url.toLocalFile()).fileName()));
+                         .arg(QFileInfo(filePath).fileName()));
         return false;
     }
     setLastError(QString());
@@ -1440,9 +1464,9 @@ bool AppController::openProject(const QUrl& url)
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
-    m_documentName = QFileInfo(url.toLocalFile()).fileName();
+    m_documentName = QFileInfo(filePath).fileName();
     m_layersModel->setDocument(&m_doc);
-    addRecentFile(url.toLocalFile());
+    addRecentFile(filePath);
     emit documentNameChanged();
     emit layersChanged();
     emit historyChanged();
@@ -1456,10 +1480,11 @@ bool AppController::openProject(const QUrl& url)
 
 bool AppController::importImage(const QUrl& url)
 {
-    auto doc = io::ProjectIO::importImage(url.toLocalFile());
+    const QString path = localPathFrom(url);
+    auto doc = io::ProjectIO::importImage(path);
     if (!doc) {
         setLastError(tr("Could not open %1 — unsupported or unreadable image.")
-                         .arg(QFileInfo(url.toLocalFile()).fileName()));
+                         .arg(QFileInfo(path).fileName()));
         return false;
     }
     setLastError(QString());
@@ -1469,9 +1494,9 @@ bool AppController::importImage(const QUrl& url)
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
-    m_documentName = QFileInfo(url.toLocalFile()).fileName();
+    m_documentName = QFileInfo(path).fileName();
     m_layersModel->setDocument(&m_doc);
-    addRecentFile(url.toLocalFile());
+    addRecentFile(path);
     emit documentNameChanged();
     emit layersChanged();
     emit historyChanged();
@@ -1483,11 +1508,10 @@ bool AppController::importImage(const QUrl& url)
 
 bool AppController::importImageAsLayer(const QUrl& url)
 {
+    const QString path = localPathFrom(url);
     // No canvas to add to yet: behave like Open image (creates a document).
     if (m_startPageVisible || m_doc.layers().empty())
-        return importImage(url);
-
-    const QString path = url.toLocalFile();
+        return importImage(QUrl::fromLocalFile(path));
     QImage image(path);
     if (image.isNull()) {
         setLastError(tr("Could not import %1 — unsupported or unreadable image.")
@@ -1531,7 +1555,7 @@ bool AppController::importImageAsLayer(const QUrl& url)
 
 bool AppController::exportPng(const QUrl& url)
 {
-    return io::ProjectIO::exportPng(m_compositor, url.toLocalFile());
+    return io::ProjectIO::exportPng(m_compositor, localPathFrom(url));
 }
 
 void AppController::newDocument(int width, int height)

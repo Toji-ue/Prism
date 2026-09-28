@@ -421,6 +421,19 @@ int runSelfTest()
                   QUrl::fromLocalFile(QDir::temp().filePath(QStringLiteral("no-such.png")))),
               "import of a missing file fails gracefully");
         check(!controller.lastError().isEmpty(), "missing file reports an error");
+        // Regression: QML converts a plain path string to QUrl, which parses
+        // "C" as a scheme and percent-encodes the backslashes. That made the
+        // import fail with an empty/garbled file name while the file dialog
+        // path worked — i.e. "import does nothing" depending on the caller.
+        const QUrl fromPlainString(png);
+        check(fromPlainString.toLocalFile().isEmpty(),
+              "a Windows path string is NOT a local file url (bug precondition)");
+        const int layersBeforeStringImport = controller.layers()->rowCount();
+        check(controller.importImageAsLayer(fromPlainString),
+              "import accepts a raw path string, not just a file url");
+        check(controller.layers()->rowCount() == layersBeforeStringImport + 1,
+              "string-path import added exactly one layer");
+        controller.undo();
     }
 
     // Tool shortcuts are configurable and persisted; conflicts are resolved.
@@ -572,8 +585,22 @@ int main(int argc, char* argv[])
         const bool demoToolOptions = app.arguments().contains(QStringLiteral("--demo-tool-options"));
         const bool demoCursor = app.arguments().contains(QStringLiteral("--demo-cursor"));
         const bool demoMenu = app.arguments().contains(QStringLiteral("--demo-menu"));
+        // --demo-import-layer=<png> drives the SAME QML -> controller call the
+        // menu uses, without a human clicking a native file dialog. This is
+        // how we prove the UI path works end to end.
+        QString demoImport;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-import-layer=")))
+                demoImport = a.section(QLatin1Char('='), 1);
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
-                                       demoMenu, &engine]() {
+                                       demoMenu, demoImport, &engine]() {
+            if (!demoImport.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                QMetaObject::invokeMethod(engine.rootObjects().first(), "demoImportLayer",
+                                          Q_ARG(QVariant, QVariant(demoImport)));
+                qInfo() << "demo: after QML import call, layers ="
+                        << controller->layers()->rowCount() << "error =" << controller->lastError();
+            }
             if (demoMenu && !engine.rootObjects().isEmpty()) {
                 // Opens a dropdown so its colours are visible in a screenshot.
                 controller->setStartPageVisible(false);

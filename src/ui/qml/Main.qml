@@ -43,6 +43,14 @@ ApplicationWindow {
     // can be checked from a screenshot.
     function demoOpenMenu() { fileMenu.open() }
 
+    // Drives the exact call the import menu entries make, without a native
+    // file dialog (used by --demo-import-layer for UI-path verification).
+    function demoImportLayer(path) {
+        console.info("demo: QML calling importImageAsLayer(" + path + ")")
+        var ok = controller.importImageAsLayer(path)
+        console.info("demo: importImageAsLayer returned " + ok)
+    }
+
     // Verification hook (prism --demo-cursor): pins the brush ring at a
     // canvas position so a screenshot can prove its size and colour, since
     // Windows will not deliver hover events to a non-foreground window.
@@ -117,7 +125,10 @@ ApplicationWindow {
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
             Action {
                 text: qsTr("&Import Image as Layer...")
-                onTriggered: importLayerDialog.open()
+                onTriggered: {
+                    console.info("menu: Import Image as Layer clicked")
+                    importLayerDialog.open()
+                }
             }
             MenuSeparator {}
             Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
@@ -169,6 +180,15 @@ ApplicationWindow {
             MenuSeparator {}
             Action { text: qsTr("&Raise Layer"); onTriggered: controller.moveLayerUp() }
             Action { text: qsTr("&Lower Layer"); onTriggered: controller.moveLayerDown() }
+            MenuSeparator {}
+            // Krita keeps this under Layer > Import/Export > Import Layer.
+            Action {
+                text: qsTr("&Import Image as Layer...")
+                onTriggered: {
+                    console.info("menu: Import Image as Layer clicked (Layer menu)")
+                    importLayerDialog.open()
+                }
+            }
         }
         PMenu {
             title: qsTr("&Select")
@@ -1045,7 +1065,11 @@ ApplicationWindow {
             qsTr("All files (*)")
         ]
         fileMode: FileDialog.OpenFile
-        onAccepted: if (!controller.importImageAsLayer(selectedFile)) console.warn("import failed")
+        onAccepted: {
+            console.info("dialog: import image accepted: " + selectedFile)
+            if (!controller.importImageAsLayer(selectedFile))
+                console.warn("import as layer failed: " + controller.lastError)
+        }
     }
     FileDialog {
         id: exportDialog

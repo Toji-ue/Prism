@@ -153,7 +153,10 @@ Rectangle {
         }
         MenuItem {
             text: qsTr("Import Image as Layer...")
-            onTriggered: importImageDialog.open()
+            onTriggered: {
+                console.info("layers+: Import Image as Layer clicked")
+                importImageDialog.open()
+            }
         }
     }
 
@@ -165,8 +168,11 @@ Rectangle {
             qsTr("All files (*)")
         ]
         fileMode: FileDialog.OpenFile
-        onAccepted: if (!controller.importImageAsLayer(selectedFile))
-                        console.warn("import as layer failed")
+        onAccepted: {
+            console.info("layers+: import image accepted: " + selectedFile)
+            if (!controller.importImageAsLayer(selectedFile))
+                console.warn("layers+: import as layer failed: " + controller.lastError)
+        }
     }
 
     // ---- layer context menu (right click on a row) ----
