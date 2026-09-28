@@ -176,6 +176,7 @@ Drawing apps live or die on input latency. In rendering, input, or compositing c
 - Changes touching tablet input, brush rendering, or GPU paths state in the PR which hardware/platforms they were tested on.
 - File-format changes ship with round-trip tests; a format bug corrupts users' artwork.
 - **Testing GPU/rendering code**: keep the pure math (blending, curve interpolation, transforms, color conversion) in `/core`, free of Qt/GPU types, and unit-test it directly with plain inputs/outputs — no GPU context needed. For code that does touch the GPU (compositor, shaders, Qt RHI calls), isolate the draw-call/resource-binding layer behind a thin interface so it can be swapped for a software/mock backend in tests; reserve actual on-GPU golden-image tests for the compositing pipeline itself, run where a GPU is available in CI, and skip (not silently pass) where it isn't.
+- **Interaction bugs need interaction tests.** Property-level tests pass happily while a control is undriveable (a slider whose value fights a binding, a row that cannot be dragged). The `--demo-drag-slider=<objectName>` and `--demo-drag-layer=FROM:TO` hooks drive real mouse input through `QTest::mousePress/mouseMove/mouseRelease`; use them rather than `QCoreApplication::sendEvent`, which bypasses the delivery agent's grab bookkeeping and reports a working drag as broken. Give any control you want to verify this way an `objectName`.
 
 ## Ask first
 

@@ -35,6 +35,11 @@ public:
     /// Refetch from the document and emit the standard change signals.
     void refresh();
 
+    /// Notify only one row's roles (live opacity drag). Cheaper than refresh(),
+    /// which resets the whole model, and it keeps the row's own text in sync
+    /// while the user is still dragging.
+    void notifyRow(int row, const QList<int>& roles = {});
+
 private:
     prism::core::Document* m_doc = nullptr;
 };

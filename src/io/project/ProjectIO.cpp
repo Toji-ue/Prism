@@ -55,16 +55,48 @@ QString blendName(prism::core::BlendMode mode)
     case prism::core::BlendMode::Multiply: return "multiply";
     case prism::core::BlendMode::Screen: return "screen";
     case prism::core::BlendMode::Overlay: return "overlay";
+    case prism::core::BlendMode::Darken: return "darken";
+    case prism::core::BlendMode::Lighten: return "lighten";
+    case prism::core::BlendMode::ColorDodge: return "color-dodge";
+    case prism::core::BlendMode::ColorBurn: return "color-burn";
+    case prism::core::BlendMode::HardLight: return "hard-light";
+    case prism::core::BlendMode::SoftLight: return "soft-light";
+    case prism::core::BlendMode::Difference: return "difference";
+    case prism::core::BlendMode::Exclusion: return "exclusion";
+    case prism::core::BlendMode::Add: return "add";
+    case prism::core::BlendMode::Subtract: return "subtract";
+    case prism::core::BlendMode::Divide: return "divide";
+    case prism::core::BlendMode::Hue: return "hue";
+    case prism::core::BlendMode::Saturation: return "saturation";
+    case prism::core::BlendMode::Color: return "color";
+    case prism::core::BlendMode::Luminosity: return "luminosity";
     }
     return "normal";
 }
 
 prism::core::BlendMode blendFromName(const QString& name)
 {
-    if (name == "multiply") return prism::core::BlendMode::Multiply;
-    if (name == "screen") return prism::core::BlendMode::Screen;
-    if (name == "overlay") return prism::core::BlendMode::Overlay;
-    return prism::core::BlendMode::Normal;
+    static const QHash<QString, prism::core::BlendMode> table = {
+        { QStringLiteral("multiply"), prism::core::BlendMode::Multiply },
+        { QStringLiteral("screen"), prism::core::BlendMode::Screen },
+        { QStringLiteral("overlay"), prism::core::BlendMode::Overlay },
+        { QStringLiteral("darken"), prism::core::BlendMode::Darken },
+        { QStringLiteral("lighten"), prism::core::BlendMode::Lighten },
+        { QStringLiteral("color-dodge"), prism::core::BlendMode::ColorDodge },
+        { QStringLiteral("color-burn"), prism::core::BlendMode::ColorBurn },
+        { QStringLiteral("hard-light"), prism::core::BlendMode::HardLight },
+        { QStringLiteral("soft-light"), prism::core::BlendMode::SoftLight },
+        { QStringLiteral("difference"), prism::core::BlendMode::Difference },
+        { QStringLiteral("exclusion"), prism::core::BlendMode::Exclusion },
+        { QStringLiteral("add"), prism::core::BlendMode::Add },
+        { QStringLiteral("subtract"), prism::core::BlendMode::Subtract },
+        { QStringLiteral("divide"), prism::core::BlendMode::Divide },
+        { QStringLiteral("hue"), prism::core::BlendMode::Hue },
+        { QStringLiteral("saturation"), prism::core::BlendMode::Saturation },
+        { QStringLiteral("color"), prism::core::BlendMode::Color },
+        { QStringLiteral("luminosity"), prism::core::BlendMode::Luminosity },
+    };
+    return table.value(name, prism::core::BlendMode::Normal);
 }
 
 } // namespace

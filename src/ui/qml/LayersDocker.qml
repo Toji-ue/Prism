@@ -91,14 +91,20 @@ Rectangle {
             width: parent.width
             height: 22
             font.pixelSize: 11
-            model: ["Normal", "Multiply", "Screen", "Overlay"]
-            // Bound to the active layer's mode so external changes (undo,
-            // layer switch) are reflected instead of leaving a stale label.
-            currentIndex: {
-                var idx = controller.activeLayerIndex
-                var v = controller.layers.data(controller.layers.index(idx, 0),
-                                               LayerListModel.BlendModeRole)
-                return v === undefined ? 0 : v
+            model: controller.blendModeNames()
+            // NOT bound: a binding plus the write from onActivated fight each
+            // other, leaving a stale label. Sync explicitly instead.
+            Component.onCompleted: syncBlendCombo()
+            Connections {
+                target: controller
+                function onActiveLayerIndexChanged() { blendCombo.syncBlendCombo() }
+                function onLayersChanged() { blendCombo.syncBlendCombo() }
+            }
+            function syncBlendCombo() {
+                const idx = controller.activeLayerIndex
+                const v = controller.layers.data(controller.layers.index(idx, 0),
+                                                 LayerListModel.BlendModeRole)
+                currentIndex = v === undefined ? 0 : v
             }
             onActivated: controller.setLayerBlendMode(controller.activeLayerIndex, currentIndex)
         }
@@ -114,13 +120,26 @@ Rectangle {
             }
             PSlider {
                 id: opacitySlider
+                objectName: "opacitySlider"
                 width: parent.width - 74
                 from: 0; to: 100
-                value: {
-                    var v = controller.layers.data(
+                // Value is synced imperatively: while the user drags, the model
+                // updates to follow the handle, and outside a drag the model
+                // leads. Binding it here made the two overwrite each other, so
+                // the handle and the number appeared frozen.
+                Component.onCompleted: syncOpacity()
+                Connections {
+                    target: controller
+                    function onActiveLayerIndexChanged() { opacitySlider.syncOpacity() }
+                    function onLayersChanged() { opacitySlider.syncOpacity() }
+                }
+                function syncOpacity() {
+                    if (pressed)
+                        return
+                    const v = controller.layers.data(
                         controller.layers.index(controller.activeLayerIndex, 0),
                         LayerListModel.OpacityRole)
-                    return v === undefined ? 100 : v
+                    value = v === undefined ? 100 : v
                 }
                 onPressedChanged: {
                     if (pressed)
@@ -247,6 +266,7 @@ Rectangle {
     // ---- layer list ----
     ListView {
         id: list
+        objectName: "layerList"
         anchors.top: controls.bottom
         anchors.topMargin: 4
         anchors.left: parent.left
@@ -257,25 +277,101 @@ Rectangle {
         anchors.bottomMargin: 4
         clip: true
         model: controller.layers
+        // Drag a row to restack it (Krita's drag & drop layer reordering). The
+        // dragged index is tracked here so the drop indicator can be drawn by
+        // the view rather than by a delegate that scrolls away.
+        property int dragFromIndex: -1
+        property int dropToIndex: -1
+
+        // Drop indicator: a Krita-style line showing where the layer will land.
+        Rectangle {
+            id: dropIndicator
+            visible: list.dragFromIndex >= 0 && list.dropToIndex >= 0
+            x: 0
+            width: list.width
+            height: 2
+            color: T.highlight
+            z: 10
+            y: list.dropToIndex >= 0 ? list.dropToIndex * 28 - 1 : 0
+        }
 
         delegate: Rectangle {
             id: layerRow
-            width: list.width
+            width: ListView.view ? ListView.view.width : 0
             height: 28
             color: controller.activeLayerIndex === index ? T.highlight : "transparent"
+            // The row being dragged fades so the gap it will leave is visible.
+            opacity: ListView.view && ListView.view.dragFromIndex === index ? 0.45 : 1.0
+            // Renaming is entered by double-clicking the row, which keeps the
+            // whole row available as a drag surface the rest of the time.
+            property bool editingName: false
+            // Attached `ListView.view` resolves on the delegate item, not inside
+            // a pointer handler, so it is aliased here for the DragHandler.
+            readonly property var listView: ListView.view
 
-            // Left click selects; right click opens the layer context menu
-            // (Krita's layer menu: new / duplicate / merge / move / remove).
+            // Select / context menu / rename. Dragging is handled by the
+            // DragHandler below instead: a MouseArea loses its grab the moment
+            // the ListView (a Flickable) decides the gesture is a scroll, which
+            // made reordering silently do nothing.
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: mouse => {
-                    controller.activeLayerIndex = index
                     if (mouse.button === Qt.RightButton) {
                         layerMenu.targetIndex = index
                         layerMenu.parent = layerRow
                         layerMenu.open()
                     }
+                }
+                onDoubleClicked: {
+                    layerRow.editingName = true
+                    nameEdit.forceActiveFocus()
+                    nameEdit.selectAll()
+                }
+            }
+
+            // Drag to restack, like Krita's layer docker. A pointer handler
+            // keeps the grab for the whole gesture, so the drop target is
+            // computed from one continuous drag.
+            DragHandler {
+                id: rowDrag
+                target: null
+                xAxis.enabled: false
+                yAxis.enabled: true
+                // The Flickable would otherwise win the grab for a vertical drag.
+                grabPermissions: PointerHandler.CanTakeOverFromAnything
+
+                // layerRow.listView, not the outer `list` id and not the
+                // attached property: this handler can fire once more while its
+                // delegate is being destroyed after the reorder, and the
+                // enclosing id is gone by then (ReferenceError).
+                readonly property var view: layerRow.listView
+
+                onActiveChanged: {
+                    if (!view)
+                        return
+                    if (active) {
+                        controller.activeLayerIndex = index
+                        view.dragFromIndex = index
+                        view.dropToIndex = index
+                    } else if (view.dragFromIndex >= 0) {
+                        console.info("layers: drag row " + view.dragFromIndex + " -> "
+                                     + view.dropToIndex)
+                        controller.moveLayerTo(view.dragFromIndex, view.dropToIndex)
+                        view.dragFromIndex = -1
+                        view.dropToIndex = -1
+                    }
+                }
+                onCentroidChanged: {
+                    if (!active || !view)
+                        return
+                    // Scene -> viewport coordinates of the list, then which row
+                    // the pointer is over.
+                    const p = view.mapFromItem(null, rowDrag.centroid.scenePosition.x,
+                                               rowDrag.centroid.scenePosition.y)
+                    let target = Math.floor((p.y + view.contentY) / 28)
+                    target = Math.max(0, Math.min(view.count - 1, target))
+                    view.dropToIndex = target
                 }
             }
 
@@ -334,15 +430,39 @@ Rectangle {
                     }
                 }
 
-                TextInput {
+                // Name. A permanently-focusable TextInput swallowed the press
+                // that starts a drag, so the row could not be restacked by
+                // dragging it. Krita's behaviour instead: drag anywhere on the
+                // row, double-click the name to rename.
+                Text {
+                    id: nameText
+                    visible: !layerRow.editingName
                     width: Math.max(50, parent.width - 150)
+                    text: model.name
+                    color: controller.activeLayerIndex === index ? T.highlightText : T.text
+                    font.pixelSize: 11
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                    clip: true
+                }
+                TextInput {
+                    id: nameEdit
+                    visible: layerRow.editingName
+                    width: nameText.width
                     text: model.name
                     color: controller.activeLayerIndex === index ? T.highlightText : T.text
                     font.pixelSize: 11
                     anchors.verticalCenter: parent.verticalCenter
                     selectByMouse: true
                     clip: true
-                    onEditingFinished: controller.renameLayer(index, text)
+                    onEditingFinished: {
+                        controller.renameLayer(index, text)
+                        layerRow.editingName = false
+                    }
+                    Keys.onEscapePressed: {
+                        text = model.name
+                        layerRow.editingName = false
+                    }
                 }
 
                 Text {

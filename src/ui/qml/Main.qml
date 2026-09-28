@@ -346,12 +346,24 @@ ApplicationWindow {
             Rectangle { width: 1; height: 20; color: T.border }
 
             // Opacity (brush flow) as a slider, with the value beside it.
-            // Bound to brushFlow so presets and the docker stay in sync.
+            // The value is NOT bound to the controller: a binding plus a write
+            // from onMoved fights the drag, and whichever side loses makes the
+            // slider look dead. Sync explicitly instead, and never while the
+            // user is holding the handle.
             Text { text: qsTr("Opacity:"); color: T.text; font.pixelSize: 11 }
             PSlider {
+                id: flowSlider
+                objectName: "flowSlider"
                 Layout.preferredWidth: 96
                 from: 0.05; to: 1
-                value: controller.brushFlow
+                Component.onCompleted: value = controller.brushFlow
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!flowSlider.pressed)
+                            flowSlider.value = controller.brushFlow
+                    }
+                }
                 onMoved: controller.brushFlow = value
             }
             Text {
@@ -363,24 +375,51 @@ ApplicationWindow {
 
             Text { text: qsTr("Size:"); color: T.text; font.pixelSize: 11 }
             PSpinBox {
+                id: sizeBox
+                objectName: "sizeBox"
                 Layout.preferredWidth: 84
                 from: 1; to: 200
-                value: Math.round(controller.brushSize)
+                Component.onCompleted: value = Math.round(controller.brushSize)
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!sizeBox.activeFocus)
+                            sizeBox.value = Math.round(controller.brushSize)
+                    }
+                }
                 onValueModified: v => controller.brushSize = v
             }
             // Direct size slider - the fastest way to size a brush.
             PSlider {
+                id: sizeSlider
+                objectName: "sizeSlider"
                 Layout.preferredWidth: 110
-                from: 1; to: 120
-                value: Math.min(120, controller.brushSize)
+                from: 1; to: 200
+                Component.onCompleted: value = Math.min(200, controller.brushSize)
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!sizeSlider.pressed)
+                            sizeSlider.value = Math.min(200, controller.brushSize)
+                    }
+                }
                 onMoved: controller.brushSize = Math.round(value)
             }
 
             Text { text: qsTr("Hardness:"); color: T.text; font.pixelSize: 11 }
             PSlider {
+                id: hardnessSlider
+                objectName: "hardnessSlider"
                 Layout.preferredWidth: 80
                 from: 0; to: 1
-                value: controller.brushHardness
+                Component.onCompleted: value = controller.brushHardness
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!hardnessSlider.pressed)
+                            hardnessSlider.value = controller.brushHardness
+                    }
+                }
                 onMoved: controller.brushHardness = value
             }
 
@@ -964,9 +1003,18 @@ ApplicationWindow {
                 }
             }
             PSlider {
+                id: zoomSlider
+                objectName: "zoomSlider"
                 width: 90
                 from: 0.05; to: 8
-                value: controller.zoom
+                Component.onCompleted: value = controller.zoom
+                Connections {
+                    target: controller
+                    function onViewChanged() {
+                        if (!zoomSlider.pressed)
+                            zoomSlider.value = controller.zoom
+                    }
+                }
                 onMoved: controller.zoom = value
             }
         }

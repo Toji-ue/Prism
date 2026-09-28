@@ -276,6 +276,11 @@ public:
     Q_INVOKABLE void duplicateLayer();
     Q_INVOKABLE void moveLayerUp();
     Q_INVOKABLE void moveLayerDown();
+    /// Moves a layer to an arbitrary index (drag & drop in the Layers docker).
+    Q_INVOKABLE void moveLayerTo(int fromIndex, int toIndex);
+    /// Blend mode names in enum order — index == BlendMode value, which is what
+    /// the docker's combo box relies on.
+    Q_INVOKABLE QStringList blendModeNames() const;
     Q_INVOKABLE void setLayerVisible(int index, bool visible);
     Q_INVOKABLE void setLayerOpacity(int index, int percent);
     Q_INVOKABLE void setLayerBlendMode(int index, int mode);

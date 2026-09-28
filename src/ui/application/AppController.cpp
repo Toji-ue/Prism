@@ -1189,6 +1189,9 @@ void AppController::previewLayerOpacity(int index, int percent)
     // Live feedback only - the history entry is created once, on release.
     m_doc.layers()[static_cast<std::size_t>(index)]->setOpacity(
         static_cast<float>(percent) / 100.0F);
+    // The row's own "NN%" label reads the model, so without this notification
+    // the percentage stayed put until the drag ended.
+    m_layersModel->notifyRow(index, { LayerListModel::OpacityRole });
     rebuildFullComposite();
 }
 
@@ -1270,6 +1273,37 @@ void AppController::moveLayerDown()
         return;
     m_history.execute(std::make_unique<core::MoveLayerCommand>(m_doc, idx, idx - 1));
     m_activeLayer = idx - 1;
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+QStringList AppController::blendModeNames() const
+{
+    // Order MUST match the BlendMode enum values: the combo box's
+    // currentIndex is written straight into the layer's blend mode.
+    static const QStringList names = {
+        tr("Normal"),      tr("Multiply"),    tr("Screen"),     tr("Overlay"),
+        tr("Darken"),      tr("Lighten"),     tr("Color Dodge"), tr("Color Burn"),
+        tr("Hard Light"),  tr("Soft Light"),  tr("Difference"), tr("Exclusion"),
+        tr("Add"),         tr("Subtract"),    tr("Divide"),     tr("Hue"),
+        tr("Saturation"),  tr("Color"),       tr("Luminosity"),
+    };
+    return names;
+}
+
+void AppController::moveLayerTo(int fromIndex, int toIndex)
+{
+    const int count = static_cast<int>(m_doc.layers().size());
+    if (fromIndex < 0 || fromIndex >= count || toIndex < 0 || toIndex >= count
+        || fromIndex == toIndex)
+        return;
+    // Krita-style drag & drop: the dragged layer lands where it was dropped and
+    // the layers in between shift by one. Undo restores the previous order.
+    m_history.execute(std::make_unique<core::MoveLayerCommand>(
+        m_doc, static_cast<std::size_t>(fromIndex), static_cast<std::size_t>(toIndex)));
+    m_activeLayer = toIndex;
     m_layersModel->refresh();
     emit layersChanged();
     emit historyChanged();

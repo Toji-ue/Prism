@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Quick)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Quick Test)
 qt_standard_project_setup()
 
 # --------------------------------------------------------------------------- #
@@ -58,7 +58,13 @@ target_link_libraries(prism PRIVATE
     Prism::core
     Prism::canvas
     Prism::ui
-    Qt6::Quick)
+    Qt6::Quick
+    # Qt Test is used only by the --demo-* verification hooks: they drive real
+    # mouse events through the platform input path (QTest::mousePress/Move),
+    # which is the only way to catch grab-dependent UI bugs like drag &
+    # drop. Raw QCoreApplication::sendEvent bypasses that bookkeeping and
+    # reports a working drag as broken.
+    Qt6::Test)
 
 # --------------------------------------------------------------------------- #
 # tests

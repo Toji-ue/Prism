@@ -1,9 +1,12 @@
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QImageWriter>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QQmlApplicationEngine>
+#include <QQuickItem>
 #include <QQuickWindow>
+#include <QTest>
 #include <QTimer>
 #include <QVariant>
 #include <QFile>
@@ -512,6 +515,62 @@ int runSelfTest()
     controller.undo();
     check(controller.layers()->rowCount() == before, "undo add layer");
 
+    // Drag & drop reordering (Krita moves a layer to an arbitrary index).
+    {
+        controller.addLayer();
+        controller.addLayer();
+        const int count = controller.layers()->rowCount();
+        const QString top = controller.layers()
+                                ->data(controller.layers()->index(count - 1, 0),
+                                       LayerListModel::NameRole)
+                                .toString();
+        controller.moveLayerTo(count - 1, 0);
+        const QString nowBottom = controller.layers()
+                                      ->data(controller.layers()->index(0, 0),
+                                             LayerListModel::NameRole)
+                                      .toString();
+        check(nowBottom == top, "moveLayerTo moves a layer to an arbitrary index");
+        check(controller.activeLayerIndex() == 0, "the moved layer becomes active");
+        check(controller.layers()->rowCount() == count, "reordering keeps the layer count");
+        controller.undo();
+        check(controller.layers()
+                      ->data(controller.layers()->index(count - 1, 0), LayerListModel::NameRole)
+                      .toString()
+                  == top,
+              "undo restores the previous layer order");
+        controller.undo();
+        controller.undo();
+        check(controller.layers()->rowCount() == before, "reorder test cleaned up");
+    }
+
+    // Every blend mode the docker offers must survive save/reopen, and the
+    // combo's index must map onto the enum value.
+    {
+        const QStringList modes = controller.blendModeNames();
+        check(modes.size() == 19, "blend mode list matches the enum size");
+        check(modes.first() == QStringLiteral("Normal"), "first blend mode is Normal");
+        check(modes.last() == QStringLiteral("Luminosity"), "last blend mode is Luminosity");
+
+        const QString tmp = QDir::temp().filePath(QStringLiteral("prism-blend.prism"));
+        QFile::remove(tmp);
+        controller.setLayerBlendMode(
+            0, static_cast<int>(prism::core::BlendMode::ColorDodge));
+        controller.setLayerOpacity(0, 60);
+        check(controller.saveFile(QUrl::fromLocalFile(tmp)), "save with a non-default blend mode");
+        check(controller.openFile(QUrl::fromLocalFile(tmp)), "reopen the blend-mode project");
+        const int reopened = controller.layers()
+                                 ->data(controller.layers()->index(0, 0),
+                                        LayerListModel::BlendModeRole)
+                                 .toInt();
+        check(reopened == static_cast<int>(prism::core::BlendMode::ColorDodge),
+              "blend mode round-trips through the project file");
+        const int opacity = controller.layers()
+                                ->data(controller.layers()->index(0, 0),
+                                       LayerListModel::OpacityRole)
+                                .toInt();
+        check(opacity == 60, "layer opacity round-trips through the project file");
+    }
+
     // Locking the layer blocks painting.
     controller.setLayerLocked(0, true);
     controller.undo(); // undo the lock change; locking is a real history step
@@ -662,8 +721,121 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-import-layer=")))
                 demoImport = a.section(QLatin1Char('='), 1);
+        // --demo-drag-slider=<objectName>: sends real mouse press/move/release
+        // events to a slider. Binding-vs-drag bugs are invisible to any other
+        // kind of test — the property changes, only the interaction is broken.
+        QString demoDragSlider;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-drag-slider=")))
+                demoDragSlider = a.section(QLatin1Char('='), 1);
+        // --demo-drag-layer=FROM:TO drags a layer row onto another row, the same
+        // way a user restacks layers. Reordering is an interaction bug when it
+        // breaks, so it has to be driven through the event system.
+        QString demoDragLayer;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-drag-layer=")))
+                demoDragLayer = a.section(QLatin1Char('='), 1);
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
-                                       demoMenu, demoImport, &engine]() {
+                                       demoMenu, demoImport, demoDragSlider, demoDragLayer,
+                                       &engine]() {
+            if (!demoDragLayer.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                controller->addLayer();
+                controller->addLayer();
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* listItem = window ? window->findChild<QQuickItem*>(QStringLiteral("layerList"))
+                                        : nullptr;
+                if (listItem) {
+                    auto names = [controller]() {
+                        QStringList out;
+                        for (int i = 0; i < controller->layers()->rowCount(); ++i)
+                            out << controller->layers()
+                                       ->data(controller->layers()->index(i, 0),
+                                              LayerListModel::NameRole)
+                                       .toString();
+                        return out.join(QLatin1Char(','));
+                    };
+                    const int from = demoDragLayer.section(QLatin1Char(':'), 0, 0).toInt();
+                    const int to = demoDragLayer.section(QLatin1Char(':'), 1, 1).toInt();
+                    const qreal rowH = 28.0;
+                    const QPointF fromPos(listItem->width() / 2.0, from * rowH + rowH / 2.0);
+                    const QPointF toPos(listItem->width() / 2.0, to * rowH + rowH / 2.0);
+                    const QPointF start = listItem->mapToScene(fromPos);
+                    const QPointF end = listItem->mapToScene(toPos);
+                    qInfo().noquote() << "demo: layer order before:" << names();
+                    // Drive the real input pipeline through QTest instead of
+                    // QCoreApplication::sendEvent: a raw synthetic event bypasses
+                    // the delivery agent's grab bookkeeping, so gestures that
+                    // depend on holding the mouse (drag & drop) look broken when
+                    // they are fine.
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+                    const int steps = 8;
+                    for (int step = 1; step <= steps; ++step) {
+                        const QPointF p = start + (end - start) * (step / static_cast<qreal>(steps));
+                        QTest::mouseMove(window, p.toPoint());
+                    }
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, end.toPoint());
+                    qInfo().noquote() << "demo: layer order after: " << names()
+                                      << "active =" << controller->activeLayerIndex();
+                } else {
+                    qWarning() << "demo: layer list not found";
+                }
+            }
+            if (!demoDragSlider.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                    // Half-width drag to the left by default; a leading '+' drags
+                    // right instead, so both directions get covered.
+                    QString sliderName = demoDragSlider;
+                    const bool dragRight = sliderName.startsWith(QLatin1Char('+'));
+                    if (dragRight)
+                        sliderName = sliderName.mid(1);
+                    if (auto* item = window->findChild<QQuickItem*>(sliderName)) {
+                        const QPointF centre =
+                            item->mapToScene(QPointF(item->width() / 2.0, item->height() / 2.0));
+                        auto send = [window](QEvent::Type type, QPointF pos, Qt::MouseButtons held) {
+                            QMouseEvent ev(type, pos, window->mapToGlobal(pos.toPoint()),
+                                           Qt::LeftButton, held, Qt::NoModifier);
+                            QCoreApplication::sendEvent(window, &ev);
+                        };
+                        const qreal distance = item->width() * 0.4 * (dragRight ? 1.0 : -1.0);
+                        send(QEvent::MouseButtonPress, centre, Qt::LeftButton);
+                        for (int step = 1; step <= 6; ++step)
+                            send(QEvent::MouseMove,
+                                 centre + QPointF(distance * step / 6.0, 0), Qt::LeftButton);
+                        send(QEvent::MouseButtonRelease,
+                             centre + QPointF(distance, 0), Qt::NoButton);
+                        qInfo() << "demo: dragged" << sliderName
+                                << "brushSize now =" << controller->brushSize();
+                        // Read what the UI actually shows for every other
+                        // slider, so a stale number is visible in the log.
+                        const QStringList watched = { QStringLiteral("sizeSlider"),
+                                                      QStringLiteral("flowSlider"),
+                                                      QStringLiteral("hardnessSlider"),
+                                                      QStringLiteral("zoomSlider"),
+                                                      QStringLiteral("sizeBox"),
+                                                      QStringLiteral("opacitySlider") };
+                        for (const QString& name : watched) {
+                            if (auto* w = window->findChild<QQuickItem*>(name))
+                                qInfo().noquote()
+                                    << QStringLiteral("  %1.value = %2").arg(
+                                           name, QString::number(w->property("value").toDouble()));
+                            else
+                                qWarning() << "demo: missing item" << name;
+                        }
+                        qInfo() << "  controller: size" << controller->brushSize() << "flow"
+                                << controller->brushFlow() << "hardness"
+                                << controller->brushHardness() << "zoom" << controller->zoom()
+                                << "layer0 opacity"
+                                << controller->layers()
+                                       ->data(controller->layers()->index(0, 0),
+                                              LayerListModel::OpacityRole)
+                                       .toInt();
+                    } else {
+                        qWarning() << "demo: no item named" << sliderName;
+                    }
+                }
+            }
             if (!demoImport.isEmpty() && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
                 QMetaObject::invokeMethod(engine.rootObjects().first(), "demoImportLayer",

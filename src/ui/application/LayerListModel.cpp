@@ -62,3 +62,11 @@ void LayerListModel::refresh()
     beginResetModel();
     endResetModel();
 }
+
+void LayerListModel::notifyRow(int row, const QList<int>& roles)
+{
+    if (!m_doc || row < 0 || row >= rowCount())
+        return;
+    const QModelIndex idx = index(row, 0);
+    emit dataChanged(idx, idx, roles);
+}
