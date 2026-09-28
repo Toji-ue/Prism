@@ -39,6 +39,10 @@ public:
 
     /// All formats the Save/Export dialogs offer, in Krita's order.
     [[nodiscard]] static QList<QByteArray> writableFormats();
+
+    /// All raster formats the Open/Import dialogs offer, filtered to what this
+    /// Qt build can actually decode (JPEG/GIF/ICO are plugins, not built in).
+    [[nodiscard]] static QList<QByteArray> readableFormats();
 };
 
 } // namespace prism::io

@@ -245,6 +245,10 @@ public:
     /// Last file error, shown in the status bar. Empty when all is well — a
     /// failed open must never look like nothing happened.
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    /// One-shot informational note for the status bar ("imported as a layer,
+    /// centered, N px clipped"). Separate from lastError because it reports a
+    /// success the user still needs to know about.
+    Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     bool startPageVisible() const { return m_startPageVisible; }
     void setStartPageVisible(bool visible);
     QVariantList recentFiles() const;
@@ -253,6 +257,8 @@ public:
     Q_INVOKABLE QString versionString() const;
     QString lastError() const { return m_lastError; }
     void setLastError(const QString& error);
+    QString statusMessage() const { return m_statusMessage; }
+    void setStatusMessage(const QString& message);
 
     // --- layer state ------------------------------------------------------
     Q_INVOKABLE void setLayerLocked(int index, bool locked);
@@ -298,6 +304,11 @@ public:
     Q_INVOKABLE bool openFile(const QUrl& url);
     /// Formats the Save dialog offers (Qt format names, e.g. "png", "jpg").
     Q_INVOKABLE QStringList writableFormatNames() const;
+    /// File-dialog filters built from what this Qt build can actually do, so
+    /// the dialogs never offer a format whose plugin is missing (which showed
+    /// as "Save As WebP" doing nothing).
+    Q_INVOKABLE QStringList imageOpenFilters() const;
+    Q_INVOKABLE QStringList imageSaveFilters() const;
 
     // --- tool shortcuts -----------------------------------------------------
     /// Per-tool hotkey, user-configurable and persisted (QSettings). Tools are
@@ -353,6 +364,7 @@ signals:
     void startPageChanged();
     void recentFilesChanged();
     void lastErrorChanged();
+    void statusMessageChanged();
     void toolShortcutsChanged();
     void canvasChanged(int x, int y, int w, int h);
 
@@ -414,6 +426,7 @@ private:
     QStringList m_recentFiles;
     QString m_documentName = tr("Untitled");
     QString m_lastError;
+    QString m_statusMessage;
     /// True until the user moves a brush slider — controls the "Custom" label.
     bool m_presetIntact = true;
 };

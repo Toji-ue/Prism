@@ -123,14 +123,6 @@ ApplicationWindow {
             title: qsTr("&File")
             Action { text: qsTr("&New...\tCtrl+N"); onTriggered: newDocDialog.open() }
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
-            Action {
-                text: qsTr("&Import Image as Layer...")
-                onTriggered: {
-                    console.info("menu: Import Image as Layer clicked")
-                    importLayerDialog.open()
-                }
-            }
-            MenuSeparator {}
             Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
             Action { text: qsTr("&Export PNG...\tCtrl+E"); onTriggered: exportDialog.open() }
             MenuSeparator {}
@@ -931,6 +923,14 @@ ApplicationWindow {
                 color: T.text
                 font.pixelSize: 11
             }
+            // Informational outcome of the last action (e.g. how much of an
+            // imported image did not fit the canvas).
+            Text {
+                visible: controller.statusMessage.length > 0
+                text: controller.statusMessage
+                color: T.textDim
+                font.pixelSize: 11
+            }
             Item { Layout.fillWidth: true }
             Text {
                 text: controller.statusInfo
@@ -1030,40 +1030,26 @@ ApplicationWindow {
     FileDialog {
         id: saveDialog
         title: qsTr("Save As")
-        // Krita-style format list: the file suffix picks the writer.
-        nameFilters: [
-            qsTr("Prism document (*.prism)"),
-            qsTr("PNG image (*.png)"),
-            qsTr("JPEG image (*.jpg *.jpeg)"),
-            qsTr("WebP image (*.webp)"),
-            qsTr("TIFF image (*.tif *.tiff)"),
-            qsTr("BMP image (*.bmp)"),
-            qsTr("GIF image (*.gif)"),
-            qsTr("PPM image (*.ppm)"),
-            qsTr("Windows icon (*.ico)"),
-            qsTr("All files (*)")
-        ]
+        // Formats come from the controller, filtered to what this Qt build can
+        // actually write — offering an unsupported format made Save fail with
+        // no explanation.
+        nameFilters: controller.imageSaveFilters().concat([qsTr("All files (*)")])
         fileMode: FileDialog.SaveFile
         onAccepted: if (!controller.saveFile(selectedFile)) console.warn("save failed")
     }
     FileDialog {
         id: openDialog
         title: qsTr("Open")
-        nameFilters: [
-            qsTr("Prism document (*.prism)"),
-            qsTr("Images (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.ppm *.ico)"),
-            qsTr("All files (*)")
-        ]
+        nameFilters: [qsTr("Prism document (*.prism)")]
+                      .concat(controller.imageOpenFilters())
+                      .concat([qsTr("All files (*)")])
         fileMode: FileDialog.OpenFile
         onAccepted: if (!controller.openFile(selectedFile)) console.warn("open failed")
     }
     FileDialog {
         id: importLayerDialog
         title: qsTr("Import Image as Layer")
-        nameFilters: [
-            qsTr("Images (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.ppm *.ico)"),
-            qsTr("All files (*)")
-        ]
+        nameFilters: controller.imageOpenFilters().concat([qsTr("All files (*)")])
         fileMode: FileDialog.OpenFile
         onAccepted: {
             console.info("dialog: import image accepted: " + selectedFile)

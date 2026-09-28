@@ -1,4 +1,6 @@
 #include <QGuiApplication>
+#include <QImageReader>
+#include <QImageWriter>
 #include <QPalette>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -434,6 +436,43 @@ int runSelfTest()
         check(controller.layers()->rowCount() == layersBeforeStringImport + 1,
               "string-path import added exactly one layer");
         controller.undo();
+
+        // JPEG is a *plugin* format (QtGui only carries PNG), so a deploy that
+        // forgets plugins\imageformats cannot open a .jpg at all. The user's
+        // reported "hachiware.jpg will not import" was exactly this. Skip
+        // loudly when running from a tree without plugins (build/), so CI is
+        // not silently green either way.
+        if (!QImageReader::supportedImageFormats().contains(QByteArray("jpeg"))) {
+            qInfo() << "SKIP jpeg import: no jpeg plugin in this run directory"
+                       " (deploy/ has it; tools/deploy.ps1 installs it)";
+        } else {
+            const QString jpg = QDir::temp().filePath(QStringLiteral("prism-selftest.jpg"));
+            QFile::remove(jpg);
+            check(controller.saveFile(QUrl::fromLocalFile(jpg)), "saveFile writes a JPEG");
+            check(QFile::exists(jpg), "JPEG exists on disk");
+            const int layersBeforeJpeg = controller.layers()->rowCount();
+            check(controller.importImageAsLayer(QUrl::fromLocalFile(jpg)),
+                  "import a JPEG as a layer");
+            check(controller.layers()->rowCount() == layersBeforeJpeg + 1,
+                  "JPEG import added exactly one layer");
+            controller.undo();
+        }
+
+        // The dialogs must never offer a format this Qt build cannot handle:
+        // an unsupported entry made "Save As <format>" fail with no message.
+        const QStringList saveFilters = controller.imageSaveFilters();
+        const QStringList openFilters = controller.imageOpenFilters();
+        check(saveFilters.first().contains(QStringLiteral(".prism")),
+              "Save As offers the project format first");
+        check(!saveFilters.filter(QStringLiteral("webp")).isEmpty()
+                  == QImageWriter::supportedImageFormats().contains(QByteArray("webp")),
+              "Save As advertises WebP only when Qt can write it");
+        check(!openFilters.filter(QStringLiteral("jpeg")).isEmpty()
+                  == QImageReader::supportedImageFormats().contains(QByteArray("jpeg")),
+              "Open advertises JPEG only when Qt can read it");
+        // A raw path string into the layer import must also work for the
+        // formats whose plugin is optional (jpg arrived percent-encoded too).
+        check(controller.imageOpenFilters().size() > 3, "open filters list real formats");
     }
 
     // Tool shortcuts are configurable and persisted; conflicts are resolved.
@@ -531,6 +570,37 @@ int main(int argc, char* argv[])
 
     if (app.arguments().contains(QStringLiteral("--selftest")))
         return runSelfTest();
+
+    // Verification hook: reports which image formats this build can actually
+    // read and write, and fails if the essentials are missing. Qt keeps PNG in
+    // QtGui but ships JPEG/GIF/ICO as plugins, so a deploy without
+    // plugins\imageformats cannot open a .jpg at all — that silently looked
+    // like "import image as layer does nothing". tools/deploy.ps1 runs this.
+    if (app.arguments().contains(QStringLiteral("--check-formats"))) {
+        const QList<QByteArray> readable = QImageReader::supportedImageFormats();
+        const QList<QByteArray> writable = QImageWriter::supportedImageFormats();
+        QStringList readList;
+        for (const QByteArray& f : readable)
+            readList << QString::fromLatin1(f);
+        QStringList writeList;
+        for (const QByteArray& f : writable)
+            writeList << QString::fromLatin1(f);
+        qInfo().noquote() << "readable:" << readList.join(QLatin1Char(' '));
+        qInfo().noquote() << "writable:" << writeList.join(QLatin1Char(' '));
+
+        QStringList missing;
+        for (const char* required : { "png", "jpg", "jpeg" })
+            if (!readable.contains(QByteArray(required)))
+                missing << QString::fromLatin1(required);
+        if (!missing.isEmpty()) {
+            qCritical().noquote()
+                << "MISSING image formats:" << missing.join(QLatin1Char(' '))
+                << "- deploy plugins\\imageformats (see tools/deploy.ps1)";
+            return 1;
+        }
+        qInfo().noquote() << "format check: OK";
+        return 0;
+    }
 
     // Manual registration until each type moves into its own qml module.
     qmlRegisterType<AppController>("Prism.Ui", 1, 0, "AppController");

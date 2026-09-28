@@ -65,6 +65,58 @@ QString localPathFrom(const QUrl& url)
     return raw;
 }
 
+/// Human label for a Qt image format, so extensions that mean the same thing
+/// (jpg/jpeg/jfif) collapse into one dialog entry.
+QString formatLabel(const QByteArray& format)
+{
+    static const QHash<QString, QString> labels = {
+        { QStringLiteral("png"), QStringLiteral("PNG image") },
+        { QStringLiteral("jpg"), QStringLiteral("JPEG image") },
+        { QStringLiteral("jpeg"), QStringLiteral("JPEG image") },
+        { QStringLiteral("jfif"), QStringLiteral("JPEG image") },
+        { QStringLiteral("webp"), QStringLiteral("WebP image") },
+        { QStringLiteral("tif"), QStringLiteral("TIFF image") },
+        { QStringLiteral("tiff"), QStringLiteral("TIFF image") },
+        { QStringLiteral("bmp"), QStringLiteral("Windows BMP image") },
+        { QStringLiteral("gif"), QStringLiteral("GIF image") },
+        { QStringLiteral("ico"), QStringLiteral("Windows icon") },
+        { QStringLiteral("cur"), QStringLiteral("Windows cursor") },
+        { QStringLiteral("ppm"), QStringLiteral("PPM image") },
+        { QStringLiteral("pgm"), QStringLiteral("PGM image") },
+        { QStringLiteral("pbm"), QStringLiteral("PBM image") },
+        { QStringLiteral("xbm"), QStringLiteral("XBM image") },
+        { QStringLiteral("xpm"), QStringLiteral("XPM image") },
+    };
+    const QString key = QString::fromLatin1(format).toLower();
+    return labels.value(key, key.toUpper() + QStringLiteral(" image"));
+}
+
+/// Builds file-dialog filter strings ("JPEG image (*.jpg *.jpeg)") from the
+/// formats this Qt build actually supports, keeping the given order.
+QStringList filterStringsFor(const QList<QByteArray>& formats)
+{
+    QList<QPair<QString, QStringList>> groups;
+    for (const QByteArray& format : formats) {
+        const QString label = formatLabel(format);
+        const QString pattern = QStringLiteral("*.") + QString::fromLatin1(format);
+        bool appended = false;
+        for (auto& group : groups) {
+            if (group.first == label) {
+                group.second << pattern;
+                appended = true;
+                break;
+            }
+        }
+        if (!appended)
+            groups.append({ label, { pattern } });
+    }
+
+    QStringList out;
+    for (const auto& group : groups)
+        out << QStringLiteral("%1 (%2)").arg(group.first, group.second.join(QLatin1Char(' ')));
+    return out;
+}
+
 } // namespace
 
 AppController::AppController(QObject* parent)
@@ -1107,6 +1159,14 @@ void AppController::setLastError(const QString& error)
         qWarning() << "file error:" << error;
 }
 
+void AppController::setStatusMessage(const QString& message)
+{
+    if (m_statusMessage == message)
+        return;
+    m_statusMessage = message;
+    emit statusMessageChanged();
+}
+
 // ---------------------------------------------------------------- layer state
 
 void AppController::setLayerLocked(int index, bool locked)
@@ -1448,6 +1508,20 @@ QStringList AppController::writableFormatNames() const
     return out;
 }
 
+QStringList AppController::imageOpenFilters() const
+{
+    return filterStringsFor(io::ProjectIO::readableFormats());
+}
+
+QStringList AppController::imageSaveFilters() const
+{
+    // A project file is always the first choice when saving; flat image formats
+    // follow.
+    QStringList out = filterStringsFor(io::ProjectIO::writableFormats());
+    out.prepend(tr("Prism document (*.prism)"));
+    return out;
+}
+
 bool AppController::openProject(const QUrl& url)
 {
     const QString filePath = localPathFrom(url);
@@ -1550,6 +1624,29 @@ bool AppController::importImageAsLayer(const QUrl& url)
     emit layersChanged();
     emit historyChanged();
     rebuildFullComposite();
+
+    // Placing without resampling means an oversized image is cropped. Say so
+    // instead of leaving the user to wonder where the rest of the photo went.
+    // (Only point at tools that actually exist: Resize Canvas is not
+    // implemented yet, so the advice is the Transform tool or a bigger doc.)
+    const int clippedX = std::max(0, image.width() - (x1 - x0));
+    const int clippedY = std::max(0, image.height() - (y1 - y0));
+    if (clippedX > 0 || clippedY > 0)
+        setStatusMessage(tr("Imported \"%1\" as a layer (%2x%3). Canvas is %4x%5, so "
+                            "%6x%7 px were cropped — scale the layer with the Transform "
+                            "tool, or start a document large enough for it.")
+                             .arg(QString::fromStdString(name))
+                             .arg(image.width())
+                             .arg(image.height())
+                             .arg(cs.width)
+                             .arg(cs.height)
+                             .arg(clippedX)
+                             .arg(clippedY));
+    else
+        setStatusMessage(tr("Imported \"%1\" as a layer (%2x%3, centered).")
+                             .arg(QString::fromStdString(name))
+                             .arg(image.width())
+                             .arg(image.height()));
     return true;
 }
 

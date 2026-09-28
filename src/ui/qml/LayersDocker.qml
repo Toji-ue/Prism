@@ -163,10 +163,7 @@ Rectangle {
     FileDialog {
         id: importImageDialog
         title: qsTr("Import Image as Layer")
-        nameFilters: [
-            qsTr("Images (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.ppm *.ico)"),
-            qsTr("All files (*)")
-        ]
+        nameFilters: controller.imageOpenFilters().concat([qsTr("All files (*)")])
         fileMode: FileDialog.OpenFile
         onAccepted: {
             console.info("layers+: import image accepted: " + selectedFile)

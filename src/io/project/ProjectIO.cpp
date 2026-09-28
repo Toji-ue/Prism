@@ -7,6 +7,7 @@
 #include <QBuffer>
 #include <QFile>
 #include <QImage>
+#include <QImageReader>
 #include <QImageWriter>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -175,12 +176,29 @@ QList<QByteArray> ProjectIO::writableFormats()
 {
     // Formats worth offering for a drawing app; anything Qt cannot write on
     // this platform is filtered out so the dialogs never offer a dead choice.
+    // WebP and TIFF are missing from some Qt builds (they are plugins), and
+    // offering them anyway made "Save As" fail silently.
     static const QList<QByteArray> candidates = {
         "png", "jpg", "webp", "tiff", "bmp", "gif", "ppm", "xbm", "xpm", "ico",
     };
     QList<QByteArray> out;
     for (const QByteArray& f : candidates)
         if (QImageWriter::supportedImageFormats().contains(f))
+            out.append(f);
+    return out;
+}
+
+QList<QByteArray> ProjectIO::readableFormats()
+{
+    // Ordered by usefulness for a drawing app, filtered to what this Qt build
+    // can actually decode (JPEG/GIF/ICO arrive as plugins).
+    static const QList<QByteArray> candidates = {
+        "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif", "ppm", "pgm", "pbm", "ico",
+    };
+    const QList<QByteArray> supported = QImageReader::supportedImageFormats();
+    QList<QByteArray> out;
+    for (const QByteArray& f : candidates)
+        if (supported.contains(f))
             out.append(f);
     return out;
 }
