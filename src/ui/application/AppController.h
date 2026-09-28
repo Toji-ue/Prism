@@ -312,6 +312,10 @@ public:
     Q_INVOKABLE void setToolShortcut(int tool, const QString& key);
     Q_INVOKABLE bool openProject(const QUrl& url);
     Q_INVOKABLE bool importImage(const QUrl& url);
+    /// Imports an image INTO the current document as a new normal raster
+    /// layer (centered, clipped to canvas), undoable like any layer action.
+    /// With no document open it falls back to opening the image as one.
+    Q_INVOKABLE bool importImageAsLayer(const QUrl& url);
     Q_INVOKABLE bool exportPng(const QUrl& url);
     Q_INVOKABLE void newDocument(int width, int height);
     /// Full document creation, mirroring Krita's dialog: name, layer count,

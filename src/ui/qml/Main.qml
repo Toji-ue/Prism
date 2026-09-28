@@ -115,6 +115,11 @@ ApplicationWindow {
             title: qsTr("&File")
             Action { text: qsTr("&New...\tCtrl+N"); onTriggered: newDocDialog.open() }
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
+            Action {
+                text: qsTr("&Import Image as Layer...")
+                enabled: !controller.startPageVisible
+                onTriggered: importLayerDialog.open()
+            }
             MenuSeparator {}
             Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
             Action { text: qsTr("&Export PNG...\tCtrl+E"); onTriggered: exportDialog.open() }
@@ -1032,6 +1037,16 @@ ApplicationWindow {
         ]
         fileMode: FileDialog.OpenFile
         onAccepted: if (!controller.openFile(selectedFile)) console.warn("open failed")
+    }
+    FileDialog {
+        id: importLayerDialog
+        title: qsTr("Import Image as Layer")
+        nameFilters: [
+            qsTr("Images (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.ppm *.ico)"),
+            qsTr("All files (*)")
+        ]
+        fileMode: FileDialog.OpenFile
+        onAccepted: if (!controller.importImageAsLayer(selectedFile)) console.warn("import failed")
     }
     FileDialog {
         id: exportDialog

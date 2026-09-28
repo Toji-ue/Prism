@@ -1481,6 +1481,54 @@ bool AppController::importImage(const QUrl& url)
     return true;
 }
 
+bool AppController::importImageAsLayer(const QUrl& url)
+{
+    // No canvas to add to yet: behave like Open image (creates a document).
+    if (m_startPageVisible || m_doc.layers().empty())
+        return importImage(url);
+
+    const QString path = url.toLocalFile();
+    QImage image(path);
+    if (image.isNull()) {
+        setLastError(tr("Could not import %1 — unsupported or unreadable image.")
+                         .arg(QFileInfo(path).fileName()));
+        return false;
+    }
+    image = image.convertToFormat(QImage::Format_RGBA8888);
+
+    const auto cs = m_doc.canvasSize();
+    auto layer = std::make_unique<core::Layer>(
+        core::Layer::Type::Raster, QFileInfo(path).completeBaseName().toStdString());
+    layer->pixels() = core::raster::RasterBuffer(cs.width, cs.height);
+
+    // Center the image on the canvas; parts larger than the canvas are
+    // clipped (no silent resample — pixel-exact placement).
+    const int dx = (cs.width - image.width()) / 2;
+    const int dy = (cs.height - image.height()) / 2;
+    const int x0 = std::max(0, dx);
+    const int y0 = std::max(0, dy);
+    const int x1 = std::min(cs.width, dx + image.width());
+    const int y1 = std::min(cs.height, dy + image.height());
+    for (int y = y0; y < y1; ++y) {
+        const auto dstRow = static_cast<std::size_t>(y) * cs.width + static_cast<std::size_t>(x0);
+        const auto srcRow = static_cast<std::size_t>(y - dy) * image.width()
+            + static_cast<std::size_t>(x0 - dx);
+        std::memcpy(layer->pixels().data() + dstRow * 4, image.constBits() + srcRow * 4,
+                    static_cast<std::size_t>(x1 - x0) * 4);
+    }
+
+    setLastError(QString());
+    const std::string name = layer->name();
+    m_history.execute(
+        std::make_unique<core::AddLayerCommand>(m_doc, name, std::move(layer)));
+    m_activeLayer = static_cast<int>(m_doc.layers().size()) - 1;
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+    return true;
+}
+
 bool AppController::exportPng(const QUrl& url)
 {
     return io::ProjectIO::exportPng(m_compositor, url.toLocalFile());

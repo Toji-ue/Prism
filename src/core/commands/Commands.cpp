@@ -15,6 +15,14 @@ AddLayerCommand::AddLayerCommand(Document& doc, std::string layerName)
 {
 }
 
+AddLayerCommand::AddLayerCommand(Document& doc, std::string layerName,
+                                 std::unique_ptr<Layer> layer)
+    : m_doc(doc)
+    , m_layerName(std::move(layerName))
+    , m_layer(std::move(layer))
+{
+}
+
 void AddLayerCommand::undo()
 {
     auto layer = m_doc.takeLayer(m_index);

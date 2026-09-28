@@ -14,6 +14,8 @@ namespace prism::core {
 class AddLayerCommand final : public Command {
 public:
     AddLayerCommand(Document& doc, std::string layerName);
+    /// Pre-built layer (e.g. an imported image): redo inserts it as-is.
+    AddLayerCommand(Document& doc, std::string layerName, std::unique_ptr<Layer> layer);
 
     const char* description() const override { return "Add layer"; }
 

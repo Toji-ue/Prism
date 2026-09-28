@@ -20,6 +20,26 @@ protected:
     }
 };
 
+TEST_F(LayerCommandsTest, AddLayerWithPixelsUndoRedoKeepsImage)
+{
+    auto imported = std::make_unique<Layer>(Layer::Type::Raster, "photo");
+    imported->pixels() = raster::RasterBuffer(32, 32);
+    imported->pixels().set(10, 10, raster::kOpaqueWhite);
+    history.execute(
+        std::make_unique<AddLayerCommand>(doc, "photo", std::move(imported)));
+
+    ASSERT_EQ(doc.layers().size(), std::size_t{ 3 });
+    EXPECT_EQ(doc.layers()[2]->name(), "photo");
+    EXPECT_EQ(doc.layers()[2]->pixels().at(10, 10), raster::kOpaqueWhite);
+
+    history.undo();
+    ASSERT_EQ(doc.layers().size(), std::size_t{ 2 });
+
+    history.redo();
+    ASSERT_EQ(doc.layers().size(), std::size_t{ 3 });
+    EXPECT_EQ(doc.layers()[2]->pixels().at(10, 10), raster::kOpaqueWhite);
+}
+
 TEST_F(LayerCommandsTest, RemoveLayerUndoRedoRestoresIndex)
 {
     history.execute(std::make_unique<RemoveLayerCommand>(doc, 0));
