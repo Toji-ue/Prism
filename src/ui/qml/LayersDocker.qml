@@ -48,6 +48,9 @@ Rectangle {
                 ]
                 delegate: Rectangle {
                     width: 20; height: 20
+                    // Names the button for the --demo-click verification hook
+                    // (e.g. "layerButton_up" is Raise layer).
+                    objectName: "layerButton_" + modelData.act
                     color: mh.hovered ? T.buttonHover : "transparent"
                     Icon {
                         anchors.centerIn: parent
@@ -277,11 +280,45 @@ Rectangle {
         anchors.bottomMargin: 4
         clip: true
         model: controller.layers
+        // Krita's layer docker lists the TOP layer first, while layer index 0
+        // is the bottom of the stack (the compositor paints 0..n-1 upwards).
+        // Without this the list was upside down: "Raise layer" pushed the row
+        // visibly DOWN, which reads as "raise does the opposite".
+        verticalLayoutDirection: ListView.BottomToTop
         // Drag a row to restack it (Krita's drag & drop layer reordering). The
         // dragged index is tracked here so the drop indicator can be drawn by
         // the view rather than by a delegate that scrolls away.
         property int dragFromIndex: -1
         property int dropToIndex: -1
+
+        /// Layer index whose row occupies \a viewportY in this view. Asked of
+        /// the delegates themselves (instead of dividing by the row height) so
+        /// the maths does not depend on the layout direction: BottomToTop makes
+        /// contentY grow the other way.
+        function indexAtViewportY(viewportY) {
+            for (let i = 0; i < count; ++i) {
+                const item = itemAtIndex(i)
+                if (!item)
+                    continue
+                const top = item.y - contentY
+                if (viewportY >= top && viewportY < top + item.height)
+                    return i
+            }
+            return -1
+        }
+
+        /// Viewport y of the top edge of row \a layerIndex's row.
+        function viewportYOfRow(layerIndex) {
+            const item = itemAtIndex(layerIndex)
+            return item ? item.y - contentY : 0
+        }
+
+        /// Centre of a row in this view's coordinates. Used by the
+        /// --demo-drag-layer hook, which must not assume a layout direction.
+        function demoRowY(layerIndex) {
+            const item = itemAtIndex(layerIndex)
+            return item ? item.y - contentY + item.height / 2 : -1
+        }
 
         // Drop indicator: a Krita-style line showing where the layer will land.
         Rectangle {
@@ -292,7 +329,9 @@ Rectangle {
             height: 2
             color: T.highlight
             z: 10
-            y: list.dropToIndex >= 0 ? list.dropToIndex * 28 - 1 : 0
+            // Drawn on the edge the layer is moving TOWARDS, in list terms.
+            y: list.dropToIndex > list.dragFromIndex ? list.viewportYOfRow(list.dropToIndex) + 27
+                                                     : list.viewportYOfRow(list.dropToIndex)
         }
 
         delegate: Rectangle {
@@ -365,13 +404,15 @@ Rectangle {
                 onCentroidChanged: {
                     if (!active || !view)
                         return
-                    // Scene -> viewport coordinates of the list, then which row
-                    // the pointer is over.
+                    // Which row is the pointer over? Ask the view rather than
+                    // dividing by the row height: with BottomToTop layout the
+                    // y-to-index mapping is flipped.
                     const p = view.mapFromItem(null, rowDrag.centroid.scenePosition.x,
                                                rowDrag.centroid.scenePosition.y)
-                    let target = Math.floor((p.y + view.contentY) / 28)
-                    target = Math.max(0, Math.min(view.count - 1, target))
-                    view.dropToIndex = target
+                    const over = view.indexAtViewportY(p.y)
+                    if (over < 0)
+                        return
+                    view.dropToIndex = over
                 }
             }
 

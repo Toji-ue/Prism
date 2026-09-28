@@ -49,6 +49,37 @@ void logToFile(QtMsgType type, const QMessageLogContext&, const QString& msg)
         std::abort();
 }
 
+/// Finds a QML item by objectName, walking the VISUAL item tree.
+///
+/// QObject::findChild is not enough: items created by a Repeater (or by any
+/// delegate) are visual children with no QObject parent, so a toolbar button
+/// built from a model is invisible to findChild — which is why the verification
+/// hooks below use this instead.
+QQuickItem* findItemByName(QQuickItem* root, const QString& name)
+{
+    if (!root)
+        return nullptr;
+    if (root->objectName() == name)
+        return root;
+    const QList<QQuickItem*> children = root->childItems();
+    for (QQuickItem* child : children)
+        if (QQuickItem* found = findItemByName(child, name))
+            return found;
+    return nullptr;
+}
+
+/// Every non-empty objectName in the visual tree, for diagnostics.
+QStringList itemNames(QQuickItem* root, QStringList& into)
+{
+    if (!root)
+        return into;
+    if (!root->objectName().isEmpty() && !into.contains(root->objectName()))
+        into << root->objectName();
+    for (QQuickItem* child : root->childItems())
+        itemNames(child, into);
+    return into;
+}
+
 int countOpaquePixels(const QImage& img)
 {
     int count = 0;
@@ -532,6 +563,30 @@ int runSelfTest()
         check(nowBottom == top, "moveLayerTo moves a layer to an arbitrary index");
         check(controller.activeLayerIndex() == 0, "the moved layer becomes active");
         check(controller.layers()->rowCount() == count, "reordering keeps the layer count");
+
+        // Raise/Lower must move the layer UP the stack (higher index). The
+        // docker draws the top layer first, so a raise has to increase the
+        // index — the opposite mapping made the arrows look swapped.
+        controller.setActiveLayerIndex(0);
+        const QString bottomName = controller.layers()
+                                       ->data(controller.layers()->index(0, 0),
+                                              LayerListModel::NameRole)
+                                       .toString();
+        controller.moveLayerUp();
+        check(controller.layers()
+                      ->data(controller.layers()->index(1, 0), LayerListModel::NameRole)
+                      .toString()
+                  == bottomName
+                  && controller.activeLayerIndex() == 1,
+              "Raise layer moves it to a higher index");
+        controller.moveLayerDown();
+        check(controller.layers()
+                      ->data(controller.layers()->index(0, 0), LayerListModel::NameRole)
+                      .toString()
+                  == bottomName,
+              "Lower layer moves it back down");
+        controller.undo();
+        controller.undo();
         controller.undo();
         check(controller.layers()
                       ->data(controller.layers()->index(count - 1, 0), LayerListModel::NameRole)
@@ -735,15 +790,62 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-drag-layer=")))
                 demoDragLayer = a.section(QLatin1Char('='), 1);
+        // --demo-click=<objectName>: clicks a button for real (QTest input), so
+        // the action behind it can be verified instead of assumed.
+        QString demoClick;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-click=")))
+                demoClick = a.section(QLatin1Char('='), 1);
+        // Which layer the click test acts on.
+        QString demoActive;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-active=")))
+                demoActive = a.section(QLatin1Char('='), 1);
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
-                                       &engine]() {
+                                       demoClick, demoActive, &engine]() {
+            if (!demoClick.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                // Two extra layers so Raise/Lower have somewhere to go, plus an
+                // optional --demo-active=<index> to pick which row is acted on.
+                controller->addLayer();
+                controller->addLayer();
+                if (!demoActive.isEmpty())
+                    controller->setActiveLayerIndex(demoActive.toInt());
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* button = window ? findItemByName(window->contentItem(), demoClick) : nullptr;
+                if (button) {
+                    auto names = [controller]() {
+                        QStringList out;
+                        for (int i = 0; i < controller->layers()->rowCount(); ++i)
+                            out << controller->layers()
+                                       ->data(controller->layers()->index(i, 0),
+                                              LayerListModel::NameRole)
+                                       .toString();
+                        return out.join(QLatin1Char(','));
+                    };
+                    const QPointF centre = button->mapToScene(
+                        QPointF(button->width() / 2.0, button->height() / 2.0));
+                    qInfo().noquote() << "demo: clicking" << demoClick << "order before:" << names();
+                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+                    qInfo().noquote() << "demo: order after: " << names()
+                                      << "active =" << controller->activeLayerIndex();
+                } else {
+                    qWarning() << "demo: no clickable item named" << demoClick
+                               << "- known names:";
+                    if (window) {
+                        QStringList known;
+                        itemNames(window->contentItem(), known);
+                        qWarning().noquote() << "  " + known.join(QLatin1Char(' '));
+                    }
+                }
+            }
             if (!demoDragLayer.isEmpty() && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
                 controller->addLayer();
                 controller->addLayer();
                 auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* listItem = window ? window->findChild<QQuickItem*>(QStringLiteral("layerList"))
+                auto* listItem = window ? findItemByName(window->contentItem(), QStringLiteral("layerList"))
                                         : nullptr;
                 if (listItem) {
                     auto names = [controller]() {
@@ -757,11 +859,23 @@ int main(int argc, char* argv[])
                     };
                     const int from = demoDragLayer.section(QLatin1Char(':'), 0, 0).toInt();
                     const int to = demoDragLayer.section(QLatin1Char(':'), 1, 1).toInt();
-                    const qreal rowH = 28.0;
-                    const QPointF fromPos(listItem->width() / 2.0, from * rowH + rowH / 2.0);
-                    const QPointF toPos(listItem->width() / 2.0, to * rowH + rowH / 2.0);
-                    const QPointF start = listItem->mapToScene(fromPos);
-                    const QPointF end = listItem->mapToScene(toPos);
+                    // Ask the view where those rows actually are: the layer list
+                    // is BottomToTop (Krita order), so y = index * rowHeight
+                    // would pick the wrong rows.
+                    auto rowCentreY = [listItem](int rowIndex) {
+                        QVariant result;
+                        const bool ok = QMetaObject::invokeMethod(
+                            listItem, "demoRowY", Q_RETURN_ARG(QVariant, result),
+                            Q_ARG(QVariant, QVariant(rowIndex)));
+                        return ok ? result.toDouble() : -1.0;                    };
+                    const qreal fromY = rowCentreY(from);
+                    const qreal toY = rowCentreY(to);
+                    if (fromY < 0 || toY < 0) {
+                        qWarning() << "demo: row" << from << "or" << to << "is not visible";
+                        return;
+                    }
+                    const QPointF start = listItem->mapToScene(QPointF(listItem->width() / 2.0, fromY));
+                    const QPointF end = listItem->mapToScene(QPointF(listItem->width() / 2.0, toY));
                     qInfo().noquote() << "demo: layer order before:" << names();
                     // Drive the real input pipeline through QTest instead of
                     // QCoreApplication::sendEvent: a raw synthetic event bypasses
@@ -790,7 +904,7 @@ int main(int argc, char* argv[])
                     const bool dragRight = sliderName.startsWith(QLatin1Char('+'));
                     if (dragRight)
                         sliderName = sliderName.mid(1);
-                    if (auto* item = window->findChild<QQuickItem*>(sliderName)) {
+                    if (auto* item = findItemByName(window->contentItem(), sliderName)) {
                         const QPointF centre =
                             item->mapToScene(QPointF(item->width() / 2.0, item->height() / 2.0));
                         auto send = [window](QEvent::Type type, QPointF pos, Qt::MouseButtons held) {
@@ -816,7 +930,7 @@ int main(int argc, char* argv[])
                                                       QStringLiteral("sizeBox"),
                                                       QStringLiteral("opacitySlider") };
                         for (const QString& name : watched) {
-                            if (auto* w = window->findChild<QQuickItem*>(name))
+                            if (auto* w = findItemByName(window->contentItem(), name))
                                 qInfo().noquote()
                                     << QStringLiteral("  %1.value = %2").arg(
                                            name, QString::number(w->property("value").toDouble()));
