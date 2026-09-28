@@ -369,6 +369,58 @@ int runSelfTest()
         QFile::remove(png);
         check(controller.saveFile(QUrl::fromLocalFile(png)), "saveFile writes a PNG");
         check(QFile::exists(png), "PNG exists on disk");
+
+        // Import-as-layer: the saved PNG becomes a new normal layer in the
+        // CURRENT document (canvas size unchanged, pixel count grows).
+        const int layersBeforeImport = controller.layers()->rowCount();
+        // Deep copy: QImage is COW, and the compositor's buffer must not be
+        // shared with the snapshot or the comparison below is vacuous.
+        const QImage canvasBefore = controller.canvasImage().copy();
+        check(controller.importImageAsLayer(QUrl::fromLocalFile(png)),
+              "import image as layer succeeds");
+        check(controller.layers()->rowCount() == layersBeforeImport + 1,
+              "imported image became a new layer");
+        check(controller.lastError().isEmpty(), "no error for a good import");
+        // Compositing the canvas' own flattened PNG as a new layer must keep
+        // every opaque and fully transparent pixel EXACTLY (a=1 and a=0 are
+        // fixed points of source-over). Only antialiased semi-transparent
+        // edges may legitimately shift (a -> 2a - a^2); anything else means
+        // the import misplaced or corrupted content.
+        bool importExact = true;
+        const QImage canvasAfterImport = controller.canvasImage();
+        for (int y = 0; y < canvasBefore.height() && importExact; ++y) {
+            for (int x = 0; x < canvasBefore.width(); ++x) {
+                const QRgb before = canvasBefore.pixel(x, y);
+                const QRgb after = canvasAfterImport.pixel(x, y);
+                const int a = qAlpha(before);
+                if (a == 0 || a == 255) {
+                    if (before != after) {
+                        importExact = false;
+                        break;
+                    }
+                }
+            }
+        }
+        check(importExact, "imported layer contributes its pixels to the canvas");
+        controller.undo();
+        check(controller.layers()->rowCount() == layersBeforeImport,
+              "import as layer undone");
+        controller.redo();
+        check(controller.layers()->rowCount() == layersBeforeImport + 1,
+              "import as layer redone with pixels intact");
+        // Prove the pixels actually arrived: hide every OTHER layer and the
+        // composite must equal the source PNG exactly. (After this the
+        // visibility toggles sit on top of history, so no more undo checks.)
+        for (int i = 0; i < layersBeforeImport; ++i)
+            controller.setLayerVisible(i, false);
+        check(controller.canvasImage() == canvasBefore,
+              "imported layer alone reproduces the source image");
+        for (int i = 0; i < layersBeforeImport; ++i)
+            controller.setLayerVisible(i, true);
+        check(!controller.importImageAsLayer(
+                  QUrl::fromLocalFile(QDir::temp().filePath(QStringLiteral("no-such.png")))),
+              "import of a missing file fails gracefully");
+        check(!controller.lastError().isEmpty(), "missing file reports an error");
     }
 
     // Tool shortcuts are configurable and persisted; conflicts are resolved.

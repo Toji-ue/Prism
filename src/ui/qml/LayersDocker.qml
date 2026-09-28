@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import Prism.Ui 1.0
 import "Theme.js" as T
 
@@ -59,7 +60,7 @@ Rectangle {
                         anchors.fill: parent
                         onClicked: {
                             switch (modelData.act) {
-                            case "add":  controller.addLayer(); break
+                            case "add":  addLayerMenu.popup(); break
                             case "dup":  controller.duplicateLayer(); break
                             case "up":   controller.moveLayerUp(); break
                             case "down": controller.moveLayerDown(); break
@@ -140,6 +141,32 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
+    }
+
+    // ---- "+" button dropdown ----
+    PMenu {
+        id: addLayerMenu
+
+        MenuItem {
+            text: qsTr("New Layer")
+            onTriggered: controller.addLayer()
+        }
+        MenuItem {
+            text: qsTr("Import Image as Layer...")
+            onTriggered: importImageDialog.open()
+        }
+    }
+
+    FileDialog {
+        id: importImageDialog
+        title: qsTr("Import Image as Layer")
+        nameFilters: [
+            qsTr("Images (*.png *.jpg *.jpeg *.webp *.tif *.tiff *.bmp *.gif *.ppm *.ico)"),
+            qsTr("All files (*)")
+        ]
+        fileMode: FileDialog.OpenFile
+        onAccepted: if (!controller.importImageAsLayer(selectedFile))
+                        console.warn("import as layer failed")
     }
 
     // ---- layer context menu (right click on a row) ----

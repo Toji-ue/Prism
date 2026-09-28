@@ -117,7 +117,6 @@ ApplicationWindow {
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
             Action {
                 text: qsTr("&Import Image as Layer...")
-                enabled: !controller.startPageVisible
                 onTriggered: importLayerDialog.open()
             }
             MenuSeparator {}
