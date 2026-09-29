@@ -559,6 +559,7 @@ ApplicationWindow {
 
                         CanvasView {
                             id: canvasItem
+                            objectName: "canvasItem"
                             anchors.fill: parent
                             controller: root.controller
                         }

@@ -161,6 +161,31 @@ Drawing apps live or die on input latency. In rendering, input, or compositing c
 - Run large filters, file I/O, and export off the UI/render thread.
 - PRs touching the render loop, compositing, or input pipeline say so explicitly, with before/after latency or frame-time numbers where obtainable.
 
+### Measured baseline (Windows, 1280×800 … 4000×4000 canvases)
+
+`prism.exe --demo-stroke-bench=300 --demo-doc-size=WxH --screenshot-only --screenshot=<file>` drives 300
+real mouse moves through `QTest` and reports frame time, texture-upload volume and a CPU split
+(`beginStroke` / moves / `endStroke`). Numbers measured on the development machine:
+
+| Canvas | per move (before → after) | `endStroke` (before → after) | texture uploads |
+| --- | --- | --- | --- |
+| 1280×800 | 1.25 → 0.73 ms | 141 → 13 ms | 30 × 4.1 MB → 110 × 256 KiB |
+| 2000×3000 | 10.07 → 1.02 ms | 495 → 59 ms | 50 × 24 MB → 321 × 256 KiB |
+| 4000×4000 | unusable → 1.08 ms | 1207 → 148 ms | 42 × 64 MB → 474 × 256 KiB |
+
+Two rules fall out of that table, both learned the hard way:
+
+- **Upload only dirty tiles.** The canvas is a grid of 256 px `QSGSimpleTextureNode`s and
+  `CanvasView::onCanvasChanged` marks just the tiles under the dirty rect. Uploading the whole canvas
+  per frame meant a texture create/destroy pair plus a full RGBA upload every frame — 64 MB per frame on
+  a 4000×4000 document, which is what made drawing feel laggy on weaker GPUs.
+- **Never redo whole-canvas work on mouse-up.** `endStroke` commits the *accumulated* preview over the
+  stroke's own rectangle (`m_strokeDirty`) and recomposites only that rect. Re-painting the stroke into a
+  fresh canvas-sized buffer and recompositing every layer cost 1.2 s of freeze at 4000×4000. Reusing the
+  preview is valid precisely because `extendStroke` stamps the same `paintSegment` calls
+  `BrushStroke::paint` would; if that invariant changes, the dot stamped in `beginStroke` and the commit
+  both need revisiting (a click with no movement is covered by the selftest).
+
 ## Code style
 
 - Follow the repo's `.clang-format`; format before committing.

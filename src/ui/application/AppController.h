@@ -386,6 +386,9 @@ private:
     std::vector<prism::canvas::StrokePoint> m_currentStroke;
     prism::core::raster::RasterBuffer m_preview;
     prism::core::geometry::Rect m_strokeDirty;
+    /// Region of \p m_preview that currently holds pixels, so the next stroke
+    /// clears only that instead of the whole canvas.
+    prism::core::geometry::Rect m_previewDirty;
     LayerListModel* m_layersModel = nullptr;
     int m_activeLayer = 0;
     qreal m_zoom = 1.0;
@@ -418,6 +421,9 @@ private:
     void commitPatch(const prism::core::raster::RasterBuffer& original,
                      const prism::core::raster::RasterBuffer& work,
                      const prism::core::geometry::Rect& rect, const char* label);
+
+    /// Clears just \p rect in the stroke preview (see m_previewDirty).
+    void clearPreviewRegion(const prism::core::geometry::Rect& rect);
 
     /// Paints one stroke segment, plus its mirror images when the Multibrush
     /// tool is active (Krita mirrors about the canvas centre).

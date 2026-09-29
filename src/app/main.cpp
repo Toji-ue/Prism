@@ -21,6 +21,7 @@
 #include "panels/CanvasView.h"
 
 #include <cstdio>
+#include <cmath>
 
 namespace {
 
@@ -539,6 +540,33 @@ int runSelfTest()
         check(ms < 2000, "200 move events stay under 2s");
     }
 
+    // Committing a stroke must cost the stroke's rectangle, not the canvas.
+    // Mouse-up used to re-paint the whole stroke into a fresh canvas-sized
+    // buffer and recomposite every layer: 1.2 s of freeze on a 4000x4000
+    // document, measured, which is exactly the "very laggy" report.
+    {
+        controller.newDocument(3000, 3000);
+        controller.setTool(AppController::BrushTool);
+        QElapsedTimer timer;
+        controller.beginStroke(200.0F, 200.0F);
+        for (int i = 0; i < 60; ++i)
+            controller.extendStroke(200.0F + static_cast<float>(i) * 8.0F,
+                                    200.0F + static_cast<float>(i) * 4.0F);
+        timer.start();
+        controller.endStroke();
+        const qint64 commitMs = timer.elapsed();
+        qInfo() << "stroke commit:" << commitMs << "ms on a 3000x3000 document";
+        check(commitMs < 400, "committing a stroke stays bounded by the stroke rect");
+
+        // A click with no movement must still leave a mark (Krita paints a dot
+        // on press). The optimised commit takes its pixels from the live
+        // preview, so the dot has to be stamped when the stroke begins.
+        controller.beginStroke(1500.0F, 1500.0F);
+        controller.endStroke();
+        const QRgb dot = controller.canvasImage().pixel(1500, 1500);
+        check(qAlpha(dot) > 0, "a click paints a dot");
+    }
+
     // Layer ops + undo must not corrupt the stack.
     const int before = controller.layers()->rowCount();
     controller.addLayer();
@@ -801,9 +829,126 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-active=")))
                 demoActive = a.section(QLatin1Char('='), 1);
+        // --demo-stroke-bench=N: drives N real mouse moves across the canvas and
+        // reports frame timing and texture-upload volume. Latency work has to be
+        // measured, not guessed — and this hook works on the old and new
+        // renderer alike, so the numbers are comparable.
+        int demoStrokeBench = 0;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-stroke-bench=")))
+                demoStrokeBench = a.section(QLatin1Char('='), 1).toInt();
+        // --demo-mirror=h|v: flips the canvas view, which is mirrored per tile
+        // in the tiled renderer and therefore worth an explicit visual check.
+        QString demoMirror;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-mirror=")))
+                demoMirror = a.section(QLatin1Char('='), 1);
+        // --demo-doc-size=WxH: benchmark on a document of that size. A 4000x4000
+        // canvas is where full-canvas texture uploads collapse.
+        int demoDocW = 0;
+        int demoDocH = 0;
+        for (const QString& a : app.arguments()) {
+            if (a.startsWith(QStringLiteral("--demo-doc-size="))) {
+                const QString size = a.section(QLatin1Char('='), 1);
+                demoDocW = size.section(QLatin1Char('x'), 0, 0).toInt();
+                demoDocH = size.section(QLatin1Char('x'), 1, 1).toInt();
+            }
+        }
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
-                                       demoClick, demoActive, &engine]() {
+                                       demoClick, demoActive, demoStrokeBench, demoDocW, demoDocH,
+                                       demoMirror, &engine]() {
+            if (!demoMirror.isEmpty()) {
+                controller->setStartPageVisible(false);
+                if (demoMirror.contains(QLatin1Char('h')))
+                    controller->setMirrorHorizontal(true);
+                if (demoMirror.contains(QLatin1Char('v')))
+                    controller->setMirrorVertical(true);
+                qInfo() << "demo: mirror h =" << controller->mirrorHorizontal()
+                        << " v =" << controller->mirrorVertical();
+            }
+            if (demoStrokeBench > 0 && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                if (demoDocW > 0 && demoDocH > 0) {
+                    controller->newDocument(demoDocW, demoDocH);
+                    qInfo() << "bench: document" << demoDocW << "x" << demoDocH;
+                    // Let the new document settle (full composite + first tile
+                    // upload) before the timed stretch.
+                    QTest::qWait(500);
+                }
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* canvas = window ? findItemByName(window->contentItem(),
+                                                       QStringLiteral("canvasItem"))
+                                      : nullptr;
+                if (!canvas) {
+                    qWarning() << "demo: canvas item not found";
+                } else {
+                    // Count rendered frames while the stroke runs.
+                    int frames = 0;
+                    const auto conn = QObject::connect(window, &QQuickWindow::frameSwapped,
+                                                       [&frames]() { ++frames; });
+                    const QRectF itemScene = canvas->mapRectToScene(canvas->boundingRect());
+                    const QRectF windowRect(0, 0, window->width(), window->height());
+                    const QRectF visible = itemScene.intersected(windowRect);
+                    if (visible.width() < 8 || visible.height() < 8) {
+                        qWarning() << "demo: canvas is not visible"
+                                   << itemScene << "window" << windowRect;
+                        return;
+                    }
+                    // A big document at 100% zoom extends past the viewport, so
+                    // the stroke has to run inside the visible part.
+                    const QPointF centre = visible.center();
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+                    // A back-and-forth line across the canvas: every move paints
+                    // a new band, which is the worst case for the uploader.
+                    const qreal span = visible.width() * 0.5;
+                    QElapsedTimer t;
+                    t.start();
+                    for (int i = 0; i < demoStrokeBench; ++i) {
+                        const qreal f = static_cast<qreal>(i % 20) / 19.0;
+                        const qreal x = centre.x() - span / 2 + span * f;
+                        const qreal y = centre.y() + std::sin(f * 6.28) * 40.0;
+                        QTest::mouseMove(window, QPointF(x, y).toPoint());
+                        // Spin the loop after every move: without this Qt merges
+                        // the whole burst and nothing is rendered or measured.
+                        QCoreApplication::processEvents();
+                    }
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
+                                        QPointF(centre.x() + span / 2, centre.y()).toPoint());
+                    const qint64 elapsed = t.elapsed();
+                    QObject::disconnect(conn);
+                    qInfo() << "bench:" << demoStrokeBench << "moves in" << elapsed << "ms ("
+                            << (elapsed / static_cast<double>(demoStrokeBench)) << "ms/move)"
+                            << "frames:" << frames;
+                    if (frames > 0)
+                        qInfo() << "bench: average frame interval"
+                                << (elapsed / static_cast<double>(frames)) << "ms";
+                    if (canvas->property("renderStats").isValid())
+                        qInfo().noquote() << "bench:" << canvas->property("renderStats").toString();
+
+                    // Second phase: the same stroke with NO rendering at all, to
+                    // separate CPU cost (brush + compositor) from GPU upload.
+                    const qreal cw = controller->canvasWidth();
+                    const qreal ch = controller->canvasHeight();
+                    QElapsedTimer cpu;
+                    cpu.start();
+                    controller->beginStroke(cw * 0.3, ch * 0.3);
+                    const qint64 beginMs = cpu.elapsed();
+                    cpu.restart();
+                    for (int i = 0; i < demoStrokeBench; ++i) {
+                        const qreal f = static_cast<qreal>(i % 20) / 19.0;
+                        controller->extendStroke(cw * (0.3 + 0.4 * f), ch * (0.3 + 0.2 * f));
+                    }
+                    const qint64 movesMs = cpu.elapsed();
+                    cpu.restart();
+                    controller->endStroke();
+                    const qint64 endMs = cpu.elapsed();
+                    qInfo() << "bench: CPU split - beginStroke" << beginMs << "ms,"
+                            << demoStrokeBench << "moves" << movesMs << "ms ("
+                            << (movesMs / static_cast<double>(demoStrokeBench))
+                            << "ms/move), endStroke" << endMs << "ms";
+                }
+            }
             if (!demoClick.isEmpty() && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
                 // Two extra layers so Raise/Lower have somewhere to go, plus an

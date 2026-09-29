@@ -1773,8 +1773,12 @@ void AppController::beginStroke(float x, float y)
 {
     m_currentStroke.clear();
     m_currentStroke.push_back({ x, y, 1.0F });
-    m_preview.fill(core::raster::kTransparent);
-    m_strokeDirty = core::geometry::Rect{ static_cast<int>(x), static_cast<int>(y), 0, 0 };
+    // Only the region the previous stroke touched can still hold preview
+    // pixels; clearing the whole canvas here (a full-buffer memset, 64 MB on a
+    // 4000x4000 document) was pure overhead on every mouse-down.
+    clearPreviewRegion(m_previewDirty);
+    m_strokeDirty = {};
+    m_previewDirty = {};
     m_dynamicPos = { x, y, 1.0F };
 
     // The eraser previews by substituting an erased copy of the ACTIVE layer,
@@ -1788,6 +1792,41 @@ void AppController::beginStroke(float x, float y)
     } else {
         m_compositor.clearLayerOverride();
     }
+
+    // Stamp the first point right away, like Krita: a click paints a dot, and
+    // it keeps the accumulated preview identical to a full re-paint (which is
+    // what the commit below relies on).
+    if (m_erasing) {
+        const auto dot = paintSegmentSymmetrical(m_eraseWork, m_brush, m_currentStroke.front(),
+                                                 m_currentStroke.front());
+        if (!dot.isEmpty()) {
+            m_strokeDirty = dot;
+            const auto composited = m_compositor.composite(dot);
+            emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+        }
+    } else {
+        canvas::BrushSettings dotBrush = m_brush;
+        dotBrush.erase = false;
+        const auto dot = paintSegmentSymmetrical(m_preview, dotBrush, m_currentStroke.front(),
+                                                m_currentStroke.front());
+        if (!dot.isEmpty()) {
+            m_strokeDirty = dot;
+            m_previewDirty = dot;
+            const auto composited = m_compositor.composite(dot, &m_preview, false);
+            emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+        }
+    }
+}
+
+void AppController::clearPreviewRegion(const core::geometry::Rect& rect)
+{
+    if (rect.isEmpty() || m_preview.isEmpty())
+        return;
+    const int x1 = std::min(rect.x + rect.width, m_preview.width());
+    const int y1 = std::min(rect.y + rect.height, m_preview.height());
+    for (int y = std::max(0, rect.y); y < y1; ++y)
+        for (int x = std::max(0, rect.x); x < x1; ++x)
+            m_preview.set(x, y, core::raster::kTransparent);
 }
 
 void AppController::extendStroke(float x, float y)
@@ -1846,6 +1885,12 @@ void AppController::extendStroke(float x, float y)
     // but only recomposite the band this tick actually painted. Everything
     // else already holds base+preview from previous ticks, so redrawing the
     // entire stroke bbox every mouse move was wasted work.
+    m_previewDirty = core::geometry::Rect{
+        std::min(m_previewDirty.x, segment.x), std::min(m_previewDirty.y, segment.y),
+        std::max(m_previewDirty.x + m_previewDirty.width, segment.x + segment.width)
+            - std::min(m_previewDirty.x, segment.x),
+        std::max(m_previewDirty.y + m_previewDirty.height, segment.y + segment.height)
+            - std::min(m_previewDirty.y, segment.y) };
     // The layer-revision counter is deliberately NOT bumped here: doing so
     // made every layer thumbnail re-render on each mouse move, which was the
     // cause of the drawing lag. Thumbnails refresh when the stroke commits.
@@ -1878,7 +1923,6 @@ void AppController::endStroke()
         m_erasing = false;
         m_compositor.clearLayerOverride();
         m_currentStroke.clear();
-        m_preview.fill(core::raster::kTransparent);
 
         const auto rect = m_strokeDirty; // union of everything erased this drag
         m_strokeDirty = {};
@@ -1895,15 +1939,17 @@ void AppController::endStroke()
         // Erasing subtracts from the layer's own pixels. The preview scratch
         // starts transparent, so "erasing" into it is a no-op — the erase has
         // to run against a copy of the layer. Deciding this BEFORE painting is
-        // what makes the eraser work.
+        // what makes the eraser work. (Only reached when the live erase preview
+        // was not available, e.g. no active layer.)
         const core::raster::RasterBuffer original = activeLayer.pixels();
         core::raster::RasterBuffer work = original;
         const auto rect = canvas::BrushStroke::paint(work, m_brush, m_currentStroke);
         m_currentStroke.clear();
-        m_preview.fill(core::raster::kTransparent);
+        clearPreviewRegion(m_previewDirty);
+        m_previewDirty = {};
+        m_strokeDirty = {};
 
         if (rect.isEmpty()) {
-            rebuildFullComposite();
             return;
         }
         canvas::clipToSelection(work, m_selection, &original);
@@ -1914,32 +1960,48 @@ void AppController::endStroke()
             m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
             rect.x, rect.y, "Erase"));
         emit historyChanged();
-        rebuildFullComposite();
+        // Only the erased rectangle changed; recompositing the whole canvas
+        // here was the mouse-up freeze on large documents.
+        const auto composited = m_compositor.composite(rect);
+        ++m_layerRevision;
+        emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
     }
 
-    // Paint stroke: repaint the full stroke fresh into the scratch (the
-    // accumulated preview is identical, but a clean repaint keeps the
-    // before/after snapshots consistent).
-    core::raster::RasterBuffer scratch(m_doc.canvasSize().width, m_doc.canvasSize().height);
-    const auto rect = canvas::BrushStroke::paint(scratch, m_brush, m_currentStroke);
+    // Paint stroke. The preview already holds the WHOLE stroke: extendStroke
+    // stamped exactly the segments BrushStroke::paint would re-stamp, in the
+    // same order. Re-painting the stroke into a fresh full-canvas scratch and
+    // then re-compositing the entire canvas cost ~1.2 s of freeze per stroke on
+    // a 4000x4000 document; committing the accumulated preview over the
+    // stroke's own rectangle is the same result for a fraction of the work.
+    const auto rect = m_strokeDirty;
+    const auto previewRect = m_previewDirty;
     m_currentStroke.clear();
-    m_preview.fill(core::raster::kTransparent);
 
     if (rect.isEmpty()) {
-        rebuildFullComposite();
+        m_erasing = false;
+        m_compositor.clearLayerOverride();
+        clearPreviewRegion(previewRect);
+        m_previewDirty = {};
+        m_strokeDirty = {};
         return;
     }
 
-    // Clip to the active selection, if any.
-    canvas::clipToSelection(scratch, m_selection);
+    auto painted = m_preview.copyRect(rect.x, rect.y, rect.width, rect.height);
+    // Clip to the active selection, if any, over the patch only.
+    canvas::clipToSelection(painted, m_selection, nullptr, rect.x, rect.y);
+    clearPreviewRegion(previewRect);
+    m_previewDirty = {};
+    m_strokeDirty = {};
 
-    auto painted = scratch.copyRect(rect.x, rect.y, rect.width, rect.height);
     m_history.execute(std::make_unique<core::StrokeCommand>(
         m_doc, static_cast<std::size_t>(m_activeLayer), std::move(painted), rect.x, rect.y));
 
     emit historyChanged();
-    rebuildFullComposite();
+    // Repaint only the stroke's rectangle instead of the whole canvas.
+    const auto composited = m_compositor.composite(rect);
+    ++m_layerRevision; // thumbnails must re-fetch after a content change
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
 // ---------------------------------------------------------------------- internals

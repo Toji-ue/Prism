@@ -404,16 +404,26 @@ void clipToSelection(RasterBuffer& target, const Selection& selection,
         return;
     if (selection.width() != target.width() || selection.height() != target.height())
         return; // mismatched sizes: treat as no constraint rather than guess
+    clipToSelection(target, selection, restoreFrom, 0, 0);
+}
+
+void clipToSelection(RasterBuffer& target, const Selection& selection,
+                     const RasterBuffer* restoreFrom, int offsetX, int offsetY)
+{
+    if (selection.isEmpty() || target.isEmpty())
+        return;
 
     for (int y = 0; y < target.height(); ++y) {
         for (int x = 0; x < target.width(); ++x) {
-            const std::uint8_t cov = selection.coverageAt(x, y);
+            const int sx = x + offsetX;
+            const int sy = y + offsetY;
+            const std::uint8_t cov = selection.coverageAt(sx, sy);
             if (cov == 255)
                 continue;
 
-            const Color original = restoreFrom && x < restoreFrom->width()
-                                       && y < restoreFrom->height()
-                                   ? restoreFrom->at(x, y)
+            const Color original = restoreFrom && sx < restoreFrom->width()
+                                       && sy < restoreFrom->height()
+                                   ? restoreFrom->at(sx, sy)
                                    : kTransparent;
             if (cov == 0) {
                 target.set(x, y, original);

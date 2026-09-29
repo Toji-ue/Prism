@@ -91,4 +91,10 @@ private:
 void clipToSelection(RasterBuffer& target, const Selection& selection,
                      const RasterBuffer* restoreFrom = nullptr);
 
+/// Same, for a PATCH of the canvas (\p target is the rectangle at \p offsetX,
+/// \p offsetY of the selection's coordinate space). Committing a stroke only
+/// needs the stroke's own rect clipped, not a full-canvas pass.
+void clipToSelection(RasterBuffer& target, const Selection& selection,
+                     const RasterBuffer* restoreFrom, int offsetX, int offsetY);
+
 } // namespace prism::canvas
