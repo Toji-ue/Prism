@@ -10,13 +10,19 @@ YÊU CẦU MÁY TÍNH
 
 CÁCH CÀI
 ────────
- 1. Giải nén file zip này ra một thư mục bất kỳ (VD: Downloads\Prism).
- 2. Vào thư mục vừa giải nén, CHẠY FILE  Install-Prism.cmd  (double-click).
-    — Nếu Windows hỏi "Windows protected your PC": nhấn More info → Run anyway
-      (script cài nội bộ, không tải gì từ mạng).
- 3. Cài xong sẽ có shortcut "Prism" trên Desktop và trong Start Menu.
- 4. Gỡ bỏ: chạy  Uninstall-Prism.cmd  trong thư mục cài
-    (mặc định: C:\Users\<tên bạn>\AppData\Local\Programs\Prism).
+ Cách 1 — INSTALLER (khuyến nghị):
+   1. Chạy file  Prism-Setup.exe  (double-click).
+   2. Nhấn Install, chờ vài giây — xong!
+   3. Shortcut "Prism" sẽ có trên Desktop và trong Start Menu.
+   4. Gỡ bỏ: Settings ▸ Apps ▸ Prism ▸ Uninstall
+      (hoặc Start Menu ▸ Prism ▸ Uninstall Prism).
+
+ Cách 2 — PORTABLE (không cần cài):
+   1. Giải nén Prism-win64-*.zip ra thư mục bất kỳ.
+   2. Chạy thẳng prism.exe trong đó.
+
+ Nếu Windows hỏi "Windows protected your PC" khi chạy installer:
+ nhấn More info → Run anyway (installer không tải gì từ mạng).
 
 BÁO LỖI NHƯ THẾ NÀO
 ────────────────────
