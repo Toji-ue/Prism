@@ -947,6 +947,26 @@ int main(int argc, char* argv[])
                             << demoStrokeBench << "moves" << movesMs << "ms ("
                             << (movesMs / static_cast<double>(demoStrokeBench))
                             << "ms/move), endStroke" << endMs << "ms";
+
+                    // Same split for the eraser, which used to copy the whole
+                    // layer twice before the first stroke point was painted.
+                    controller->setEraser(true);
+                    cpu.restart();
+                    controller->beginStroke(cw * 0.35, ch * 0.35);
+                    const qint64 eraseBeginMs = cpu.elapsed();
+                    cpu.restart();
+                    for (int i = 0; i < demoStrokeBench; ++i) {
+                        const qreal f = static_cast<qreal>(i % 20) / 19.0;
+                        controller->extendStroke(cw * (0.35 + 0.3 * f), ch * (0.35 + 0.1 * f));
+                    }
+                    const qint64 eraseMovesMs = cpu.elapsed();
+                    cpu.restart();
+                    controller->endStroke();
+                    const qint64 eraseEndMs = cpu.elapsed();
+                    controller->setEraser(false);
+                    qInfo() << "bench: erase split - beginStroke" << eraseBeginMs << "ms,"
+                            << demoStrokeBench << "moves" << eraseMovesMs << "ms,"
+                            << "endStroke" << eraseEndMs << "ms";
                 }
             }
             if (!demoClick.isEmpty() && !engine.rootObjects().isEmpty()) {

@@ -412,8 +412,8 @@ private:
     std::vector<prism::canvas::StrokePoint> m_freePath;
     /// Dynamic Brush: the lagged brush position.
     prism::canvas::StrokePoint m_dynamicPos;
-    /// Eraser drag state: the layer copy being erased, and its original.
-    prism::core::raster::RasterBuffer m_eraseWork;
+    /// Eraser drag state: the active layer as it was before the drag, kept for
+    /// the undo command. The layer itself is edited live during the drag.
     prism::core::raster::RasterBuffer m_eraseBefore;
     bool m_erasing = false;
 

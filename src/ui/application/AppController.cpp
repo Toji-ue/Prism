@@ -578,8 +578,10 @@ void AppController::updateShape(float x, float y)
     m_shapeEnd = core::geometry::Point{ static_cast<int>(std::floor(x)),
                                         static_cast<int>(std::floor(y)) };
 
-    // Redraw the preview from scratch (a shape is replaced, not accumulated).
-    m_preview.fill(core::raster::kTransparent);
+    // Redraw the preview from scratch (a shape is replaced, not accumulated),
+    // but only clear where the previous shape was: clearing the whole preview
+    // buffer every mouse move cost a full-canvas memset.
+    clearPreviewRegion(m_strokeDirty);
     const canvas::ShapeKind kind =
         m_tool == Tool::LineTool       ? canvas::ShapeKind::Line
         : m_tool == Tool::RectangleTool ? canvas::ShapeKind::Rectangle
@@ -608,7 +610,8 @@ void AppController::endShape()
     if (!m_shapeActive)
         return;
     m_shapeActive = false;
-    m_preview.fill(core::raster::kTransparent);
+    clearPreviewRegion(m_strokeDirty);
+    m_previewDirty = {};
 
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size())) {
         rebuildFullComposite();
@@ -620,10 +623,11 @@ void AppController::endShape()
         return;
     }
 
-    // Draw on a copy of the layer so the "before" patch stays accurate, then
-    // commit with the same command the brush uses.
-    const core::raster::RasterBuffer original = layer.pixels();
-    core::raster::RasterBuffer work = original;
+    // Draw on a copy of the layer, then commit with the same command the brush
+    // uses. The layer itself is left untouched by rasterising, so the "before"
+    // patch can be read straight out of it — an extra full copy of the layer
+    // per shape bought nothing.
+    core::raster::RasterBuffer work = layer.pixels();
 
     core::geometry::Rect rect;
     if (m_tool == Tool::GradientTool) {
@@ -641,16 +645,19 @@ void AppController::endShape()
         rebuildFullComposite();
         return;
     }
-    canvas::clipToSelection(work, m_selection, &original);
+    canvas::clipToSelection(work, m_selection, &layer.pixels());
 
-    auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
+    auto before = layer.pixels().copyRect(rect.x, rect.y, rect.width, rect.height);
     auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
     m_history.execute(std::make_unique<core::StrokeCommand>(
         m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
         rect.x, rect.y, m_tool == Tool::GradientTool ? "Gradient" : "Shape"));
 
     emit historyChanged();
-    rebuildFullComposite();
+    // Only the shape's rectangle changed.
+    const auto composited = m_compositor.composite(rect);
+    ++m_layerRevision;
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
 void AppController::setShapeFilled(bool filled)
@@ -677,7 +684,11 @@ void AppController::commitPatch(const core::raster::RasterBuffer& original,
         m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
         rect.x, rect.y, label));
     emit historyChanged();
-    rebuildFullComposite();
+    // Only the patch changed: recompositing the whole canvas here made every
+    // shape, fill and filter cost the canvas size instead of the edit size.
+    const auto composited = m_compositor.composite(rect);
+    ++m_layerRevision;
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
 // -------------------------------------------------------- click-based paths
@@ -1781,15 +1792,20 @@ void AppController::beginStroke(float x, float y)
     m_previewDirty = {};
     m_dynamicPos = { x, y, 1.0F };
 
-    // The eraser previews by substituting an erased copy of the ACTIVE layer,
-    // so nothing on any other layer is touched on screen either.
+    // The eraser edits the ACTIVE layer directly and keeps one snapshot for
+    // undo. It used to keep a second full copy of the layer as a write buffer
+    // plus a compositor layer override, which cost 128 MB of copying on a
+    // 4000x4000 document every time the eraser touched down, to show exactly
+    // what editing the layer in place shows anyway.
+    auto& activeLayer = *m_doc.layers()[static_cast<std::size_t>(activeLayerIndex())];
     m_erasing = m_brush.erase && m_activeLayer >= 0
-             && m_activeLayer < static_cast<int>(m_doc.layers().size());
+             && m_activeLayer < static_cast<int>(m_doc.layers().size())
+             && !activeLayer.isLocked();
     if (m_erasing) {
-        m_eraseBefore = m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels();
-        m_eraseWork = m_eraseBefore;
-        m_compositor.setLayerOverride(static_cast<std::size_t>(m_activeLayer), &m_eraseWork);
+        m_eraseBefore = activeLayer.pixels();
+        m_compositor.clearLayerOverride();
     } else {
+        m_eraseBefore = {};
         m_compositor.clearLayerOverride();
     }
 
@@ -1797,8 +1813,8 @@ void AppController::beginStroke(float x, float y)
     // it keeps the accumulated preview identical to a full re-paint (which is
     // what the commit below relies on).
     if (m_erasing) {
-        const auto dot = paintSegmentSymmetrical(m_eraseWork, m_brush, m_currentStroke.front(),
-                                                 m_currentStroke.front());
+        const auto dot = paintSegmentSymmetrical(activeLayer.pixels(), m_brush,
+                                                 m_currentStroke.front(), m_currentStroke.front());
         if (!dot.isEmpty()) {
             m_strokeDirty = dot;
             const auto composited = m_compositor.composite(dot);
@@ -1847,9 +1863,11 @@ void AppController::extendStroke(float x, float y)
     const auto current = m_currentStroke.back();
 
     if (m_erasing) {
-        // Erase into the substituted layer copy and re-composite that band.
-        // No overlay is used, so only the active layer's pixels change.
-        const auto segment = paintSegmentSymmetrical(m_eraseWork, m_brush, prev, current);
+        // Erase straight into the active layer and re-composite that band. Only
+        // the active layer changes, so no compositor override is needed and the
+        // other layers stay untouched on screen.
+        auto& activeLayer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+        const auto segment = paintSegmentSymmetrical(activeLayer.pixels(), m_brush, prev, current);
         if (segment.isEmpty())
             return;
         m_strokeDirty = core::geometry::Rect{
@@ -1927,11 +1945,30 @@ void AppController::endStroke()
         const auto rect = m_strokeDirty; // union of everything erased this drag
         m_strokeDirty = {};
         if (rect.isEmpty()) {
-            rebuildFullComposite();
+            // Nothing was erased: the layer was never touched, so there is
+            // nothing to undo either.
+            m_eraseBefore = {};
             return;
         }
-        canvas::clipToSelection(m_eraseWork, m_selection, &m_eraseBefore);
-        commitPatch(m_eraseBefore, m_eraseWork, rect, "Erase");
+
+        // The layer already holds the erased pixels (the drag edited it live).
+        // Clip the patch to the selection and record the before/after pair so
+        // undo restores exactly what was there.
+        auto& layerPixels = activeLayer.pixels();
+        auto before = m_eraseBefore.copyRect(rect.x, rect.y, rect.width, rect.height);
+        auto after = layerPixels.copyRect(rect.x, rect.y, rect.width, rect.height);
+        canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
+        // What is stored must match the command's "after" patch.
+        layerPixels.blit(after, rect.x, rect.y);
+        m_eraseBefore = {};
+
+        m_history.execute(std::make_unique<core::StrokeCommand>(
+            m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+            rect.x, rect.y, "Erase"));
+        emit historyChanged();
+        const auto composited = m_compositor.composite(rect);
+        ++m_layerRevision;
+        emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
     }
 
