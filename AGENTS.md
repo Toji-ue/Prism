@@ -116,6 +116,7 @@ cmake --build --preset default  # build
 ctest --preset default          # run tests
 
 powershell -File tools/deploy.ps1   # deploy to deploy/ (stops the app, verifies the hash)
+powershell -File tools/package.ps1  # tester zip: dist/Prism-win64-<date>.zip (installer inside)
 
 clang-format -i <files>         # format
 clang-tidy -p build <files>     # lint

@@ -18,3 +18,4 @@ ui_check*.png
 
 # Krita reference source (local copy, not part of Prism)
 krita-master/
+dist/
