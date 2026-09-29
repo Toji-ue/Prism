@@ -132,6 +132,21 @@ AppController::AppController(QObject* parent)
     // Start on the first preset so the toolbar/status bar read like a real app.
     selectPreset(0);
     rebuildFullComposite();
+
+    // Image providers run on Qt's pixmap-reader thread and may only read
+    // snapshots. Refreshing them on a timer keeps every pixel access on the GUI
+    // thread (and bounds the cost: a 4 Hz refresh of a 48x32 thumbnail set, not
+    // a canvas-sized scan per request).
+    m_snapshotTimer = new QTimer(this);
+    m_snapshotTimer->setInterval(250);
+    connect(m_snapshotTimer, &QTimer::timeout, this, [this]() {
+        if (m_snapshotRevision != m_layerRevision)
+            refreshSnapshots();
+        else if (!m_selectionSnapshot.isNull() && m_selection.isEmpty())
+            refreshSnapshots(); // selection cleared: drop the cached overlay
+    });
+    m_snapshotTimer->start();
+    refreshSnapshots();
 }
 
 // ------------------------------------------------------------------ properties
@@ -332,54 +347,17 @@ void AppController::movePreset(int index, int delta)
 
 QImage AppController::layerThumbnail(int index, int width, int height) const
 {
-    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+    if (index < 0 || width <= 0 || height <= 0)
         return {};
-    const auto& src = m_doc.layers()[static_cast<std::size_t>(index)]->pixels();
-    if (src.isEmpty() || width <= 0 || height <= 0)
+    // Reads the GUI-thread snapshot, never the document: this runs on Qt's
+    // image-provider thread, where touching layer pixels raced with painting.
+    QMutexLocker lock(&m_snapshotMutex);
+    if (index >= m_layerThumbs.size())
         return {};
-
-    // Averaged downscale with a BOUNDED sample budget: each destination pixel
-    // averages at most 4x4 source samples instead of its whole block. Scanning
-    // all 1M source pixels per thumbnail was too slow to regenerate during a
-    // stroke - part of the drawing lag.
-    constexpr int kMaxSamplesPerAxis = 4;
-    core::raster::RasterBuffer out(width, height);
-    const float sx = static_cast<float>(src.width()) / static_cast<float>(width);
-    const float sy = static_cast<float>(src.height()) / static_cast<float>(height);
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            const int x0 = static_cast<int>(x * sx);
-            const int y0 = static_cast<int>(y * sy);
-            const int x1 = std::min(src.width(), x0 + std::max(1, static_cast<int>(sx)));
-            const int y1 = std::min(src.height(), y0 + std::max(1, static_cast<int>(sy)));
-            const int stepX = std::max(1, (x1 - x0) / kMaxSamplesPerAxis);
-            const int stepY = std::max(1, (y1 - y0) / kMaxSamplesPerAxis);
-            int r = 0, g = 0, b = 0, a = 0, n = 0;
-            for (int yy = y0; yy < y1; yy += stepY) {
-                for (int xx = x0; xx < x1; xx += stepX) {
-                    const auto c = src.at(xx, yy);
-                    // Weight color by alpha so transparent areas don't darken.
-                    r += c.r * c.a;
-                    g += c.g * c.a;
-                    b += c.b * c.a;
-                    a += c.a;
-                    ++n;
-                }
-            }
-            if (a == 0 || n == 0) {
-                out.set(x, y, core::raster::kTransparent);
-            } else {
-                out.set(x, y,
-                        core::raster::Color{ static_cast<std::uint8_t>(r / a),
-                                             static_cast<std::uint8_t>(g / a),
-                                             static_cast<std::uint8_t>(b / a),
-                                             static_cast<std::uint8_t>(a / n) });
-            }
-        }
-    }
-    return QImage(out.data(), out.width(), out.height(), out.width() * 4,
-                  QImage::Format_RGBA8888)
-        .copy();
+    const QImage& thumb = m_layerThumbs[index];
+    if (thumb.isNull())
+        return {};
+    return thumb.scaled(width, height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 }
 
 // -------------------------------------------------------------- canvas tools
@@ -397,26 +375,36 @@ void AppController::fillAt(float x, float y)
     if (lx < 0 || ly < 0 || lx >= pixels.width() || ly >= pixels.height())
         return;
 
-    // Fill a working copy first: that reveals the affected rect, so we can
-    // snapshot a matching "before" patch from the untouched layer.
-    core::raster::RasterBuffer work = pixels;
-    const auto rect = canvas::floodFill(work, lx, ly, m_brush.color, 24);
+    // Find the region WITHOUT writing anything: the scanline fill only walks
+    // the connected region, so this stays proportional to the area being
+    // filled. Copying the whole layer just to discover the rect (64 MB on a
+    // 4000x4000 document) was the bucket-fill lag.
+    const auto rect = canvas::floodFillRegion(
+        pixels, lx, ly, 24,
+        [](int, int, prism::core::raster::Color) noexcept {});
     if (rect.isEmpty())
         return;
 
-    // A selection confines the fill: pixels outside it come back from the
-    // untouched copy.
-    canvas::clipToSelection(work, m_selection, &pixels);
-
+    // Snapshot the patch, then paint the fill straight into the layer.
     auto before = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
-    auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
+    canvas::floodFill(pixels, lx, ly, m_brush.color, 24);
+    auto after = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
+
+    // A selection confines the fill, and what is stored must match the command.
+    if (!m_selection.isEmpty()) {
+        canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
+        pixels.blit(after, rect.x, rect.y);
+    }
 
     m_history.execute(std::make_unique<core::StrokeCommand>(
         m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
         rect.x, rect.y, "Fill"));
 
     emit historyChanged();
-    rebuildFullComposite();
+    // Only the filled rectangle changed.
+    const auto composited = m_compositor.composite(rect);
+    ++m_layerRevision;
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
 QColor AppController::pickColorAt(float x, float y, bool apply)
@@ -951,26 +939,78 @@ void AppController::renderText(float x, float y, const QString& text, int pixelS
 
 QImage AppController::selectionOverlay() const
 {
-    const int w = m_doc.canvasSize().width;
-    const int h = m_doc.canvasSize().height;
-    if (m_selection.isEmpty() || w <= 0 || h <= 0)
-        return {};
+    // Read-only snapshot: this is called from Qt's image-provider thread, so it
+    // must not touch the selection or the document.
+    QMutexLocker lock(&m_snapshotMutex);
+    return m_selectionSnapshot;
+}
 
-    // Tint the selected area so any shape (lasso, wand) is visible. Neutral
-    // white keeps the overlay inside the app's two-colour palette.
-    core::raster::RasterBuffer out(w, h);
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const std::uint8_t cov = m_selection.coverageAt(x, y);
-            if (cov == 0)
-                continue;
-            out.set(x, y, core::raster::Color{ 255, 255, 255,
-                                               static_cast<std::uint8_t>(cov / 5) });
+void AppController::refreshSnapshots()
+{
+    // GUI thread only. Builds every image the providers are allowed to serve.
+    constexpr int kThumbW = 48;
+    constexpr int kThumbH = 32;
+    // The selection overlay is drawn stretched over the canvas by QML, so a
+    // bounded version is enough — building it at canvas resolution walked 16M
+    // pixels per request on a 4000x4000 document.
+    constexpr int kOverlayMax = 512;
+
+    QVector<QImage> thumbs;
+    thumbs.reserve(static_cast<int>(m_doc.layers().size()));
+    for (const auto& layer : m_doc.layers()) {
+        const auto& src = layer->pixels();
+        if (src.isEmpty()) {
+            thumbs.append(QImage());
+            continue;
         }
+        core::raster::RasterBuffer out(kThumbW, kThumbH);
+        const float sx = static_cast<float>(src.width()) / kThumbW;
+        const float sy = static_cast<float>(src.height()) / kThumbH;
+        for (int y = 0; y < kThumbH; ++y) {
+            for (int x = 0; x < kThumbW; ++x) {
+                const int x0 = std::min(src.width() - 1, static_cast<int>(x * sx));
+                const int y0 = std::min(src.height() - 1, static_cast<int>(y * sy));
+                out.set(x, y, src.at(x0, y0));
+            }
+        }
+        thumbs.append(QImage(out.data(), out.width(), out.height(), out.width() * 4,
+                             QImage::Format_RGBA8888)
+                          .copy());
     }
-    return QImage(out.data(), out.width(), out.height(), out.width() * 4,
-                  QImage::Format_RGBA8888)
-        .copy();
+
+    QImage overlay;
+    const int cw = m_doc.canvasSize().width;
+    const int ch = m_doc.canvasSize().height;
+    if (!m_selection.isEmpty() && cw > 0 && ch > 0) {
+        const float scale = std::min(1.0F, static_cast<float>(kOverlayMax)
+                                              / static_cast<float>(std::max(cw, ch)));
+        const int w = std::max(1, static_cast<int>(cw * scale));
+        const int h = std::max(1, static_cast<int>(ch * scale));
+        core::raster::RasterBuffer out(w, h);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const std::uint8_t cov =
+                    m_selection.coverageAt(std::min(cw - 1, static_cast<int>(x / scale)),
+                                           std::min(ch - 1, static_cast<int>(y / scale)));
+                if (cov == 0)
+                    continue;
+                // Tint the selected area so any shape (lasso, wand) is visible.
+                // Neutral white keeps the overlay inside the two-colour palette.
+                out.set(x, y, core::raster::Color{ 255, 255, 255,
+                                                   static_cast<std::uint8_t>(cov / 5) });
+            }
+        }
+        overlay = QImage(out.data(), out.width(), out.height(), out.width() * 4,
+                         QImage::Format_RGBA8888)
+                      .copy();
+    }
+
+    {
+        QMutexLocker lock(&m_snapshotMutex);
+        m_layerThumbs = std::move(thumbs);
+        m_selectionSnapshot = std::move(overlay);
+        m_snapshotRevision = m_layerRevision;
+    }
 }
 
 // ----------------------------------------------------------------------- view
@@ -1376,6 +1416,12 @@ void AppController::renameLayer(int index, const QString& name)
 
 void AppController::undo()
 {
+    // History throws when there is nothing to undo (a programming error, not a
+    // user error). The menu items are disabled in that state, but the keyboard
+    // shortcuts and any scripted caller are not — and an escaping exception
+    // killed the whole app, which is what testers saw as a random crash.
+    if (!m_history.canUndo())
+        return;
     m_history.undo();
     m_layersModel->refresh();
     emit layersChanged();
@@ -1385,6 +1431,8 @@ void AppController::undo()
 
 void AppController::redo()
 {
+    if (!m_history.canRedo())
+        return;
     m_history.redo();
     m_layersModel->refresh();
     emit layersChanged();
@@ -1865,7 +1913,14 @@ void AppController::extendStroke(float x, float y)
     if (m_erasing) {
         // Erase straight into the active layer and re-composite that band. Only
         // the active layer changes, so no compositor override is needed and the
-        // other layers stay untouched on screen.
+        // other layers stay untouched on screen. The layer index is re-checked
+        // because a layer can disappear mid-drag (undo, delete, mouse button
+        // still held), which used to index past the end of the stack.
+        if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size())) {
+            m_erasing = false;
+            m_compositor.clearLayerOverride();
+            return;
+        }
         auto& activeLayer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
         const auto segment = paintSegmentSymmetrical(activeLayer.pixels(), m_brush, prev, current);
         if (segment.isEmpty())

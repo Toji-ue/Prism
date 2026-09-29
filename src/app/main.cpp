@@ -540,6 +540,19 @@ int runSelfTest()
         check(ms < 2000, "200 move events stay under 2s");
     }
 
+    // Undo/redo with an empty history must be a no-op, not an exception: the
+    // history throws on misuse, and an escaping throw terminated the app (the
+    // intermittent crash testers reported after pressing Ctrl+Shift+Z with
+    // nothing to redo).
+    {
+        controller.newDocument(640, 480);
+        check(!controller.canUndo(), "a fresh document has no undo steps");
+        controller.undo(); // must not throw
+        controller.redo();
+        check(!controller.canUndo() && !controller.canRedo(),
+              "undo/redo with an empty history is a no-op");
+    }
+
     // Committing a stroke must cost the stroke's rectangle, not the canvas.
     // Mouse-up used to re-paint the whole stroke into a fresh canvas-sized
     // buffer and recomposite every layer: 1.2 s of freeze on a 4000x4000
@@ -854,10 +867,141 @@ int main(int argc, char* argv[])
                 demoDocH = size.section(QLatin1Char('x'), 1, 1).toInt();
             }
         }
+        // --demo-stress=N: hammers the paths that crashed or lagged for testers
+        // (document resize, fills, strokes, erases, undo/redo, mirror) and logs
+        // progress, so an intermittent crash leaves a trace of where it died.
+        int demoStress = 0;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-stress=")))
+                demoStress = a.section(QLatin1Char('='), 1).toInt();
+        // --demo-stress-ops=eraseStroke,zoom: run only the named operations, to
+        // bisect an intermittent crash down to the operation that triggers it.
+        QString demoStressOps;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-stress-ops=")))
+                demoStressOps = a.section(QLatin1Char('='), 1);
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
                                        demoClick, demoActive, demoStrokeBench, demoDocW, demoDocH,
-                                       demoMirror, &engine]() {
+                                       demoMirror, demoStress, demoStressOps, &engine]() {
+            if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* canvas = window ? findItemByName(window->contentItem(),
+                                                       QStringLiteral("canvasItem"))
+                                      : nullptr;
+                struct Rng {
+                    quint32 state = 12345;
+                    quint32 next() { state = state * 1664525u + 1013904223u; return state >> 8; }
+                    int range(int lo, int hi) { return lo + static_cast<int>(next() % static_cast<quint32>(hi - lo + 1)); }
+                } rng;
+                const QSize sizes[] = { { 640, 480 }, { 1280, 800 }, { 2048, 1536 },
+                                        { 3000, 2000 }, { 1024, 1024 } };
+                int lastPercent = -1;
+                const char* opName = "?";
+                for (int i = 0; i < demoStress; ++i) {
+                    int op = rng.range(0, 9);
+                    const QStringList allowed = demoStressOps.isEmpty()
+                                                    ? QStringList()
+                                                    : demoStressOps.split(QLatin1Char(','));
+                    if (!allowed.isEmpty()) {
+                        // Walk forward until an allowed operation is found.
+                        for (int tries = 0; tries < 10; ++tries) {
+                            const QString candidate =
+                                op == 0 ? QStringLiteral("newDocument")
+                                : op <= 2 ? QStringLiteral("paintStroke")
+                                : op == 3 ? QStringLiteral("eraseStroke")
+                                : op == 4 ? QStringLiteral("bucketFill")
+                                : op == 5 ? QStringLiteral("layerChurn")
+                                : op == 6 ? QStringLiteral("undoRedo")
+                                : op == 7 ? QStringLiteral("mirror")
+                                : op == 8 ? QStringLiteral("zoom")
+                                          : QStringLiteral("layerProps");
+                            if (allowed.contains(candidate))
+                                break;
+                            op = (op + 1) % 10;
+                        }
+                    }
+                    opName = op == 0 ? "newDocument"
+                           : op <= 2 ? "paintStroke"
+                           : op == 3 ? "eraseStroke"
+                           : op == 4 ? "bucketFill"
+                           : op == 5 ? "layerChurn"
+                           : op == 6 ? "undoRedo"
+                           : op == 7 ? "mirror"
+                           : op == 8 ? "zoom"
+                                     : "layerProps";
+                    // Logged BEFORE the operation: if the app dies, the last
+                    // line in prism.log names what killed it.
+                    qInfo() << "stress: op" << i << opName << "canvas"
+                            << controller->canvasWidth() << "x" << controller->canvasHeight()
+                            << "layers" << controller->layers()->rowCount();
+                    switch (op) {
+                    case 0: { // document swap: reallocates the compositor buffer
+                        const QSize s = sizes[rng.range(0, 4)];
+                        controller->newDocument(s.width(), s.height());
+                        break;
+                    }
+                    case 1: case 2: { // paint stroke
+                        const qreal w = controller->canvasWidth(), h = controller->canvasHeight();
+                        const qreal x = rng.range(0, static_cast<int>(w) - 1);
+                        const qreal y = rng.range(0, static_cast<int>(h) - 1);
+                        controller->beginStroke(x, y);
+                        for (int k = 0; k < 12; ++k)
+                            controller->extendStroke(x + k * 6, y + rng.range(-8, 8));
+                        controller->endStroke();
+                        break;
+                    }
+                    case 3: { // erase stroke
+                        const qreal w = controller->canvasWidth(), h = controller->canvasHeight();
+                        const qreal x = rng.range(0, static_cast<int>(w) - 1);
+                        const qreal y = rng.range(0, static_cast<int>(h) - 1);
+                        controller->setEraser(true);
+                        controller->beginStroke(x, y);
+                        for (int k = 0; k < 10; ++k)
+                            controller->extendStroke(x + k * 8, y + k * 3);
+                        controller->endStroke();
+                        controller->setEraser(false);
+                        break;
+                    }
+                    case 4: // bucket fill
+                        controller->fillAt(rng.range(0, 400), rng.range(0, 300));
+                        break;
+                    case 5: // layer churn
+                        if (rng.range(0, 1) == 0)
+                            controller->addLayer();
+                        else if (controller->layers()->rowCount() > 1)
+                            controller->deleteLayer();
+                        break;
+                    case 6: // undo / redo
+                        rng.range(0, 1) == 0 ? controller->undo() : controller->redo();
+                        break;
+                    case 7: // mirror toggle (rebuilds every tile)
+                        controller->setMirrorHorizontal(rng.range(0, 1) == 0);
+                        controller->setMirrorVertical(rng.range(0, 1) == 0);
+                        break;
+                    case 8: // zoom (relayout of every tile)
+                        controller->setZoom(0.25 + (rng.range(0, 30) / 10.0));
+                        break;
+                    default: // layer properties
+                        controller->setLayerVisible(controller->activeLayerIndex(),
+                                                    rng.range(0, 1) == 0);
+                        controller->previewLayerOpacity(controller->activeLayerIndex(),
+                                                        rng.range(10, 100));
+                        break;
+                    }
+                    QCoreApplication::processEvents();
+                    const int percent = (i + 1) * 100 / demoStress;
+                    if (percent != lastPercent && percent % 10 == 0) {
+                        lastPercent = percent;
+                        qInfo() << "stress:" << percent << "% (" << i + 1 << "of" << demoStress
+                                << ") canvas" << controller->canvasWidth() << "x"
+                                << controller->canvasHeight() << "layers"
+                                << controller->layers()->rowCount();
+                    }
+                }
+                qInfo() << "stress: completed" << demoStress << "operations without crashing";
+            }
             if (!demoMirror.isEmpty()) {
                 controller->setStartPageVisible(false);
                 if (demoMirror.contains(QLatin1Char('h')))
@@ -967,6 +1111,19 @@ int main(int argc, char* argv[])
                     qInfo() << "bench: erase split - beginStroke" << eraseBeginMs << "ms,"
                             << demoStrokeBench << "moves" << eraseMovesMs << "ms,"
                             << "endStroke" << eraseEndMs << "ms";
+
+                    // Bucket fill: used to copy the whole layer to discover the
+                    // filled rect, then recomposite the whole canvas.
+                    cpu.restart();
+                    const int fillCount = 8;
+                    for (int i = 0; i < fillCount; ++i)
+                        controller->fillAt(cw * (0.2 + 0.06 * i), ch * (0.25 + 0.05 * i));
+                    const qint64 fillMs = cpu.elapsed();
+                    qInfo() << "bench: bucket fill" << fillCount << "clicks in" << fillMs
+                            << "ms (" << (fillMs / static_cast<double>(fillCount))
+                            << "ms/fill)";
+                    controller->undo();
+                    controller->undo();
                 }
             }
             if (!demoClick.isEmpty() && !engine.rootObjects().isEmpty()) {

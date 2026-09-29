@@ -15,6 +15,17 @@ Rectangle {
     signal requestNew()
     signal requestOpen()
 
+    // Cover the whole page with a plain-arrow cursor. Areas of the start page
+    // that declare no cursor of their own used to inherit the canvas's blank
+    // painting cursor through the overlay, so the pointer simply vanished.
+    // NoButton keeps this from swallowing the real clicks underneath.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.NoButton
+        cursorShape: Qt.ArrowCursor
+        hoverEnabled: true
+    }
+
     RowLayout {
         anchors.fill: parent
         anchors.margins: 24

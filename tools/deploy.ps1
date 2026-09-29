@@ -1,5 +1,9 @@
-# Deploy build\prism.exe to deploy\ safely, together with the Qt plugins the
+# Deploy the RELEASE build to deploy\ safely, together with the Qt plugins the
 # app needs at runtime.
+#
+# The release preset is what ships: the default preset is a Debug build with no
+# optimisation, and shipping that is why testers reported the app as "very
+# laggy" — Release is ~5x faster on every measured path (stroke, commit, fill).
 #
 # Two failure modes this script exists to prevent:
 #
@@ -17,14 +21,14 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$source = Join-Path $root 'build\prism.exe'
+$source = Join-Path $root 'build-release\prism.exe'
 $target = Join-Path $root 'deploy\prism.exe'
 
 $qtPlugins = 'C:\msys64\ucrt64\share\qt6\plugins'
 $msysBin = 'C:\msys64\ucrt64\bin'
 
 if (-not (Test-Path $source)) {
-    throw "Not built yet: $source (run: cmake --build --preset default)"
+    throw "Not built yet: $source (run: cmake --preset release; cmake --build --preset release)"
 }
 
 Get-Process prism -ErrorAction SilentlyContinue | Stop-Process -Force

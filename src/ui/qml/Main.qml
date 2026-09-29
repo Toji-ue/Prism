@@ -73,9 +73,16 @@ ApplicationWindow {
     }
 
     // ---------------- shortcuts ----------------
-    Shortcut { sequence: "Ctrl+Z"; onActivated: controller.undo() }
-    Shortcut { sequence: "Ctrl+Shift+Z"; onActivated: controller.redo() }
-    Shortcut { sequence: "Ctrl+Y"; onActivated: controller.redo() }
+    // Guarded like the menu items: an undo with an empty history used to throw
+    // out of the controller and take the app down, so a stray Ctrl+Shift+Z
+    // crashed it.
+    Shortcut { sequence: "Ctrl+Z"; enabled: controller.canUndo; onActivated: controller.undo() }
+    Shortcut {
+        sequence: "Ctrl+Shift+Z"
+        enabled: controller.canRedo
+        onActivated: controller.redo()
+    }
+    Shortcut { sequence: "Ctrl+Y"; enabled: controller.canRedo; onActivated: controller.redo() }
     Shortcut { sequence: "Ctrl+S"; onActivated: saveDialog.open() }
     Shortcut { sequence: "Ctrl+O"; onActivated: openDialog.open() }
     Shortcut { sequence: "Ctrl+N"; onActivated: newDocDialog.open() }
@@ -600,6 +607,12 @@ ApplicationWindow {
                             // system cursor is hidden while painting so the
                             // ring is the only pointer.
                             cursorShape: {
+                                // The start page overlays the canvas. Its empty
+                                // areas declare no cursor of their own, so the
+                                // blank painting cursor used to leak through and
+                                // the pointer disappeared there.
+                                if (root.controller.startPageVisible)
+                                    return Qt.ArrowCursor
                                 switch (controller.tool) {
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:

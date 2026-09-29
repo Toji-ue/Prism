@@ -40,8 +40,11 @@ Rect floodFillRegion(const RasterBuffer& buffer, int x, int y, int tolerance, On
         return {};
 
     const auto seed = buffer.at(x, y);
-    std::vector<bool> visited(static_cast<std::size_t>(buffer.width()) * buffer.height(),
-                              false);
+    // One byte per pixel, not std::vector<bool>: the bit-packed version is much
+    // slower per access and this runs for every pixel of the region.
+    const std::size_t pixelCount =
+        static_cast<std::size_t>(buffer.width()) * static_cast<std::size_t>(buffer.height());
+    std::vector<std::uint8_t> visited(pixelCount, 0);
 
     int minX = x, maxX = x, minY = y, maxY = y;
     struct Span {
@@ -73,7 +76,7 @@ Rect floodFillRegion(const RasterBuffer& buffer, int x, int y, int tolerance, On
 
         for (int px = left; px <= right; ++px) {
             onPixel(px, s.y, buffer.at(px, s.y));
-            visited[static_cast<std::size_t>(s.y) * buffer.width() + px] = true;
+            visited[static_cast<std::size_t>(s.y) * buffer.width() + px] = 1;
         }
 
         minX = minX < left ? minX : left;
@@ -81,10 +84,19 @@ Rect floodFillRegion(const RasterBuffer& buffer, int x, int y, int tolerance, On
         minY = minY < s.y ? minY : s.y;
         maxY = maxY > s.y ? maxY : s.y;
 
+        // Seed the neighbouring rows once per RUN, not once per pixel: pushing
+        // (px, y±1) for every px made a solid fill push ~2 x width spans per
+        // row, which is what turned a bucket click on a 4000x4000 canvas into
+        // seconds of work.
         for (int px = left; px <= right; ++px) {
-            if (s.y > 0)
+            if (s.y > 0 && !visited[static_cast<std::size_t>(s.y - 1) * buffer.width() + px]
+                && matchesSeed(px, s.y - 1)
+                && (px == left || !matchesSeed(px - 1, s.y - 1)))
                 stack.push_back({ px, s.y - 1 });
-            if (s.y < buffer.height() - 1)
+            if (s.y < buffer.height() - 1
+                && !visited[static_cast<std::size_t>(s.y + 1) * buffer.width() + px]
+                && matchesSeed(px, s.y + 1)
+                && (px == left || !matchesSeed(px - 1, s.y + 1)))
                 stack.push_back({ px, s.y + 1 });
         }
     }

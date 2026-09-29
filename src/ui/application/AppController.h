@@ -12,9 +12,12 @@
 #include <QObject>
 #include <QImage>
 #include <QColor>
+#include <QMutex>
+#include <QTimer>
 #include <QUrl>
 #include <QStringList>
 #include <QVariantList>
+#include <QVector>
 
 #include <vector>
 
@@ -226,6 +229,8 @@ public:
     int selectionH() const;
     int selectionRevision() const;
     /// Selection rendered as a tinted overlay for the canvas (image://selection).
+    /// Also served from a GUI-thread snapshot, for the same reason as the layer
+    /// thumbnails (and it used to re-scan the whole canvas per request).
     QImage selectionOverlay() const;
 
     // --- view -------------------------------------------------------------
@@ -268,6 +273,10 @@ public:
     /// \p previousPercent (the value the drag started from).
     Q_INVOKABLE void commitLayerOpacity(int index, int percent, int previousPercent);
     /// Downscaled preview of a layer's own pixels (image://layerthumb/<i>).
+    ///
+    /// Served from a snapshot built on the GUI thread: Qt runs image provider
+    /// requests on the pixmap-reader thread, and reading layer pixels from
+    /// there raced with painting — that race crashed the app.
     QImage layerThumbnail(int index, int width, int height) const;
 
     // --- actions ----------------------------------------------------------
@@ -398,6 +407,18 @@ private:
     std::vector<prism::canvas::BrushPreset> m_presets;
     int m_customPresetCounter = 0;
     int m_layerRevision = 0;
+
+    // --- snapshots for the image providers --------------------------------
+    // Qt calls QQuickImageProvider::requestImage on its pixmap-reader thread.
+    // Those providers must never touch the document: they read these snapshots,
+    // which are rebuilt on the GUI thread by a timer. (Reading layer pixels off
+    // the GUI thread crashed the app during painting.)
+    mutable QMutex m_snapshotMutex;
+    QVector<QImage> m_layerThumbs;
+    QImage m_selectionSnapshot;
+    int m_snapshotRevision = -1;
+    QTimer* m_snapshotTimer = nullptr;
+    void refreshSnapshots();
     /// Active selection in canvas pixels; empty means "no selection".
     /// Active selection. Mask-based so lasso and magic wand work too.
     prism::canvas::Selection m_selection;
