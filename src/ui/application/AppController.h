@@ -258,6 +258,12 @@ public:
     void setStartPageVisible(bool visible);
     QVariantList recentFiles() const;
     Q_INVOKABLE void clearRecentFiles();
+    /// Drops recent entries whose path lives under \p directory — the selftest
+    /// uses it to clean up test files earlier runs left in the list.
+    void forgetRecentFilesUnder(const QString& directory);
+    /// Selftest mode: drive the real code paths, but keep throwaway documents
+    /// out of the persisted Recent list.
+    void setSelfTestMode(bool on) { m_selfTestMode = on; }
     /// Version string shown on the start page.
     Q_INVOKABLE QString versionString() const;
     QString lastError() const { return m_lastError; }
@@ -455,6 +461,8 @@ private:
     bool m_mirrorH = false;
     bool m_mirrorV = false;
     bool m_startPageVisible = true;
+    /// Selftest runs must not touch the user's persisted state (see addRecentFile).
+    bool m_selfTestMode = false;
     QStringList m_recentFiles;
     QString m_documentName = tr("Untitled");
     QString m_lastError;

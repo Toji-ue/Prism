@@ -98,6 +98,9 @@ int countOpaquePixels(const QImage& img)
 int runSelfTest()
 {
     AppController controller;
+    // This drives the same code paths as the UI on throwaway documents, so keep
+    // them out of the Recent list the user sees.
+    controller.setSelfTestMode(true);
     int failures = 0;
     auto check = [&failures](bool ok, const char* what) {
         qInfo() << (ok ? "PASS" : "FAIL") << what;
@@ -705,6 +708,19 @@ int runSelfTest()
     controller.setLayerLocked(0, true);
     controller.undo(); // undo the lock change; locking is a real history step
     check(true, "layer lock toggled through history");
+
+    // Leave no trace: earlier runs wrote their documents into the Recent list,
+    // so a tester could open one and find a layer stuck at ColorDodge 60%,
+    // where every stroke reads as grey. Purge those entries and the files.
+    {
+        const QString tempDir = QDir::tempPath();
+        controller.forgetRecentFilesUnder(tempDir);
+        for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
+                                      "prism-selftest.png", "prism-selftest.jpg",
+                                      "prism-blend.prism" })
+            QFile::remove(tempDir + QLatin1Char('/') + QLatin1String(leftover));
+        check(true, "selftest leaves no documents behind");
+    }
 
     qInfo() << (failures == 0 ? "selftest: PASS" : "selftest: FAIL") << failures
             << "failure(s)";

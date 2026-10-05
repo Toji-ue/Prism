@@ -11,6 +11,7 @@
 
 #include <QCoreApplication>
 #include <QClipboard>
+#include <QDir>
 #include <QFont>
 #include <QPainter>
 #include <QFileInfo>
@@ -1049,12 +1050,32 @@ void AppController::loadRecentFiles()
 
 void AppController::addRecentFile(const QString& path)
 {
-    if (path.isEmpty())
+    // The selftest drives these same code paths on throwaway documents. Letting
+    // them into the Recent list put a test file ("prism-blend.prism", layer at
+    // ColorDodge 60%) on the start page, where opening it made every stroke
+    // look grey — a test artifact presented as the user's own document.
+    if (path.isEmpty() || m_selfTestMode)
         return;
     m_recentFiles.removeAll(path);
     m_recentFiles.prepend(path);
     while (m_recentFiles.size() > 12)
         m_recentFiles.removeLast();
+    QSettings settings;
+    settings.setValue(QStringLiteral("recentFiles"), m_recentFiles);
+    emit recentFilesChanged();
+}
+
+void AppController::forgetRecentFilesUnder(const QString& directory)
+{
+    const QString prefix = QDir(directory).absolutePath() + QLatin1Char('/');
+    QStringList kept;
+    for (const QString& path : m_recentFiles) {
+        if (!path.startsWith(prefix, Qt::CaseInsensitive))
+            kept.append(path);
+    }
+    if (kept.size() == m_recentFiles.size())
+        return;
+    m_recentFiles = kept;
     QSettings settings;
     settings.setValue(QStringLiteral("recentFiles"), m_recentFiles);
     emit recentFilesChanged();
