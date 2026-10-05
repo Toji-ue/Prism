@@ -30,8 +30,8 @@ Rectangle {
         { icon: "picker",      name: qsTr("Color Picker"),           key: "I", tool: AppController.EyedropperTool,        ready: true },
         { icon: "pan",         name: qsTr("Pan"),                    key: "",  tool: AppController.PanTool,               ready: true },
         { icon: "zoom",        name: qsTr("Zoom"),                   key: "Z", tool: AppController.ZoomTool,              ready: true },
-        { icon: "select-rect", name: qsTr("Rectangular Selection"),  key: "M", tool: AppController.RectSelectTool,        ready: true },
-        { icon: "ellipse",     name: qsTr("Elliptical Selection"),   key: "",  tool: AppController.EllipseSelectTool,     ready: true },
+        { icon: "select-rect-dashed", name: qsTr("Rectangular Selection"),  key: "M", tool: AppController.RectSelectTool,        ready: true },
+        { icon: "select-ellipse-dashed", name: qsTr("Elliptical Selection"),   key: "",  tool: AppController.EllipseSelectTool,     ready: true },
         { icon: "lasso",       name: qsTr("Freehand Selection"),     key: "",  tool: AppController.LassoSelectTool,       ready: true },
         { icon: "polygon",     name: qsTr("Polygon Selection"),      key: "",  tool: AppController.PolygonSelectTool,     ready: true },
         { icon: "wand",        name: qsTr("Contiguous Selection"),   key: "W", tool: AppController.MagicWandTool,         ready: true },
@@ -64,6 +64,8 @@ Rectangle {
             width: parent.width - 8
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
             text: toolbox.currentToolName
             color: T.text
             font.pixelSize: 9

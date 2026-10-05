@@ -31,59 +31,100 @@ Rectangle {
         anchors.margins: 24
         spacing: 24
 
-        // ---------------- Start ----------------
+        // ---------------- Hero + primary actions ----------------
         ColumnLayout {
-            Layout.preferredWidth: 260
+            Layout.preferredWidth: 300
             Layout.fillHeight: true
             spacing: 6
 
             Text {
-                text: qsTr("Start")
+                text: qsTr("Prism")
                 color: T.text
-                font.pixelSize: 21
+                font.pixelSize: 46
+                font.letterSpacing: -1.5
+            }
+            Text {
+                text: qsTr("Layered painting for digital artists")
+                color: T.textDim
+                font.pixelSize: 13
             }
 
-            Item { Layout.preferredHeight: 10 }
+            Item { Layout.preferredHeight: 26 }
 
-            Repeater {
-                model: [
-                    { icon: "file-new",  text: qsTr("New Image"),  hint: "Ctrl+N", act: "new" },
-                    { icon: "file-open", text: qsTr("Open Image"), hint: "Ctrl+O", act: "open" }
-                ]
-                delegate: Rectangle {
-                    Layout.fillWidth: true
-                    height: 34
-                    color: se.hovered ? T.buttonHover : "transparent"
-                    radius: 3
+            // Primary action: accent-filled. One obvious next step beats two
+            // identical text rows.
+            Rectangle {
+                Layout.fillWidth: true
+                height: 46
+                radius: T.radius
+                color: se.hovered ? Qt.lighter(T.highlight, 1.08) : T.highlight
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        spacing: 10
-                        Icon {
-                            Layout.preferredWidth: 18
-                            Layout.preferredHeight: 18
-                            name: modelData.icon
-                            color: T.highlight
-                        }
-                        Text {
-                            text: modelData.text
-                            color: T.text
-                            font.pixelSize: 14
-                        }
-                        Item { Layout.fillWidth: true }
-                        Text {
-                            text: modelData.hint
-                            color: T.textDim
-                            font.pixelSize: 11
-                        }
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    spacing: 10
+                    Icon {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        name: "file-new"
+                        color: T.highlightText
                     }
-                    HoverHandler { id: se }
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: modelData.act === "new" ? page.requestNew()
-                                                           : page.requestOpen()
+                    Text {
+                        text: qsTr("New Document")
+                        color: T.highlightText
+                        font.pixelSize: 15
                     }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: "Ctrl+N"
+                        color: T.highlightText
+                        opacity: 0.65
+                        font.pixelSize: 11
+                    }
+                }
+                HoverHandler { id: se }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: page.requestNew()
+                }
+            }
+
+            // Secondary action: outlined, same size and rhythm.
+            Rectangle {
+                Layout.fillWidth: true
+                height: 46
+                radius: T.radius
+                color: so.hovered ? T.buttonHover : "transparent"
+                border.color: T.border
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    spacing: 10
+                    Icon {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        name: "file-open"
+                        color: T.text
+                    }
+                    Text {
+                        text: qsTr("Open Image")
+                        color: T.text
+                        font.pixelSize: 15
+                    }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: "Ctrl+O"
+                        color: T.textDim
+                        font.pixelSize: 11
+                    }
+                }
+                HoverHandler { id: so }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: page.requestOpen()
                 }
             }
 
@@ -180,8 +221,10 @@ Rectangle {
 
                     delegate: Rectangle {
                         width: 112; height: 102
-                        color: rh.hovered ? T.buttonHover : "transparent"
-                        radius: 3
+                        color: T.panelRaised
+                        radius: T.radiusSmall
+                        border.color: rh.hovered ? T.highlight : T.border
+                        border.width: 1
 
                         Column {
                             anchors.fill: parent
@@ -191,14 +234,14 @@ Rectangle {
                             Rectangle {
                                 width: parent.width
                                 height: 62
+                                radius: T.radiusSmall
                                 color: T.panelSunken
-                                border.color: T.border
                                 Icon {
                                     anchors.centerIn: parent
                                     width: 28; height: 28
                                     name: modelData.name.endsWith(".prism")
                                           ? "file-save" : "file-open"
-                                    color: T.textDim
+                                    color: rh.hovered ? T.highlight : T.textDim
                                 }
                             }
                             Text {

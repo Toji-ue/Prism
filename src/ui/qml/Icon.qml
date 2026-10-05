@@ -152,6 +152,24 @@ Canvas {
             ctx.stroke()
             break
 
+        case "select-rect-dashed":
+            // Selection tools use the marching-ants convention, so a rectangle
+            // SELECTION never reads as the rectangle SHAPE tool.
+            ctx.setLineDash([2, 1.6])
+            ctx.beginPath()
+            ctx.rect(2.5, 3.5, 11, 9)
+            ctx.stroke()
+            ctx.setLineDash([])
+            break
+
+        case "select-ellipse-dashed":
+            ctx.setLineDash([2, 1.6])
+            ctx.beginPath()
+            ctx.ellipse(8, 8, 5.5, 4, 0, 0, Math.PI * 2)
+            ctx.stroke()
+            ctx.setLineDash([])
+            break
+
         case "move":
             ctx.beginPath()
             ctx.moveTo(8, 2)

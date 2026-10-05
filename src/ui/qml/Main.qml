@@ -350,120 +350,6 @@ ApplicationWindow {
                 }
             }
 
-            Rectangle { width: 1; height: 20; color: T.border }
-
-            // Opacity (brush flow) as a slider, with the value beside it.
-            // The value is NOT bound to the controller: a binding plus a write
-            // from onMoved fights the drag, and whichever side loses makes the
-            // slider look dead. Sync explicitly instead, and never while the
-            // user is holding the handle.
-            Text { text: qsTr("Opacity:"); color: T.text; font.pixelSize: 11 }
-            PSlider {
-                id: flowSlider
-                objectName: "flowSlider"
-                Layout.preferredWidth: 96
-                from: 0.05; to: 1
-                Component.onCompleted: value = controller.brushFlow
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!flowSlider.pressed)
-                            flowSlider.value = controller.brushFlow
-                    }
-                }
-                onMoved: controller.brushFlow = value
-            }
-            Text {
-                Layout.preferredWidth: 34
-                text: Math.round(controller.brushFlow * 100) + "%"
-                color: T.text
-                font.pixelSize: 11
-            }
-
-            Text { text: qsTr("Size:"); color: T.text; font.pixelSize: 11 }
-            PSpinBox {
-                id: sizeBox
-                objectName: "sizeBox"
-                Layout.preferredWidth: 84
-                from: 1; to: 200
-                Component.onCompleted: value = Math.round(controller.brushSize)
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!sizeBox.activeFocus)
-                            sizeBox.value = Math.round(controller.brushSize)
-                    }
-                }
-                onValueModified: v => controller.brushSize = v
-            }
-            // Direct size slider - the fastest way to size a brush.
-            PSlider {
-                id: sizeSlider
-                objectName: "sizeSlider"
-                Layout.preferredWidth: 110
-                from: 1; to: 200
-                Component.onCompleted: value = Math.min(200, controller.brushSize)
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!sizeSlider.pressed)
-                            sizeSlider.value = Math.min(200, controller.brushSize)
-                    }
-                }
-                onMoved: controller.brushSize = Math.round(value)
-            }
-
-            Text { text: qsTr("Hardness:"); color: T.text; font.pixelSize: 11 }
-            PSlider {
-                id: hardnessSlider
-                objectName: "hardnessSlider"
-                Layout.preferredWidth: 80
-                from: 0; to: 1
-                Component.onCompleted: value = controller.brushHardness
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!hardnessSlider.pressed)
-                            hardnessSlider.value = controller.brushHardness
-                    }
-                }
-                onMoved: controller.brushHardness = value
-            }
-
-            Rectangle { width: 1; height: 20; color: T.border }
-
-            // Mirror canvas (Krita's mirror tools)
-            Repeater {
-                model: [
-                    { icon: "mirror-h", tip: qsTr("Mirror canvas horizontally (Ctrl+Shift+M)"), act: "h" },
-                    { icon: "mirror-v", tip: qsTr("Mirror canvas vertically"), act: "v" },
-                    { icon: "invert",   tip: qsTr("Invert selection (Ctrl+Shift+I)"), act: "inv" }
-                ]
-                delegate: Rectangle {
-                    width: 24; height: 24
-                    readonly property bool on: (modelData.act === "h" && root.controller.mirrorHorizontal)
-                                               || (modelData.act === "v" && root.controller.mirrorVertical)
-                    color: on ? T.highlight : (mh.hovered ? T.buttonHover : "transparent")
-                    Icon {
-                        anchors.centerIn: parent
-                        width: 15; height: 15
-                        name: modelData.icon
-                        color: on ? T.highlightText : T.text
-                    }
-                    HoverHandler { id: mh }
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: {
-                            if (modelData.act === "h") root.controller.mirrorHorizontal = !root.controller.mirrorHorizontal
-                            else if (modelData.act === "v") root.controller.mirrorVertical = !root.controller.mirrorVertical
-                            else root.controller.invertSelection()
-                        }
-                    }
-                    ToolTip.visible: mh.hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: modelData.tip
-                }
-            }
 
             Item { Layout.fillWidth: true }
 
@@ -947,12 +833,147 @@ ApplicationWindow {
     }
 
     // ---------------- footer / status bar ----------------
-    footer: Rectangle {
+    // ---------------- footer: tool options + status ----------------
+    footer: Column {
         visible: !controller.startPageVisible
-        height: 24
-        color: T.windowAlt
 
-        Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: T.border }
+        // Brush controls sit under the canvas, next to the hand that
+        // uses them, instead of crowding the top bar.
+        Rectangle {
+            width: parent.width
+            height: 30
+            color: T.windowAlt
+            objectName: "toolOptionsBar"
+            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: T.border }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                spacing: 8
+
+            Rectangle { width: 1; height: 20; color: T.border }
+
+            // Opacity (brush flow) as a slider, with the value beside it.
+            // The value is NOT bound to the controller: a binding plus a write
+            // from onMoved fights the drag, and whichever side loses makes the
+            // slider look dead. Sync explicitly instead, and never while the
+            // user is holding the handle.
+            Text { text: qsTr("Opacity:"); color: T.text; font.pixelSize: 11 }
+            PSlider {
+                id: flowSlider
+                objectName: "flowSlider"
+                Layout.preferredWidth: 96
+                from: 0.05; to: 1
+                Component.onCompleted: value = controller.brushFlow
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!flowSlider.pressed)
+                            flowSlider.value = controller.brushFlow
+                    }
+                }
+                onMoved: controller.brushFlow = value
+            }
+            Text {
+                Layout.preferredWidth: 34
+                text: Math.round(controller.brushFlow * 100) + "%"
+                color: T.text
+                font.pixelSize: 11
+            }
+
+            Text { text: qsTr("Size:"); color: T.text; font.pixelSize: 11 }
+            PSpinBox {
+                id: sizeBox
+                objectName: "sizeBox"
+                Layout.preferredWidth: 84
+                from: 1; to: 200
+                Component.onCompleted: value = Math.round(controller.brushSize)
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!sizeBox.activeFocus)
+                            sizeBox.value = Math.round(controller.brushSize)
+                    }
+                }
+                onValueModified: v => controller.brushSize = v
+            }
+            // Direct size slider - the fastest way to size a brush.
+            PSlider {
+                id: sizeSlider
+                objectName: "sizeSlider"
+                Layout.preferredWidth: 110
+                from: 1; to: 200
+                Component.onCompleted: value = Math.min(200, controller.brushSize)
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!sizeSlider.pressed)
+                            sizeSlider.value = Math.min(200, controller.brushSize)
+                    }
+                }
+                onMoved: controller.brushSize = Math.round(value)
+            }
+
+            Text { text: qsTr("Hardness:"); color: T.text; font.pixelSize: 11 }
+            PSlider {
+                id: hardnessSlider
+                objectName: "hardnessSlider"
+                Layout.preferredWidth: 80
+                from: 0; to: 1
+                Component.onCompleted: value = controller.brushHardness
+                Connections {
+                    target: controller
+                    function onBrushChanged() {
+                        if (!hardnessSlider.pressed)
+                            hardnessSlider.value = controller.brushHardness
+                    }
+                }
+                onMoved: controller.brushHardness = value
+            }
+
+            Rectangle { width: 1; height: 20; color: T.border }
+
+            // Mirror canvas (Krita's mirror tools)
+            Repeater {
+                model: [
+                    { icon: "mirror-h", tip: qsTr("Mirror canvas horizontally (Ctrl+Shift+M)"), act: "h" },
+                    { icon: "mirror-v", tip: qsTr("Mirror canvas vertically"), act: "v" },
+                    { icon: "invert",   tip: qsTr("Invert selection (Ctrl+Shift+I)"), act: "inv" }
+                ]
+                delegate: Rectangle {
+                    width: 24; height: 24
+                    readonly property bool on: (modelData.act === "h" && root.controller.mirrorHorizontal)
+                                               || (modelData.act === "v" && root.controller.mirrorVertical)
+                    color: on ? T.highlight : (mh.hovered ? T.buttonHover : "transparent")
+                    Icon {
+                        anchors.centerIn: parent
+                        width: 15; height: 15
+                        name: modelData.icon
+                        color: on ? T.highlightText : T.text
+                    }
+                    HoverHandler { id: mh }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (modelData.act === "h") root.controller.mirrorHorizontal = !root.controller.mirrorHorizontal
+                            else if (modelData.act === "v") root.controller.mirrorVertical = !root.controller.mirrorVertical
+                            else root.controller.invertSelection()
+                        }
+                    }
+                    ToolTip.visible: mh.hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: modelData.tip
+                }
+            }
+            }
+        }
+
+        // Status bar
+        Rectangle {
+            width: parent.width
+            height: 24
+            color: T.windowAlt
+            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: T.border }
 
         RowLayout {
             anchors.fill: parent
@@ -1028,7 +1049,9 @@ ApplicationWindow {
                 onMoved: controller.zoom = value
             }
         }
+        }
     }
+
 
     // ---------------- dialogs & popups ----------------
     NewDocumentDialog { id: newDocDialog; controller: root.controller }
