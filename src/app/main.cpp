@@ -727,6 +727,249 @@ int runSelfTest()
     return failures == 0 ? 0 : 1;
 }
 
+/// Audits every tool for its ACTUAL EFFECT, not just that it can be selected —
+/// "all tools selectable without crashing" is what let broken tools ship.
+/// Each tool runs on a fresh document and has to change something observable.
+int runToolAudit()
+{
+    AppController c;
+    c.setSelfTestMode(true);
+    int failures = 0;
+    auto check = [&failures](bool ok, const char* what) {
+        qInfo() << (ok ? "PASS" : "FAIL") << what;
+        if (!ok)
+            ++failures;
+    };
+    const auto opaque = [&c]() { return countOpaquePixels(c.canvasImage()); };
+    const auto fresh = [&c]() {
+        c.newDocument(400, 300);
+        c.setBrushColor(QColor(20, 20, 20));
+        c.setBrushSize(18.0F);
+        c.selectPreset(0);
+        c.setTool(AppController::BrushTool);
+        c.clearSelection();
+    };
+    const auto stroke = [&c](float x0, float y0, float x1, float y1) {
+        c.beginStroke(x0, y0);
+        for (int i = 1; i <= 12; ++i) {
+            const float t = static_cast<float>(i) / 12.0F;
+            c.extendStroke(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+        }
+        c.endStroke();
+    };
+    const auto shape = [&c](float x0, float y0, float x1, float y1) {
+        c.beginShape(x0, y0);
+        c.updateShape(x1, y1);
+        c.endShape();
+    };
+
+    // ---- painting tools ----
+    fresh();
+    stroke(60, 60, 300, 200);
+    check(opaque() > 0, "BrushTool paints");
+
+    fresh();
+    stroke(60, 60, 300, 200);
+    const int painted = opaque();
+    c.setEraser(true);
+    stroke(60, 200, 300, 60);
+    c.setEraser(false);
+    check(opaque() < painted, "EraserTool erases what was painted");
+
+    fresh();
+    c.setTool(AppController::DynamicBrushTool);
+    stroke(60, 60, 300, 200);
+    check(opaque() > 0, "DynamicBrushTool paints");
+
+    fresh();
+    c.setTool(AppController::MultiBrushTool);
+    stroke(60, 60, 300, 200);
+    check(opaque() > 0, "MultiBrushTool paints");
+
+    // ---- shape tools ----
+    fresh();
+    c.setTool(AppController::LineTool);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "LineTool draws");
+
+    fresh();
+    c.setTool(AppController::RectangleTool);
+    c.setShapeFilled(false);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "RectangleTool draws an outline");
+
+    fresh();
+    c.setTool(AppController::RectangleTool);
+    c.setShapeFilled(true);
+    const int outlineOnly = 0;
+    shape(40, 40, 340, 240);
+    check(opaque() > outlineOnly, "RectangleTool fills");
+    c.setShapeFilled(false);
+
+    fresh();
+    c.setTool(AppController::EllipseTool);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "EllipseTool draws");
+
+    fresh();
+    c.setTool(AppController::GradientTool);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "GradientTool fills a gradient");
+
+    fresh();
+    c.setTool(AppController::ArcTool);
+    c.beginArc(60, 200);
+    c.updateArc(200, 60);
+    c.updateArc(320, 200);
+    c.endArc();
+    check(opaque() > 0, "ArcTool draws an arc");
+
+    fresh();
+    c.setTool(AppController::TextTool);
+    c.renderText(60, 150, QStringLiteral("Prism"), 48);
+    check(opaque() > 0, "TextTool renders text");
+
+    fresh();
+    c.setTool(AppController::PatternTool);
+    c.fillPattern(0, 2);
+    check(opaque() > 0, "PatternTool fills a pattern");
+
+    // ---- path tools ----
+    fresh();
+    c.setTool(AppController::PolylineTool);
+    c.addPathPoint(60, 60);
+    c.addPathPoint(200, 200);
+    c.addPathPoint(320, 80);
+    c.finishPath(0);
+    check(opaque() > 0, "PolylineTool draws a polyline");
+
+    fresh();
+    c.setTool(AppController::BezierTool);
+    c.addPathPoint(60, 200);
+    c.addPathPoint(200, 60);
+    c.addPathPoint(340, 200);
+    c.finishPath(1);
+    check(opaque() > 0, "BezierTool draws a bezier curve");
+
+    fresh();
+    c.setTool(AppController::FreehandPathTool);
+    c.beginFreePath(60, 60);
+    for (int i = 1; i <= 20; ++i)
+        c.extendFreePath(60.0F + i * 12.0F, 150.0F + (i % 5) * 12.0F);
+    c.endFreePath();
+    check(opaque() > 0, "FreehandPathTool draws a path");
+
+    // ---- fill / sample ----
+    fresh();
+    c.setBrushColor(QColor(200, 30, 30));
+    c.fillAt(200, 150);
+    check(opaque() > 0, "FillTool fills the region");
+
+    fresh();
+    c.setBrushColor(QColor(200, 30, 30));
+    stroke(60, 150, 340, 150);
+    const QColor sampled = c.pickColorAt(200, 150, false);
+    check(sampled.red() > 150 && sampled.green() < 90, "EyedropperTool samples the paint");
+
+    // ---- selection tools ----
+    fresh();
+    c.setTool(AppController::RectSelectTool);
+    c.setSelection(50, 50, 200, 150);
+    check(c.hasSelection() && c.selectionW() == 200 && c.selectionH() == 150,
+          "RectSelectTool selects a rectangle");
+
+    fresh();
+    c.setTool(AppController::EllipseSelectTool);
+    c.setEllipseSelection(50, 50, 200, 150);
+    check(c.hasSelection(), "EllipseSelectTool selects an ellipse");
+
+    fresh();
+    c.setTool(AppController::LassoSelectTool);
+    // The API takes QPointF items, exactly what the QML lasso feeds it.
+    c.setLassoSelection(QVariantList{ QVariant::fromValue(QPointF(60, 60)),
+                                      QVariant::fromValue(QPointF(300, 80)),
+                                      QVariant::fromValue(QPointF(200, 240)),
+                                      QVariant::fromValue(QPointF(80, 200)) });
+    check(c.hasSelection(), "LassoSelectTool selects a freehand region");
+
+    fresh();
+    stroke(60, 60, 340, 240);
+    c.setTool(AppController::MagicWandTool);
+    c.magicWandAt(200, 150, 24);
+    check(c.hasSelection(), "MagicWandTool selects a contiguous region");
+
+    fresh();
+    stroke(60, 60, 340, 240);
+    c.setTool(AppController::SimilarColorSelectTool);
+    c.similarColorAt(200, 150, 40);
+    check(c.hasSelection(), "SimilarColorSelectTool selects matching colours");
+
+    fresh();
+    stroke(60, 60, 340, 240);
+    c.setTool(AppController::OutlineSelectTool);
+    c.selectOutlineAt(200, 150);
+    check(c.hasSelection(), "OutlineSelectTool selects a shape outline");
+
+    fresh();
+    c.setTool(AppController::PolygonSelectTool);
+    c.addPathPoint(60, 60);
+    c.addPathPoint(300, 80);
+    c.addPathPoint(200, 240);
+    c.finishPath(2);
+    check(c.hasSelection(), "PolygonSelectTool selects a polygon");
+
+    fresh();
+    stroke(60, 60, 340, 240);
+    c.setTool(AppController::MagneticSelectTool);
+    // Three points minimum, and NOT collinear: three points on one diagonal give
+    // a zero-area polygon, which correctly yields an empty selection.
+    c.addPathPoint(70, 70);
+    c.addPathPoint(200, 260);
+    c.addPathPoint(330, 90);
+    c.finishPath(3);
+    check(c.hasSelection(), "MagneticSelectTool snaps a selection to an edge");
+
+    fresh();
+    c.setTool(AppController::BezierSelectTool);
+    c.addPathPoint(60, 60);
+    c.addPathPoint(200, 200);
+    c.addPathPoint(320, 80);
+    c.finishPath(2);
+    check(c.hasSelection(), "BezierSelectTool selects through its points");
+
+    // ---- view / edit tools ----
+    fresh();
+    c.setTool(AppController::ZoomTool);
+    const qreal z0 = c.zoom();
+    c.zoomAt(200.0, 150.0, 2.0);
+    check(!qFuzzyCompare(c.zoom(), z0), "ZoomTool changes the zoom");
+
+    fresh();
+    stroke(60, 60, 200, 200);
+    c.setTool(AppController::MoveTool);
+    const int beforeMove = opaque();
+    c.moveActiveLayer(40, 25);
+    check(opaque() == beforeMove && qAlpha(c.canvasImage().pixel(220, 200)) > 0,
+          "MoveTool relocates the layer content");
+
+    fresh();
+    stroke(100, 100, 300, 200);
+    c.setTool(AppController::TransformTool);
+    const QImage beforeTransform = c.canvasImage().copy();
+    c.transformLayer(45.0F, 1.3F);
+    check(c.canvasImage() != beforeTransform, "TransformTool transforms the layer");
+
+    fresh();
+    stroke(100, 100, 300, 200);
+    c.setTool(AppController::CropTool);
+    c.cropTo(50, 50, 200, 150);
+    check(c.canvasWidth() == 200 && c.canvasHeight() == 150, "CropTool crops the canvas");
+
+    qInfo() << (failures == 0 ? "tooltest: PASS" : "tooltest: FAIL") << failures
+            << "tool(s) not working";
+    return failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -775,6 +1018,11 @@ int main(int argc, char* argv[])
 
     if (app.arguments().contains(QStringLiteral("--selftest")))
         return runSelfTest();
+
+    // Verification hook: every tool has to actually DO something (see
+    // runToolAudit). "--selftest" only proves the tools can be selected.
+    if (app.arguments().contains(QStringLiteral("--tooltest")))
+        return runToolAudit();
 
     // Verification hook: reports which image formats this build can actually
     // read and write, and fails if the essentials are missing. Qt keeps PNG in
