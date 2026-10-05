@@ -337,9 +337,12 @@ bool AppController::exportBrush(const QUrl& url, int index)
 bool AppController::importBrush(const QUrl& url)
 {
     const auto path = localPathFrom(url);
-    const auto maybePreset = io::ProjectIO::importBrush(path);
-    if (!maybePreset.has_value())
+    QString errorMsg;
+    const auto maybePreset = io::ProjectIO::importBrush(path, &errorMsg);
+    if (!maybePreset.has_value()) {
+        setLastError(errorMsg);
         return false;
+    }
     m_presets.push_back(maybePreset.value());
     m_activePreset = presetCount() - 1;
     m_presetIntact = true;
@@ -1201,6 +1204,7 @@ void AppController::loadUserPresets()
         preset.brush.flow = std::clamp(flow, 0.01F, 1.0F);
         preset.brush.erase = erase;
         preset.brush.color = color;
+        preset.brush.tip = io::ProjectIO::brushTipFromJson(obj["tip"].toObject());
         m_presets.push_back(preset);
     }
 }
@@ -1225,6 +1229,7 @@ void AppController::saveUserPresets()
         obj["erase"] = preset.brush.erase;
         const QColor qc(preset.brush.color.r, preset.brush.color.g, preset.brush.color.b);
         obj["color"] = qc.name();
+        obj["tip"] = io::ProjectIO::brushTipToJson(preset.brush.tip);
         arr.append(obj);
     }
     

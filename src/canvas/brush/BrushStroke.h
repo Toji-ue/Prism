@@ -3,6 +3,8 @@
 #include "geometry/Types.h"
 #include "raster/RasterBuffer.h"
 
+#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace prism::canvas {
@@ -16,6 +18,27 @@ struct StrokePoint {
     float pressure = 1.0F;
 };
 
+/// Brush tip shape — procedural (math) or image (texture).
+struct BrushTip {
+    enum class Kind { Procedural, Image };
+
+    Kind kind = Kind::Procedural;
+
+    // when kind == Procedural
+    enum class Shape { Round, Square };
+    Shape shape = Shape::Round;
+    float hardness = 1.0F;    // 0..1
+    float roundness = 1.0F;   // 0..1 (1 = round, low = flat ellipse)
+    float angle = 0.0F;       // degrees, 0..360
+
+    // when kind == Image
+    struct Image {
+        std::string mime;              // "image/png"
+        std::vector<std::uint8_t> data; // PNG bytes
+        bool invert = false;           // black = paint or white = paint
+    } image;
+};
+
 /// Brush settings for one stroke.
 struct BrushSettings {
     float radius = 8.0F; // canvas pixels, at full pressure
@@ -26,6 +49,10 @@ struct BrushSettings {
     float flow = 1.0F;
     /// Eraser: removes paint instead of depositing it.
     bool erase = false;
+
+    // tip field is optional — defaults to procedural round when missing
+    // ponytail: version field added, older files load tip as default procedural round
+    BrushTip tip;
 };
 
 /// Antialiased circular brush. Stamps are interpolated along the input path

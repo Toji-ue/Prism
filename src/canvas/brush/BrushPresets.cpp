@@ -8,21 +8,19 @@ using prism::core::raster::Color;
 
 const std::vector<BrushPreset>& builtinBrushPresets()
 {
-    // The names mirror the classic Krita starter set so muscle memory carries
-    // over; sizes/hardness/flow are ours.
     static const std::vector<BrushPreset> presets = {
-        { "Basic-5 Size Opacity", { 5.0F, 0.9F, Color{ 0, 0, 0, 255 }, 1.0F, false } },
-        { "Ink Pen", { 3.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, false } },
-        { "Hard Round", { 12.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, false } },
-        { "Soft Airbrush", { 32.0F, 0.0F, Color{ 0, 0, 0, 255 }, 0.15F, false } },
-        { "Pencil", { 2.0F, 1.0F, Color{ 0, 0, 0, 255 }, 0.75F, false } },
-        { "Marker", { 22.0F, 0.85F, Color{ 0, 0, 0, 255 }, 0.5F, false } },
-        { "Bristles", { 18.0F, 0.5F, Color{ 0, 0, 0, 255 }, 0.6F, false } },
-        { "Wet Bristles", { 26.0F, 0.3F, Color{ 0, 0, 0, 255 }, 0.35F, false } },
-        { "Eraser Soft", { 40.0F, 0.0F, Color{ 0, 0, 0, 255 }, 0.5F, true } },
-        { "Eraser Hard", { 16.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, true } },
-        { "Eraser Pen", { 4.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, true } },
-        { "Airbrush Eraser", { 34.0F, 0.15F, Color{ 0, 0, 0, 255 }, 0.25F, true } },
+        { "Basic-5 Size Opacity", { 5.0F, 0.9F, Color{ 0, 0, 0, 255 }, 1.0F, false, {} } },
+        { "Ink Pen", { 3.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, false, {} } },
+        { "Hard Round", { 12.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, false, {} } },
+        { "Soft Airbrush", { 32.0F, 0.0F, Color{ 0, 0, 0, 255 }, 0.15F, false, {} } },
+        { "Pencil", { 2.0F, 1.0F, Color{ 0, 0, 0, 255 }, 0.75F, false, {} } },
+        { "Marker", { 22.0F, 0.85F, Color{ 0, 0, 0, 255 }, 0.5F, false, {} } },
+        { "Bristles", { 18.0F, 0.5F, Color{ 0, 0, 0, 255 }, 0.6F, false, {} } },
+        { "Wet Bristles", { 26.0F, 0.3F, Color{ 0, 0, 0, 255 }, 0.35F, false, {} } },
+        { "Eraser Soft", { 40.0F, 0.0F, Color{ 0, 0, 0, 255 }, 0.5F, true, {} } },
+        { "Eraser Hard", { 16.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, true, {} } },
+        { "Eraser Pen", { 4.0F, 1.0F, Color{ 0, 0, 0, 255 }, 1.0F, true, {} } },
+        { "Airbrush Eraser", { 34.0F, 0.15F, Color{ 0, 0, 0, 255 }, 0.25F, true, {} } },
     };
     return presets;
 }

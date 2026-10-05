@@ -1,4 +1,4 @@
-#include "project/ProjectIO.h"
+﻿#include "project/ProjectIO.h"
 
 #include "compositor/Compositor.h"
 #include "layer/Layer.h"
@@ -236,11 +236,70 @@ QList<QByteArray> ProjectIO::readableFormats()
     return out;
 }
 
+namespace {
+
+bool parseBrushTip(const QJsonObject& root, prism::canvas::BrushTip& tip, QString* error)
+{
+    const QString kindStr = root["kind"].toString();
+    if (kindStr == "procedural") {
+        tip.kind = prism::canvas::BrushTip::Kind::Procedural;
+        const QJsonObject p = root;
+        tip.shape = p["shape"].toString("round") == "round"
+                            ? prism::canvas::BrushTip::Shape::Round
+                            : prism::canvas::BrushTip::Shape::Square;
+        tip.hardness = static_cast<float>(p["hardness"].toDouble(1.0));
+        tip.roundness = static_cast<float>(p["roundness"].toDouble(1.0));
+        tip.angle = static_cast<float>(p["angle"].toDouble(0.0));
+        if (tip.hardness < 0.0F || tip.hardness > 1.0F ||
+            tip.roundness < 0.0F || tip.roundness > 1.0F) {
+            if (error) *error = "procedural tip: hardness/roundness out of range";
+            return false;
+        }
+    } else if (kindStr == "image") {
+        tip.kind = prism::canvas::BrushTip::Kind::Image;
+        const QJsonObject img = root["image"].toObject();
+        if (img.isEmpty()) {
+            if (error) *error = "image tip: missing image object";
+            return false;
+        }
+        tip.image.mime = img["mime"].toString().toStdString();
+        if (tip.image.mime != "image/png") {
+            if (error) *error = "image tip: only PNG is supported";
+            return false;
+        }
+        const QByteArray data = QByteArray::fromBase64(img["data"].toString().toLatin1());
+        if (data.isEmpty()) {
+            if (error) *error = "image tip: empty base64 data";
+            return false;
+        }
+
+        QImage imgLoad;
+        if (!imgLoad.loadFromData(data, "PNG")) {
+            if (error) *error = "image tip: cannot decode PNG";
+            return false;
+        }
+        if (imgLoad.width() > 1024 || imgLoad.height() > 1024) {
+            if (error) *error = "image tip: max size 1024x1024";
+            return false;
+        }
+
+        // Convert QByteArray to std::vector<uint8_t>
+        tip.image.data.assign(data.begin(), data.end());
+        tip.image.invert = img["invert"].toBool(false);
+    } else {
+        if (error) *error = QString("unknown tip kind: %1").arg(kindStr);
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
 bool ProjectIO::exportBrush(const prism::canvas::BrushPreset& preset, const QString& path)
 {
     QJsonObject root;
     root["format"] = QStringLiteral("prism-brush");
-    root["version"] = 1;
+    root["version"] = 2;
     root["name"] = QString::fromStdString(preset.name);
     root["radius"] = preset.brush.radius;
     root["hardness"] = preset.brush.hardness;
@@ -250,6 +309,7 @@ bool ProjectIO::exportBrush(const prism::canvas::BrushPreset& preset, const QStr
                         .arg(preset.brush.color.r, 2, 16, QLatin1Char('0'))
                         .arg(preset.brush.color.g, 2, 16, QLatin1Char('0'))
                         .arg(preset.brush.color.b, 2, 16, QLatin1Char('0'));
+    root["tip"] = ProjectIO::brushTipToJson(preset.brush.tip);
 
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly))
@@ -258,17 +318,25 @@ bool ProjectIO::exportBrush(const prism::canvas::BrushPreset& preset, const QStr
     return file.commit();
 }
 
-std::optional<prism::canvas::BrushPreset> ProjectIO::importBrush(const QString& path)
+std::optional<prism::canvas::BrushPreset> ProjectIO::importBrush(const QString& path, QString* error)
 {
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) *error = "cannot open file";
         return std::nullopt;
+    }
     const QJsonDocument json = QJsonDocument::fromJson(file.readAll());
-    if (!json.isObject())
+    if (!json.isObject()) {
+        if (error) *error = "invalid JSON";
         return std::nullopt;
+    }
     const QJsonObject root = json.object();
-    if (root["format"].toString() != QLatin1String("prism-brush"))
+    if (root["format"].toString() != QLatin1String("prism-brush")) {
+        if (error) *error = "not a Prism brush file";
         return std::nullopt;
+    }
+
+    const int version = root["version"].toInt(1);
 
     prism::canvas::BrushPreset preset;
     preset.name = root["name"].toString(QStringLiteral("Imported brush")).toStdString();
@@ -280,12 +348,50 @@ std::optional<prism::canvas::BrushPreset> ProjectIO::importBrush(const QString& 
     preset.brush.color = prism::core::raster::Color{ static_cast<std::uint8_t>(color.red()),
                                                      static_cast<std::uint8_t>(color.green()),
                                                      static_cast<std::uint8_t>(color.blue()), 255 };
-    // Clamp what came from the file: a hostile or hand-edited brush must not be
-    // able to hand the engine a radius of -5 (the paint path would misbehave).
+    // Clamp what came from the file.
     preset.brush.radius = std::clamp(preset.brush.radius, 1.0F, 200.0F);
     preset.brush.hardness = std::clamp(preset.brush.hardness, 0.0F, 1.0F);
     preset.brush.flow = std::clamp(preset.brush.flow, 0.01F, 1.0F);
+
+    // Tip (v2+). v1 files and tip-less v2 files keep the struct's default:
+    // procedural, round, hardness 1, roundness 1, angle 0.
+    if (version >= 2 && !root["tip"].toObject().isEmpty()) {
+        if (!parseBrushTip(root["tip"].toObject(), preset.brush.tip, error))
+            return std::nullopt;
+    }
+
     return preset;
+}
+
+QJsonObject ProjectIO::brushTipToJson(const prism::canvas::BrushTip& tip)
+{
+    QJsonObject obj;
+    obj["kind"] = tip.kind == prism::canvas::BrushTip::Kind::Procedural ? "procedural" : "image";
+
+    if (tip.kind == prism::canvas::BrushTip::Kind::Procedural) {
+        obj["shape"] = tip.shape == prism::canvas::BrushTip::Shape::Round ? "round" : "square";
+        obj["hardness"] = tip.hardness;
+        obj["roundness"] = tip.roundness;
+        obj["angle"] = tip.angle;
+    } else {
+        QJsonObject img;
+        img["mime"] = QString::fromStdString(tip.image.mime);
+        const QByteArray qdata(reinterpret_cast<const char*>(tip.image.data.data()),
+                               static_cast<qsizetype>(tip.image.data.size()));
+        img["data"] = QString::fromLatin1(qdata.toBase64());
+        img["invert"] = tip.image.invert;
+        obj["image"] = img;
+    }
+    return obj;
+}
+
+prism::canvas::BrushTip ProjectIO::brushTipFromJson(const QJsonObject& obj)
+{
+    prism::canvas::BrushTip tip;
+    QString err;
+    if (!obj.isEmpty() && !parseBrushTip(obj, tip, &err))
+        qWarning() << "brush tip preset fell back to default:" << err;
+    return tip;
 }
 
 } // namespace prism::io

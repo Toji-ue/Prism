@@ -4,6 +4,7 @@
 #include "document/Document.h"
 #include "brush/BrushPresets.h"
 
+#include <QJsonObject>
 #include <QString>
 #include <optional>
 
@@ -49,7 +50,13 @@ public:
     /// brush can be handed to another artist and survives outside QSettings.
     [[nodiscard]] static bool exportBrush(const prism::canvas::BrushPreset& preset,
                                           const QString& path);
-    [[nodiscard]] static std::optional<prism::canvas::BrushPreset> importBrush(const QString& path);
+    [[nodiscard]] static std::optional<prism::canvas::BrushPreset> importBrush(const QString& path,
+                                                                              QString* error = nullptr);
+    /// Tip JSON codec, shared with the QSettings preset persistence so an
+    /// imported image-tip brush survives an app restart.
+    [[nodiscard]] static QJsonObject brushTipToJson(const prism::canvas::BrushTip& tip);
+    /// Returns the tip; invalid JSON falls back to the procedural default.
+    [[nodiscard]] static prism::canvas::BrushTip brushTipFromJson(const QJsonObject& obj);
 };
 
 } // namespace prism::io

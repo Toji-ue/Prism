@@ -11,6 +11,10 @@
 #include <QVariant>
 #include <QFile>
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QBuffer>
 #include <QStandardPaths>
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -18,6 +22,7 @@
 #include "application/AppController.h"
 #include "application/LayerListModel.h"
 #include "application/PresetImageProvider.h"
+#include "project/ProjectIO.h"
 #include "panels/CanvasView.h"
 
 #include <cstdio>
@@ -718,13 +723,141 @@ int runSelfTest()
         check(controller.exportBrush(QUrl::fromLocalFile(brushFile), 0),
               "brush export succeeds");
         check(QFile::exists(brushFile), "brush file exists on disk");
+
+        // Read JSON directly to verify tip field is present
+        {
+            QFile f(brushFile);
+            f.open(QIODevice::ReadOnly);
+            const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+            const QJsonObject root = doc.object();
+            check(root["version"].toInt() == 2, "brush file uses version 2");
+            check(root.contains("tip"), "brush file contains tip object");
+        }
+
+        // Import and verify tip defaults to procedural round
+        QString errorMsg;
+        const auto imported = prism::io::ProjectIO::importBrush(brushFile, &errorMsg);
+        check(imported.has_value(), "brush import succeeds");
+        check(imported->brush.tip.kind == prism::canvas::BrushTip::Kind::Procedural,
+              "imported brush tip is procedural");
+        check(imported->brush.tip.shape == prism::canvas::BrushTip::Shape::Round,
+              "imported brush tip shape is round");
+        check(imported->brush.tip.hardness == 1.0F, "imported brush tip hardness is 1.0");
+        check(imported->brush.tip.roundness == 1.0F, "imported brush tip roundness is 1.0");
+        check(imported->brush.tip.angle == 0.0F, "imported brush tip angle is 0");
+
         check(controller.importBrush(QUrl::fromLocalFile(brushFile)),
-              "brush import succeeds");
+              "QML brush import succeeds");
         check(controller.presetCount() == presetsBefore + 1,
               "imported brush appears as a new preset");
         // Clean up.
         controller.removePreset(controller.presetCount() - 1);
         QFile::remove(brushFile);
+    }
+
+    // Backwards compatibility: import a v1 brush file without tip field
+    {
+        const QString brushV1File = QDir::temp().filePath(QStringLiteral("prism-selftest-v1.prismbrush"));
+        // Write a v1 file manually (no tip field)
+        QJsonObject root;
+        root["format"] = "prism-brush";
+        root["version"] = 1;
+        root["name"] = "Old V1 Brush";
+        root["radius"] = 10.0;
+        root["hardness"] = 0.8;
+        root["flow"] = 1.0;
+        root["erase"] = false;
+        root["color"] = "#ff0000";
+        // intentionally NO "tip" field
+
+        QSaveFile f(brushV1File);
+        f.open(QIODevice::WriteOnly);
+        f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+        f.commit();
+
+        QString errorMsg;
+        const auto imported = prism::io::ProjectIO::importBrush(brushV1File, &errorMsg);
+        check(imported.has_value(), "v1 brush imports (backwards compatible)");
+        check(imported->brush.tip.kind == prism::canvas::BrushTip::Kind::Procedural,
+              "v1 brush tip defaults to procedural");
+        check(imported->brush.tip.shape == prism::canvas::BrushTip::Shape::Round,
+              "v1 brush tip shape defaults to round");
+        QFile::remove(brushV1File);
+    }
+
+    // Error handling: malformed brush file
+    {
+        const QString badFile = QDir::temp().filePath(QStringLiteral("prism-selftest-bad.prismbrush"));
+        {
+            QSaveFile f(badFile);
+            f.open(QIODevice::WriteOnly);
+            f.write("{ \"format\": \"prism-brush\", \"version\": 2, \"tip\": { \"kind\": \"invalid\" } }");
+            f.commit();
+        }
+
+        QString errorMsg;
+        const auto imported = prism::io::ProjectIO::importBrush(badFile, &errorMsg);
+        check(!imported.has_value(), "invalid tip kind is rejected");
+        check(!errorMsg.isEmpty(), "error message is provided");
+        QFile::remove(badFile);
+    }
+
+    // Image tip round-trip: a small grayscale PNG embedded in the file must
+    // survive export -> import byte for byte.
+    {
+        QImage tipImg(32, 32, QImage::Format_Grayscale8);
+        tipImg.fill(128);
+        QByteArray png;
+        QBuffer pngBuf(&png);
+        pngBuf.open(QIODevice::WriteOnly);
+        tipImg.save(&pngBuf, "PNG");
+
+        prism::canvas::BrushPreset p;
+        p.name = "Image Tip Brush";
+        p.brush.radius = 10.0F;
+        p.brush.tip.kind = prism::canvas::BrushTip::Kind::Image;
+        p.brush.tip.image.mime = "image/png";
+        p.brush.tip.image.data.assign(png.begin(), png.end());
+        p.brush.tip.image.invert = true;
+
+        const QString imgFile = QDir::temp().filePath(QStringLiteral("prism-selftest-imgtip.prismbrush"));
+        QFile::remove(imgFile);
+        check(prism::io::ProjectIO::exportBrush(p, imgFile), "image-tip brush export succeeds");
+        QString errorMsg;
+        const auto imported = prism::io::ProjectIO::importBrush(imgFile, &errorMsg);
+        check(imported.has_value(), "image-tip brush import succeeds");
+        check(imported->brush.tip.kind == prism::canvas::BrushTip::Kind::Image,
+              "image tip kind round-trips");
+        check(imported->brush.tip.image.data == p.brush.tip.image.data,
+              "image tip PNG bytes round-trip exactly");
+        check(imported->brush.tip.image.invert, "image tip invert round-trips");
+        QFile::remove(imgFile);
+    }
+
+    // Image tip over the size limit is rejected with a clear error.
+    {
+        QImage big(1025, 8, QImage::Format_Grayscale8);
+        big.fill(0);
+        QByteArray png;
+        QBuffer pngBuf(&png);
+        pngBuf.open(QIODevice::WriteOnly);
+        big.save(&pngBuf, "PNG");
+        const QByteArray b64 = png.toBase64();
+
+        const QString bigFile = QDir::temp().filePath(QStringLiteral("prism-selftest-bigtip.prismbrush"));
+        QSaveFile f(bigFile);
+        f.open(QIODevice::WriteOnly);
+        f.write(QStringLiteral("{ \"format\": \"prism-brush\", \"version\": 2, "
+                               "\"tip\": { \"kind\": \"image\", \"image\": { \"mime\": \"image/png\", "
+                               "\"data\": \"%1\" } } }")
+                    .arg(QString::fromLatin1(b64))
+                    .toUtf8());
+        f.commit();
+        QString errorMsg;
+        check(!prism::io::ProjectIO::importBrush(bigFile, &errorMsg).has_value(),
+              "oversized image tip is rejected");
+        check(errorMsg.contains("1024"), "size error names the limit");
+        QFile::remove(bigFile);
     }
 
     // Leave no trace: earlier runs wrote their documents into the Recent list,
@@ -735,7 +868,11 @@ int runSelfTest()
         controller.forgetRecentFilesUnder(tempDir);
         for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
                                       "prism-selftest.png", "prism-selftest.jpg",
-                                      "prism-blend.prism", "prism-selftest.prismbrush" })
+                                      "prism-blend.prism", "prism-selftest.prismbrush",
+                                      "prism-selftest-v1.prismbrush",
+                                      "prism-selftest-bad.prismbrush",
+                                      "prism-selftest-imgtip.prismbrush",
+                                      "prism-selftest-bigtip.prismbrush" })
             QFile::remove(tempDir + QLatin1Char('/') + QLatin1String(leftover));
         check(true, "selftest leaves no documents behind");
     }
