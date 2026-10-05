@@ -140,10 +140,10 @@ AppController::AppController(QObject* parent)
     m_snapshotTimer = new QTimer(this);
     m_snapshotTimer->setInterval(250);
     connect(m_snapshotTimer, &QTimer::timeout, this, [this]() {
-        if (m_snapshotRevision != m_layerRevision)
+        // Pixels changed, or the selection was cleared (leaving a stale overlay).
+        if (m_snapshotRevision != m_layerRevision
+            || (!m_selectionSnapshot.isNull() && m_selection.isEmpty()))
             refreshSnapshots();
-        else if (!m_selectionSnapshot.isNull() && m_selection.isEmpty())
-            refreshSnapshots(); // selection cleared: drop the cached overlay
     });
     m_snapshotTimer->start();
     refreshSnapshots();

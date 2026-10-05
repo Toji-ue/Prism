@@ -897,40 +897,29 @@ int main(int argc, char* argv[])
                 } rng;
                 const QSize sizes[] = { { 640, 480 }, { 1280, 800 }, { 2048, 1536 },
                                         { 3000, 2000 }, { 1024, 1024 } };
+                // Index == op id: 0 newDocument, 1-2 paintStroke, 3 eraseStroke,
+                // 4 bucketFill, 5 layerChurn, 6 undoRedo, 7 mirror, 8 zoom,
+                // 9 layerProps.
+                static const char* const kOpNames[10] = {
+                    "newDocument",  "paintStroke", "paintStroke", "eraseStroke",
+                    "bucketFill",   "layerChurn",  "undoRedo",    "mirror",
+                    "zoom",         "layerProps",
+                };
+                const QStringList allowed =
+                    demoStressOps.isEmpty() ? QStringList()
+                                            : demoStressOps.split(QLatin1Char(','));
                 int lastPercent = -1;
-                const char* opName = "?";
                 for (int i = 0; i < demoStress; ++i) {
                     int op = rng.range(0, 9);
-                    const QStringList allowed = demoStressOps.isEmpty()
-                                                    ? QStringList()
-                                                    : demoStressOps.split(QLatin1Char(','));
                     if (!allowed.isEmpty()) {
                         // Walk forward until an allowed operation is found.
                         for (int tries = 0; tries < 10; ++tries) {
-                            const QString candidate =
-                                op == 0 ? QStringLiteral("newDocument")
-                                : op <= 2 ? QStringLiteral("paintStroke")
-                                : op == 3 ? QStringLiteral("eraseStroke")
-                                : op == 4 ? QStringLiteral("bucketFill")
-                                : op == 5 ? QStringLiteral("layerChurn")
-                                : op == 6 ? QStringLiteral("undoRedo")
-                                : op == 7 ? QStringLiteral("mirror")
-                                : op == 8 ? QStringLiteral("zoom")
-                                          : QStringLiteral("layerProps");
-                            if (allowed.contains(candidate))
+                            if (allowed.contains(QLatin1String(kOpNames[op])))
                                 break;
                             op = (op + 1) % 10;
                         }
                     }
-                    opName = op == 0 ? "newDocument"
-                           : op <= 2 ? "paintStroke"
-                           : op == 3 ? "eraseStroke"
-                           : op == 4 ? "bucketFill"
-                           : op == 5 ? "layerChurn"
-                           : op == 6 ? "undoRedo"
-                           : op == 7 ? "mirror"
-                           : op == 8 ? "zoom"
-                                     : "layerProps";
+                    const char* opName = kOpNames[op];
                     // Logged BEFORE the operation: if the app dies, the last
                     // line in prism.log names what killed it.
                     qInfo() << "stress: op" << i << opName << "canvas"
@@ -1122,8 +1111,6 @@ int main(int argc, char* argv[])
                     qInfo() << "bench: bucket fill" << fillCount << "clicks in" << fillMs
                             << "ms (" << (fillMs / static_cast<double>(fillCount))
                             << "ms/fill)";
-                    controller->undo();
-                    controller->undo();
                 }
             }
             if (!demoClick.isEmpty() && !engine.rootObjects().isEmpty()) {

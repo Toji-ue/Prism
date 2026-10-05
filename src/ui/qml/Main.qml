@@ -607,12 +607,8 @@ ApplicationWindow {
                             // system cursor is hidden while painting so the
                             // ring is the only pointer.
                             cursorShape: {
-                                // The start page overlays the canvas. Its empty
-                                // areas declare no cursor of their own, so the
-                                // blank painting cursor used to leak through and
-                                // the pointer disappeared there.
-                                if (root.controller.startPageVisible)
-                                    return Qt.ArrowCursor
+                                // Cursor-leak fix lives in StartPage.qml (its
+                                // background MouseArea pins an arrow cursor).
                                 switch (controller.tool) {
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
