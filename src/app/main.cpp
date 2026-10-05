@@ -553,6 +553,40 @@ int runSelfTest()
               "undo/redo with an empty history is a no-op");
     }
 
+    // Painting must keep the brush colour, and the DEFAULT colour must be a real
+    // black rather than a washed-out grey. No earlier check looked at the RGB of
+    // a stroke — only its alpha and pixel count — so a colour loss anywhere in
+    // the preview -> commit path would have gone unnoticed. (Placed here because
+    // it swaps the document; the checks above still need the original canvas.)
+    {
+        controller.newDocument(200, 200);
+        controller.selectPreset(0);
+        controller.setBrushSize(24.0F);
+
+        // Default brush colour, straight out of the preset.
+        controller.beginStroke(60.0F, 60.0F);
+        for (int i = 0; i < 20; ++i)
+            controller.extendStroke(60.0F + i * 4.0F, 60.0F);
+        controller.endStroke();
+        const QRgb plain = controller.canvasImage().pixel(100, 60);
+        check(qRed(plain) < 40 && qGreen(plain) < 40 && qBlue(plain) < 40,
+              "default brush paints solid black");
+
+        // A colour chosen in the picker must survive the whole stroke pipeline.
+        controller.setBrushColor(QColor(200, 40, 90));
+        controller.beginStroke(60.0F, 100.0F);
+        for (int i = 0; i < 20; ++i)
+            controller.extendStroke(60.0F + i * 4.0F, 100.0F);
+        const QRgb live = controller.canvasImage().pixel(100, 100);
+        check(qRed(live) > 150 && qGreen(live) < 90 && qBlue(live) > 50,
+              "stroke keeps the brush colour while dragging");
+        controller.endStroke();
+        const QRgb committed = controller.canvasImage().pixel(100, 100);
+        check(qRed(committed) > 150 && qGreen(committed) < 90 && qBlue(committed) > 50,
+              "committed stroke keeps the brush colour");
+        controller.setBrushColor(QColor(0, 0, 0));
+    }
+
     // Committing a stroke must cost the stroke's rectangle, not the canvas.
     // Mouse-up used to re-paint the whole stroke into a fresh canvas-sized
     // buffer and recomposite every layer: 1.2 s of freeze on a 4000x4000
