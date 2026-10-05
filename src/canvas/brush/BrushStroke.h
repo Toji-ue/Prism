@@ -47,6 +47,17 @@ public:
                                                                   const StrokePoint& prev,
                                                                   const StrokePoint& current);
 
+    /// Blend/Smudge: drags the canvas colour along the stroke instead of
+    /// depositing the brush colour (Clip Studio Paint's Blend tool). \p carried
+    /// is the colour being dragged between calls; it follows the canvas.
+    ///
+    /// ponytail: one averaged colour per stamp, not per-pixel buckets. A proper
+    /// implementation keeps a colour buffer per pixel; upgrade when the smudge
+    /// needs to preserve fine detail instead of blurring it.
+    [[nodiscard]] static prism::core::geometry::Rect smudgeSegment(
+        RasterBuffer& buffer, const BrushSettings& brush, const StrokePoint& prev,
+        const StrokePoint& current, prism::core::raster::Color& carried);
+
 private:
     static void stamp(RasterBuffer& buffer, const BrushSettings& brush, float cx, float cy,
                       float pressure, prism::core::geometry::Rect& bounds);

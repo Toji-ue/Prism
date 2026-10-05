@@ -754,6 +754,93 @@ void AppController::finishPath(int mode)
 
 // ------------------------------------------------------------ freehand path
 
+// ------------------------------------------------------------- lasso fill
+
+void AppController::beginLassoFill(float x, float y)
+{
+    m_lassoFill.clear();
+    m_lassoFill.push_back(core::geometry::Point{ static_cast<int>(std::floor(x)),
+                                                static_cast<int>(std::floor(y)) });
+}
+
+void AppController::extendLassoFill(float x, float y)
+{
+    const core::geometry::Point p{ static_cast<int>(std::floor(x)), static_cast<int>(std::floor(y)) };
+    // Sample sparsely: the enclosure only needs enough points to describe its
+    // outline, and the mask is built from a polygon.
+    if (!m_lassoFill.empty()) {
+        const auto& last = m_lassoFill.back();
+        if (std::abs(last.x - p.x) + std::abs(last.y - p.y) < 3)
+            return;
+    }
+    m_lassoFill.push_back(p);
+}
+
+void AppController::endLassoFill()
+{
+    const auto points = m_lassoFill;
+    m_lassoFill.clear();
+    if (points.size() < 3)
+        return;
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    if (layer.isLocked())
+        return;
+
+    // Reuse the selection mask as the fill stencil: the polygon maths already
+    // exists and gives antialiased coverage for free.
+    canvas::Selection stencil;
+    stencil.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
+    stencil.selectPolygon(points);
+
+    core::geometry::Rect rect{ points[0].x, points[0].y, 1, 1 };
+    for (const auto& p : points) {
+        rect = core::geometry::Rect{
+            std::min(rect.x, p.x), std::min(rect.y, p.y),
+            std::max(rect.x + rect.width, p.x + 1) - std::min(rect.x, p.x),
+            std::max(rect.y + rect.height, p.y + 1) - std::min(rect.y, p.y) };
+    }
+    rect = rect.intersected(core::geometry::Rect{ 0, 0, m_doc.canvasSize().width,
+                                                  m_doc.canvasSize().height });
+    if (rect.isEmpty())
+        return;
+
+    auto& pixels = layer.pixels();
+    auto before = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
+    auto after = before;
+    const auto color = m_brush.color;
+    for (int y = 0; y < after.height(); ++y) {
+        for (int x = 0; x < after.width(); ++x) {
+            const std::uint8_t cov = stencil.coverageAt(x + rect.x, y + rect.y);
+            if (cov == 0)
+                continue;
+            if (cov == 255) {
+                after.set(x, y, color);
+                continue;
+            }
+            // Soft edge: lay the colour over what is already there.
+            const auto dst = after.at(x, y);
+            const float t = static_cast<float>(cov) / 255.0F;
+            const auto ch = [t](std::uint8_t a, std::uint8_t b) {
+                return static_cast<std::uint8_t>(a * (1.0F - t) + b * t + 0.5F);
+            };
+            after.set(x, y, core::raster::Color{ ch(dst.r, color.r), ch(dst.g, color.g),
+                                                 ch(dst.b, color.b),
+                                                 std::max(dst.a, color.a) });
+        }
+    }
+    pixels.blit(after, rect.x, rect.y);
+
+    m_history.execute(std::make_unique<core::StrokeCommand>(
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+        rect.x, rect.y, "Lasso Fill"));
+    emit historyChanged();
+    const auto composited = m_compositor.composite(rect);
+    ++m_layerRevision;
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+}
+
 void AppController::beginFreePath(float x, float y)
 {
     m_freePath.clear();
@@ -1878,6 +1965,14 @@ void AppController::beginStroke(float x, float y)
         m_compositor.clearLayerOverride();
     }
 
+    // Blend tool: smears the layer in place, so it needs the same live-edit
+    // snapshot the eraser uses for undo.
+    m_blending = m_tool == Tool::BlendTool && !activeLayer.isLocked();
+    if (m_blending) {
+        m_eraseBefore = activeLayer.pixels();
+        m_carried = core::raster::Color{ 0, 0, 0, 0 }; // picked up on the first stamp
+    }
+
     // Stamp the first point right away, like Krita: a click paints a dot, and
     // it keeps the accumulated preview identical to a full re-paint (which is
     // what the commit below relies on).
@@ -1930,6 +2025,28 @@ void AppController::extendStroke(float x, float y)
         m_currentStroke.push_back({ x, y, 1.0F });
     }
     const auto current = m_currentStroke.back();
+
+    if (m_blending) {
+        // Blend: smear the layer in place and re-composite the band.
+        if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size())) {
+            m_blending = false;
+            return;
+        }
+        auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+        const auto band = canvas::BrushStroke::smudgeSegment(layer.pixels(), m_brush, prev,
+                                                            current, m_carried);
+        if (band.isEmpty())
+            return;
+        m_strokeDirty = core::geometry::Rect{
+            std::min(m_strokeDirty.x, band.x), std::min(m_strokeDirty.y, band.y),
+            std::max(m_strokeDirty.x + m_strokeDirty.width, band.x + band.width)
+                - std::min(m_strokeDirty.x, band.x),
+            std::max(m_strokeDirty.y + m_strokeDirty.height, band.y + band.height)
+                - std::min(m_strokeDirty.y, band.y) };
+        const auto composited = m_compositor.composite(band);
+        emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+        return;
+    }
 
     if (m_erasing) {
         // Erase straight into the active layer and re-composite that band. Only
@@ -2005,6 +2122,33 @@ void AppController::endStroke()
         m_currentStroke.clear();
         m_preview.fill(core::raster::kTransparent);
         rebuildFullComposite();
+        return;
+    }
+
+    if (m_blending) {
+        // The drag already smeared the layer in place; commit that patch so undo
+        // restores what was there.
+        m_blending = false;
+        m_currentStroke.clear();
+        const auto rect = m_strokeDirty;
+        m_strokeDirty = {};
+        if (rect.isEmpty()) {
+            m_eraseBefore = {};
+            return;
+        }
+        auto& pixels = activeLayer.pixels();
+        auto before = m_eraseBefore.copyRect(rect.x, rect.y, rect.width, rect.height);
+        auto after = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
+        canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
+        pixels.blit(after, rect.x, rect.y);
+        m_eraseBefore = {};
+        m_history.execute(std::make_unique<core::StrokeCommand>(
+            m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
+            rect.x, rect.y, "Blend"));
+        emit historyChanged();
+        const auto composited = m_compositor.composite(rect);
+        ++m_layerRevision;
+        emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
     }
 

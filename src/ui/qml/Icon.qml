@@ -172,6 +172,18 @@ Canvas {
             ctx.setLineDash([])
             break
 
+        case "smudge":
+            // Blend tool: two offset sweeps, like a finger dragging paint.
+            ctx.beginPath()
+            ctx.moveTo(2.5, 11.5)
+            ctx.quadraticCurveTo(8, 4.5, 13.5, 9)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(2.5, 14)
+            ctx.quadraticCurveTo(8, 7.5, 13.5, 12)
+            ctx.stroke()
+            break
+
         case "move":
             ctx.beginPath()
             ctx.moveTo(8, 2)

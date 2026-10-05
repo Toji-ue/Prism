@@ -97,6 +97,92 @@ Rect BrushStroke::paintSegment(RasterBuffer& buffer, const BrushSettings& brush,
     return bounds.intersected(Rect{ 0, 0, buffer.width(), buffer.height() });
 }
 
+Rect BrushStroke::smudgeSegment(RasterBuffer& buffer, const BrushSettings& brush,
+                                const StrokePoint& prev, const StrokePoint& current,
+                                prism::core::raster::Color& carried)
+{
+    if (buffer.isEmpty())
+        return {};
+
+    using prism::core::raster::Color;
+    const auto mix = [](Color a, Color b, float t) {
+        const auto ch = [t](std::uint8_t x, std::uint8_t y) {
+            return static_cast<std::uint8_t>(x * (1.0F - t) + y * t + 0.5F);
+        };
+        return Color{ ch(a.r, b.r), ch(a.g, b.g), ch(a.b, b.b), ch(a.a, b.a) };
+    };
+
+    Rect bounds{ static_cast<int>(prev.x), static_cast<int>(prev.y), 0, 0 };
+    const float dx = current.x - prev.x;
+    const float dy = current.y - prev.y;
+    const float dist = std::sqrt(dx * dx + dy * dy);
+    const float step = std::max(brush.radius * 0.5F, 1.0F);
+    const int n = std::max(1, static_cast<int>(std::ceil(dist / step)));
+    const int r = std::max(1, static_cast<int>(std::ceil(brush.radius)));
+    const float strength = std::clamp(brush.flow, 0.0F, 1.0F);
+
+    for (int i = 0; i <= n; ++i) {
+        const float t = dist < 1e-4F ? 0.0F : static_cast<float>(i) / static_cast<float>(n);
+        const float px = prev.x + dx * t;
+        const float py = prev.y + dy * t;
+
+        // What the brush is standing on right now: plain average over the disc,
+        // sampled every other pixel — a full scan per stamp pushed the stamp
+        // cost past the brush's own.
+        int sr = 0, sg = 0, sb = 0, sa = 0, sn = 0;
+        for (int oy = -r; oy <= r; oy += 2) {
+            for (int ox = -r; ox <= r; ox += 2) {
+                if (ox * ox + oy * oy > r * r)
+                    continue;
+                const int sx = static_cast<int>(px) + ox;
+                const int sy = static_cast<int>(py) + oy;
+                if (sx < 0 || sy < 0 || sx >= buffer.width() || sy >= buffer.height())
+                    continue;
+                const Color c = buffer.at(sx, sy);
+                sr += c.r;
+                sg += c.g;
+                sb += c.b;
+                sa += c.a;
+                ++sn;
+            }
+        }
+        if (sn > 0) {
+            const Color here{ static_cast<std::uint8_t>(sr / sn),
+                              static_cast<std::uint8_t>(sg / sn),
+                              static_cast<std::uint8_t>(sb / sn),
+                              static_cast<std::uint8_t>(sa / sn) };
+            // First stamp picks up what is under the brush; afterwards the load
+            // follows the canvas so the smear keeps pulling in new colour.
+            carried = carried.a == 0 && t == 0.0F ? here : mix(carried, here, 0.5F);
+        }
+
+        for (int oy = -r; oy <= r; ++oy) {
+            for (int ox = -r; ox <= r; ++ox) {
+                const float d = std::sqrt(static_cast<float>(ox * ox + oy * oy));
+                const float cov = coverage(d, brush.radius, brush.hardness);
+                if (cov <= 0.0F)
+                    continue;
+                const int sx = static_cast<int>(px) + ox;
+                const int sy = static_cast<int>(py) + oy;
+                if (sx < 0 || sy < 0 || sx >= buffer.width() || sy >= buffer.height())
+                    continue;
+                const Color dst = buffer.at(sx, sy);
+                const Color out = mix(dst, carried, cov * strength);
+                if (out.r == dst.r && out.g == dst.g && out.b == dst.b && out.a == dst.a)
+                    continue;
+                buffer.set(sx, sy, out);
+                bounds = Rect{ std::min(bounds.x, sx), std::min(bounds.y, sy),
+                               std::max(bounds.x + bounds.width, sx + 1) - std::min(bounds.x, sx),
+                               std::max(bounds.y + bounds.height, sy + 1) - std::min(bounds.y, sy) };
+            }
+        }
+    }
+
+    if (bounds.width == 0 || bounds.height == 0)
+        bounds = Rect{ bounds.x, bounds.y, 1, 1 };
+    return bounds.intersected(Rect{ 0, 0, buffer.width(), buffer.height() });
+}
+
 Rect BrushStroke::paint(RasterBuffer& buffer, const BrushSettings& brush,
                         const std::vector<StrokePoint>& points)
 {

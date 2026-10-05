@@ -583,6 +583,12 @@ ApplicationWindow {
                                 case AppController.FillTool:
                                     controller.fillAt(cx, cy)
                                     break
+                                case AppController.LassoFillTool:
+                                    controller.beginLassoFill(cx, cy)
+                                    break
+                                case AppController.BlendTool:
+                                    controller.beginStroke(cx, cy)
+                                    break
                                 case AppController.EyedropperTool:
                                     controller.pickColorAt(cx, cy, true)
                                     break
@@ -686,11 +692,15 @@ ApplicationWindow {
                                 case AppController.FreehandPathTool:
                                     controller.extendFreePath(cx, cy)
                                     break
+                                case AppController.LassoFillTool:
+                                    controller.extendLassoFill(cx, cy)
+                                    break
                                 case AppController.CropTool:
                                     controller.setSelection(startX, startY, cx - startX, cy - startY)
                                     break
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
+                                case AppController.BlendTool:
                                 case AppController.DynamicBrushTool:
                                     controller.extendStroke(cx, cy)
                                     break
@@ -717,6 +727,10 @@ ApplicationWindow {
                                 }
                                 if (controller.tool === AppController.FreehandPathTool) {
                                     controller.endFreePath()
+                                    return
+                                }
+                                if (controller.tool === AppController.LassoFillTool) {
+                                    controller.endLassoFill()
                                     return
                                 }
                                 if (controller.tool === AppController.CropTool) {

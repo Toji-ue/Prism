@@ -763,14 +763,157 @@ int runToolAudit()
         c.endShape();
     };
 
-    // ---- painting tools ----
-    // ---- path tools ----
-    // ---- view / edit tools ----
+    // ---- paint ----
+    fresh();
+    stroke(60, 60, 300, 200);
+    check(opaque() > 0, "Brush paints");
+
+    fresh();
+    stroke(60, 60, 300, 200);
+    const int painted = opaque();
+    c.setEraser(true);
+    stroke(60, 200, 300, 60);
+    c.setEraser(false);
+    check(opaque() < painted, "Eraser erases what was painted");
+
+    fresh();
+    c.setTool(AppController::DynamicBrushTool);
+    stroke(60, 60, 300, 200);
+    check(opaque() > 0, "Stabilized Brush paints");
+
+    fresh();
+    c.setBrushColor(QColor(0, 0, 0));
+    c.fillAt(200, 150);
+    c.setTool(AppController::BlendTool);
+    c.beginStroke(80, 150);
+    for (int i = 1; i <= 20; ++i)
+        c.extendStroke(80.0F + i * 12.0F, 150.0F);
+    c.endStroke();
+    // The smear dragged paint past the filled area, so the covered bounds grew.
+    check(qAlpha(c.canvasImage().pixel(330, 150)) > 0, "Blend smears paint along the stroke");
+
+    // ---- figures ----
+    fresh();
+    c.setTool(AppController::LineTool);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "Line draws");
+
+    fresh();
+    c.setTool(AppController::RectangleTool);
+    c.setShapeFilled(false);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "Rectangle draws an outline");
+
+    fresh();
+    c.setTool(AppController::RectangleTool);
+    c.setShapeFilled(true);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "Rectangle fills");
+    c.setShapeFilled(false);
+
+    fresh();
+    c.setTool(AppController::EllipseTool);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "Ellipse draws");
+
+    fresh();
+    c.setTool(AppController::GradientTool);
+    shape(40, 40, 340, 240);
+    check(opaque() > 0, "Gradient fills");
+
+    fresh();
+    c.setTool(AppController::TextTool);
+    c.renderText(60, 150, QStringLiteral("Prism"), 48);
+    check(opaque() > 0, "Text renders");
+
+    fresh();
+    c.setTool(AppController::PolylineTool);
+    c.addPathPoint(60, 60);
+    c.addPathPoint(200, 200);
+    c.addPathPoint(320, 80);
+    c.finishPath(0);
+    check(opaque() > 0, "Polyline draws");
+
+    fresh();
+    c.setTool(AppController::BezierTool);
+    c.addPathPoint(60, 200);
+    c.addPathPoint(200, 60);
+    c.addPathPoint(340, 200);
+    c.finishPath(1);
+    check(opaque() > 0, "Curve draws");
+
+    fresh();
+    c.setTool(AppController::FreehandPathTool);
+    c.beginFreePath(60, 60);
+    for (int i = 1; i <= 20; ++i)
+        c.extendFreePath(60.0F + i * 12.0F, 150.0F + (i % 5) * 12.0F);
+    c.endFreePath();
+    check(opaque() > 0, "Freehand Curve draws");
+
+    // ---- fill ----
+    fresh();
+    c.setBrushColor(QColor(200, 30, 30));
+    c.fillAt(200, 150);
+    check(opaque() > 0, "Fill fills the region");
+
+    fresh();
+    c.setBrushColor(QColor(30, 90, 200));
+    c.setTool(AppController::LassoFillTool);
+    c.beginLassoFill(120, 90);
+    c.extendLassoFill(300, 90);
+    c.extendLassoFill(300, 220);
+    c.extendLassoFill(120, 220);
+    c.endLassoFill();
+    check(qAlpha(c.canvasImage().pixel(210, 150)) > 0 && !c.hasSelection(),
+          "Lasso Fill fills the enclosure without selecting");
+
+    fresh();
+    c.setBrushColor(QColor(200, 30, 30));
+    stroke(60, 150, 340, 150);
+    const QColor sampled = c.pickColorAt(200, 150, false);
+    check(sampled.red() > 150 && sampled.green() < 90, "Color Picker samples the paint");
+
+    // ---- selection ----
+    fresh();
+    c.setTool(AppController::RectSelectTool);
+    c.setSelection(50, 50, 200, 150);
+    check(c.hasSelection() && c.selectionW() == 200 && c.selectionH() == 150,
+          "Rectangular Selection selects");
+
+    fresh();
+    c.setTool(AppController::EllipseSelectTool);
+    c.setEllipseSelection(50, 50, 200, 150);
+    check(c.hasSelection(), "Elliptical Selection selects");
+
+    fresh();
+    c.setTool(AppController::LassoSelectTool);
+    // QPointF items, exactly what the QML lasso feeds it.
+    c.setLassoSelection(QVariantList{ QVariant::fromValue(QPointF(60, 60)),
+                                      QVariant::fromValue(QPointF(300, 80)),
+                                      QVariant::fromValue(QPointF(200, 240)),
+                                      QVariant::fromValue(QPointF(80, 200)) });
+    check(c.hasSelection(), "Freehand Selection selects");
+
+    fresh();
+    c.setTool(AppController::PolygonSelectTool);
+    c.addPathPoint(60, 60);
+    c.addPathPoint(300, 80);
+    c.addPathPoint(200, 240);
+    c.finishPath(2);
+    check(c.hasSelection(), "Polygon Selection selects");
+
+    fresh();
+    stroke(60, 60, 340, 240);
+    c.setTool(AppController::MagicWandTool);
+    c.magicWandAt(200, 150, 24);
+    check(c.hasSelection(), "Contiguous Selection selects a region");
+
+    // ---- view / edit ----
     fresh();
     c.setTool(AppController::ZoomTool);
     const qreal z0 = c.zoom();
     c.zoomAt(200.0, 150.0, 2.0);
-    check(!qFuzzyCompare(c.zoom(), z0), "ZoomTool changes the zoom");
+    check(!qFuzzyCompare(c.zoom(), z0), "Zoom changes the zoom");
 
     fresh();
     stroke(60, 60, 200, 200);
@@ -778,20 +921,20 @@ int runToolAudit()
     const int beforeMove = opaque();
     c.moveActiveLayer(40, 25);
     check(opaque() == beforeMove && qAlpha(c.canvasImage().pixel(220, 200)) > 0,
-          "MoveTool relocates the layer content");
+          "Move relocates the layer content");
 
     fresh();
     stroke(100, 100, 300, 200);
     c.setTool(AppController::TransformTool);
     const QImage beforeTransform = c.canvasImage().copy();
     c.transformLayer(45.0F, 1.3F);
-    check(c.canvasImage() != beforeTransform, "TransformTool transforms the layer");
+    check(c.canvasImage() != beforeTransform, "Transform transforms the layer");
 
     fresh();
     stroke(100, 100, 300, 200);
     c.setTool(AppController::CropTool);
     c.cropTo(50, 50, 200, 150);
-    check(c.canvasWidth() == 200 && c.canvasHeight() == 150, "CropTool crops the canvas");
+    check(c.canvasWidth() == 200 && c.canvasHeight() == 150, "Crop crops the canvas");
 
     qInfo() << (failures == 0 ? "tooltest: PASS" : "tooltest: FAIL") << failures
             << "tool(s) not working";

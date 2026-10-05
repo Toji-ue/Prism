@@ -92,6 +92,11 @@ public:
         TransformTool,
         CropTool,
         PatternTool,
+        // --- drawing-app additions (append only: never renumber) ---
+        /// Clip Studio Paint's "Lasso fill": draw an enclosure, it fills itself.
+        LassoFillTool,
+        /// Clip Studio Paint's "Blend": smears the paint already on the layer.
+        BlendTool,
     };
     Q_ENUM(Tool)
 
@@ -195,6 +200,11 @@ public:
     Q_INVOKABLE void beginFreePath(float x, float y);
     Q_INVOKABLE void extendFreePath(float x, float y);
     Q_INVOKABLE void endFreePath();
+    /// Lasso fill (Clip Studio Paint): drag an enclosure; on release the inside
+    /// is filled with the brush colour. No selection is created.
+    Q_INVOKABLE void beginLassoFill(float x, float y);
+    Q_INVOKABLE void extendLassoFill(float x, float y);
+    Q_INVOKABLE void endLassoFill();
     /// Arc: drag from one end of the arc to the other.
     Q_INVOKABLE void beginArc(float x, float y);
     Q_INVOKABLE void updateArc(float x, float y);
@@ -439,10 +449,15 @@ private:
     std::vector<prism::canvas::StrokePoint> m_freePath;
     /// Dynamic Brush: the lagged brush position.
     prism::canvas::StrokePoint m_dynamicPos;
-    /// Eraser drag state: the active layer as it was before the drag, kept for
-    /// the undo command. The layer itself is edited live during the drag.
+    /// Live-edit drag state (eraser AND blend): the active layer as it was
+    /// before the drag, kept for the undo command. The layer is edited live.
     prism::core::raster::RasterBuffer m_eraseBefore;
     bool m_erasing = false;
+    /// Blend tool: true while smearing, plus the colour being dragged.
+    bool m_blending = false;
+    prism::core::raster::Color m_carried;
+    /// Lasso fill: the enclosure being dragged.
+    std::vector<prism::core::geometry::Point> m_lassoFill;
 
     /// Commits a patch of the active layer (shared by every non-stroke tool).
     void commitPatch(const prism::core::raster::RasterBuffer& original,
