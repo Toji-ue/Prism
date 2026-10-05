@@ -16,6 +16,9 @@
 #include <QPainter>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 
 #include <algorithm>
@@ -130,6 +133,7 @@ AppController::AppController(QObject* parent)
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
     loadRecentFiles();
+    loadUserPresets();
     // Start on the first preset so the toolbar/status bar read like a real app.
     selectPreset(0);
     rebuildFullComposite();
@@ -317,8 +321,32 @@ void AppController::addPreset()
     m_presets.push_back(preset);
     m_activePreset = presetCount() - 1;
     m_presetIntact = true;
+    saveUserPresets();
     emit presetsChanged();
     emit brushChanged();
+}
+
+bool AppController::exportBrush(const QUrl& url, int index)
+{
+    if (index < 0 || index >= presetCount())
+        return false;
+    const auto& preset = m_presets[static_cast<std::size_t>(index)];
+    return io::ProjectIO::exportBrush(preset, localPathFrom(url));
+}
+
+bool AppController::importBrush(const QUrl& url)
+{
+    const auto path = localPathFrom(url);
+    const auto maybePreset = io::ProjectIO::importBrush(path);
+    if (!maybePreset.has_value())
+        return false;
+    m_presets.push_back(maybePreset.value());
+    m_activePreset = presetCount() - 1;
+    m_presetIntact = true;
+    saveUserPresets();
+    emit presetsChanged();
+    emit brushChanged();
+    return true;
 }
 
 void AppController::removePreset(int index)
@@ -330,6 +358,7 @@ void AppController::removePreset(int index)
         return;
     m_presets.erase(m_presets.begin() + index);
     m_activePreset = std::clamp(m_activePreset, 0, presetCount() - 1);
+    saveUserPresets();
     emit presetsChanged();
     emit brushChanged();
 }
@@ -1133,6 +1162,75 @@ void AppController::loadRecentFiles()
 {
     QSettings settings;
     m_recentFiles = settings.value(QStringLiteral("recentFiles")).toStringList();
+}
+
+void AppController::loadUserPresets()
+{
+    QSettings settings;
+    const auto data = settings.value(QStringLiteral("userPresets")).toByteArray();
+    if (data.isEmpty())
+        return;
+    
+    const auto doc = QJsonDocument::fromJson(data);
+    if (!doc.isArray())
+        return;
+    
+    const auto arr = doc.array();
+    for (const auto& val : arr) {
+        if (!val.isObject())
+            continue;
+        const auto obj = val.toObject();
+        const auto name = obj["name"].toString().toStdString();
+        const auto radius = static_cast<float>(obj["radius"].toDouble(10.0));
+        const auto hardness = static_cast<float>(obj["hardness"].toDouble(1.0));
+        const auto flow = static_cast<float>(obj["flow"].toDouble(1.0));
+        const auto erase = obj["erase"].toBool(false);
+        const auto colorStr = obj["color"].toString("#000000");
+        const QColor qc(colorStr);
+        const auto color = core::raster::Color{
+            static_cast<std::uint8_t>(qc.red()),
+            static_cast<std::uint8_t>(qc.green()),
+            static_cast<std::uint8_t>(qc.blue()),
+            255
+        };
+        
+        canvas::BrushPreset preset;
+        preset.name = name;
+        preset.brush.radius = std::clamp(radius, 1.0F, 200.0F);
+        preset.brush.hardness = std::clamp(hardness, 0.0F, 1.0F);
+        preset.brush.flow = std::clamp(flow, 0.01F, 1.0F);
+        preset.brush.erase = erase;
+        preset.brush.color = color;
+        m_presets.push_back(preset);
+    }
+}
+
+void AppController::saveUserPresets()
+{
+    // Save only the user presets (not the built-ins). The built-ins are
+    // always loaded from builtinBrushPresets(), so we save starting from
+    // the first preset beyond the built-in count.
+    const auto builtinCount = canvas::builtinBrushPresets().size();
+    if (m_presets.size() <= builtinCount)
+        return; // no user presets to save
+    
+    QJsonArray arr;
+    for (std::size_t i = builtinCount; i < m_presets.size(); ++i) {
+        const auto& preset = m_presets[i];
+        QJsonObject obj;
+        obj["name"] = QString::fromStdString(preset.name);
+        obj["radius"] = preset.brush.radius;
+        obj["hardness"] = preset.brush.hardness;
+        obj["flow"] = preset.brush.flow;
+        obj["erase"] = preset.brush.erase;
+        const QColor qc(preset.brush.color.r, preset.brush.color.g, preset.brush.color.b);
+        obj["color"] = qc.name();
+        arr.append(obj);
+    }
+    
+    const QJsonDocument doc(arr);
+    QSettings settings;
+    settings.setValue(QStringLiteral("userPresets"), doc.toJson(QJsonDocument::Compact));
 }
 
 void AppController::addRecentFile(const QString& path)

@@ -2,6 +2,7 @@
 
 #include "compositor/Compositor.h"
 #include "document/Document.h"
+#include "brush/BrushPresets.h"
 
 #include <QString>
 #include <optional>
@@ -43,6 +44,12 @@ public:
     /// All raster formats the Open/Import dialogs offer, filtered to what this
     /// Qt build can actually decode (JPEG/GIF/ICO are plugins, not built in).
     [[nodiscard]] static QList<QByteArray> readableFormats();
+
+    /// Brush exchange: one `.prismbrush` file holds one preset as JSON, so a
+    /// brush can be handed to another artist and survives outside QSettings.
+    [[nodiscard]] static bool exportBrush(const prism::canvas::BrushPreset& preset,
+                                          const QString& path);
+    [[nodiscard]] static std::optional<prism::canvas::BrushPreset> importBrush(const QString& path);
 };
 
 } // namespace prism::io

@@ -146,6 +146,9 @@ public:
     Q_INVOKABLE void addPreset();
     Q_INVOKABLE void removePreset(int index);
     Q_INVOKABLE void movePreset(int index, int delta);
+    /// Import/Export brush presets as .prismbrush JSON files.
+    Q_INVOKABLE bool exportBrush(const QUrl& url, int index);
+    Q_INVOKABLE bool importBrush(const QUrl& url);
     /// Raw thumbnail bytes for the image provider (image://preset/<i>).
     QImage presetThumbnailRaw(int index, int width, int height) const;
 
@@ -403,6 +406,8 @@ private:
     void rebuildStrokePreview();
     void addRecentFile(const QString& path);
     void loadRecentFiles();
+    void loadUserPresets();
+    void saveUserPresets();
 
     prism::core::Document m_doc{ prism::core::CanvasSize{ 1280, 800, 72 } };
     prism::core::History m_history;

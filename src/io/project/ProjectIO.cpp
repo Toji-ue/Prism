@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <algorithm>
 
 #include <cstring>
 
@@ -233,6 +234,58 @@ QList<QByteArray> ProjectIO::readableFormats()
         if (supported.contains(f))
             out.append(f);
     return out;
+}
+
+bool ProjectIO::exportBrush(const prism::canvas::BrushPreset& preset, const QString& path)
+{
+    QJsonObject root;
+    root["format"] = QStringLiteral("prism-brush");
+    root["version"] = 1;
+    root["name"] = QString::fromStdString(preset.name);
+    root["radius"] = preset.brush.radius;
+    root["hardness"] = preset.brush.hardness;
+    root["flow"] = preset.brush.flow;
+    root["erase"] = preset.brush.erase;
+    root["color"] = QStringLiteral("#%1%2%3")
+                        .arg(preset.brush.color.r, 2, 16, QLatin1Char('0'))
+                        .arg(preset.brush.color.g, 2, 16, QLatin1Char('0'))
+                        .arg(preset.brush.color.b, 2, 16, QLatin1Char('0'));
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    return file.commit();
+}
+
+std::optional<prism::canvas::BrushPreset> ProjectIO::importBrush(const QString& path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return std::nullopt;
+    const QJsonDocument json = QJsonDocument::fromJson(file.readAll());
+    if (!json.isObject())
+        return std::nullopt;
+    const QJsonObject root = json.object();
+    if (root["format"].toString() != QLatin1String("prism-brush"))
+        return std::nullopt;
+
+    prism::canvas::BrushPreset preset;
+    preset.name = root["name"].toString(QStringLiteral("Imported brush")).toStdString();
+    preset.brush.radius = static_cast<float>(root["radius"].toDouble(8.0));
+    preset.brush.hardness = static_cast<float>(root["hardness"].toDouble(0.8));
+    preset.brush.flow = static_cast<float>(root["flow"].toDouble(1.0));
+    preset.brush.erase = root["erase"].toBool(false);
+    const QColor color(root["color"].toString(QStringLiteral("#000000")));
+    preset.brush.color = prism::core::raster::Color{ static_cast<std::uint8_t>(color.red()),
+                                                     static_cast<std::uint8_t>(color.green()),
+                                                     static_cast<std::uint8_t>(color.blue()), 255 };
+    // Clamp what came from the file: a hostile or hand-edited brush must not be
+    // able to hand the engine a radius of -5 (the paint path would misbehave).
+    preset.brush.radius = std::clamp(preset.brush.radius, 1.0F, 200.0F);
+    preset.brush.hardness = std::clamp(preset.brush.hardness, 0.0F, 1.0F);
+    preset.brush.flow = std::clamp(preset.brush.flow, 0.01F, 1.0F);
+    return preset;
 }
 
 } // namespace prism::io

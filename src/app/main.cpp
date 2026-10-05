@@ -709,6 +709,24 @@ int runSelfTest()
     controller.undo(); // undo the lock change; locking is a real history step
     check(true, "layer lock toggled through history");
 
+    // Brush import/export round-trip.
+    {
+        const QString brushFile = QDir::temp().filePath(QStringLiteral("prism-selftest.prismbrush"));
+        QFile::remove(brushFile);
+        const int presetsBefore = controller.presetCount();
+        controller.selectPreset(0);
+        check(controller.exportBrush(QUrl::fromLocalFile(brushFile), 0),
+              "brush export succeeds");
+        check(QFile::exists(brushFile), "brush file exists on disk");
+        check(controller.importBrush(QUrl::fromLocalFile(brushFile)),
+              "brush import succeeds");
+        check(controller.presetCount() == presetsBefore + 1,
+              "imported brush appears as a new preset");
+        // Clean up.
+        controller.removePreset(controller.presetCount() - 1);
+        QFile::remove(brushFile);
+    }
+
     // Leave no trace: earlier runs wrote their documents into the Recent list,
     // so a tester could open one and find a layer stuck at ColorDodge 60%,
     // where every stroke reads as grey. Purge those entries and the files.
@@ -717,7 +735,7 @@ int runSelfTest()
         controller.forgetRecentFilesUnder(tempDir);
         for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
                                       "prism-selftest.png", "prism-selftest.jpg",
-                                      "prism-blend.prism" })
+                                      "prism-blend.prism", "prism-selftest.prismbrush" })
             QFile::remove(tempDir + QLatin1Char('/') + QLatin1String(leftover));
         check(true, "selftest leaves no documents behind");
     }

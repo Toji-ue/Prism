@@ -135,6 +135,8 @@ ApplicationWindow {
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
             Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
             Action { text: qsTr("&Export PNG...\tCtrl+E"); onTriggered: exportDialog.open() }
+            Action { text: qsTr("Export Brush...\tCtrl+Shift+B"); onTriggered: exportBrushDialog.open() }
+            Action { text: qsTr("Import Brush..."); onTriggered: importBrushDialog.open() }
             MenuSeparator {}
             Action {
                 text: qsTr("&Start Page")
@@ -1184,6 +1186,28 @@ ApplicationWindow {
         ]
         fileMode: FileDialog.SaveFile
         onAccepted: if (!controller.saveFile(selectedFile)) console.warn("export failed")
+    }
+
+    FileDialog {
+        id: exportBrushDialog
+        title: qsTr("Export Brush")
+        nameFilters: [qsTr("Prism brush (*.prismbrush)"), qsTr("All files (*)")]
+        fileMode: FileDialog.SaveFile
+        onAccepted: {
+            if (!controller.exportBrush(selectedFile, controller.activePresetIndex))
+                console.warn("export brush failed")
+        }
+    }
+
+    FileDialog {
+        id: importBrushDialog
+        title: qsTr("Import Brush")
+        nameFilters: [qsTr("Prism brush (*.prismbrush)"), qsTr("All files (*)")]
+        fileMode: FileDialog.OpenFile
+        onAccepted: {
+            if (!controller.importBrush(selectedFile))
+                console.warn("import brush failed")
+        }
     }
 
     // Tool-shortcut editor. Single-key shortcuts (like Krita's tool keys):
