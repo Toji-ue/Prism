@@ -19,6 +19,9 @@ ApplicationWindow {
     // Injected from C++ so the image providers share this instance.
     required property AppController controller
 
+    /// Which docker the right-hand column shows: 0 Layers, 1 Brush, 2 Colour.
+    property int dockerTab: 0
+
     Component.onCompleted: showMaximized()
 
     // Opens the New Document dialog. Also used by the UI verification hook
@@ -812,21 +815,64 @@ ApplicationWindow {
                 anchors.margins: 1
                 spacing: 2
 
-                ColorSelector {
-                    id: mainColorSelector
-                    controller: root.controller
+                // One tab bar for the whole column. Three dockers used to stack
+                // with fixed proportions, so the one used constantly (Layers)
+                // always had the least room while the colour wheel held nearly
+                // half the height. Tabs give the active docker the full column.
+                Rectangle {
                     width: parent.width
-                    height: dockerArea.height * 0.44
+                    height: 26
+                    color: T.panel
+                    radius: T.radius
+
+                    Row {
+                        anchors.fill: parent
+                        anchors.margins: 2
+                        spacing: 2
+
+                        Repeater {
+                            model: [qsTr("Layers"), qsTr("Brush"), qsTr("Colour")]
+
+                            delegate: Rectangle {
+                                width: (parent.width - 4) / 3
+                                height: parent.height
+                                radius: T.radiusSmall
+                                color: root.dockerTab === index ? T.highlight
+                                                                : (tabHover.hovered
+                                                                   ? T.buttonHover : "transparent")
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    color: root.dockerTab === index ? T.highlightText : T.text
+                                    font.pixelSize: 11
+                                }
+                                HoverHandler { id: tabHover }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: root.dockerTab = index
+                                }
+                            }
+                        }
+                    }
                 }
-                LayersDocker {
-                    controller: root.controller
+
+                StackLayout {
                     width: parent.width
-                    height: dockerArea.height * 0.26 - 3
-                }
-                BrushPresetsDocker {
-                    controller: root.controller
-                    width: parent.width
-                    height: dockerArea.height * 0.30 - 4
+                    height: parent.height - 28
+                    currentIndex: root.dockerTab
+
+                    LayersDocker {
+                        controller: root.controller
+                        embedded: true
+                    }
+                    BrushPresetsDocker {
+                        controller: root.controller
+                        embedded: true
+                    }
+                    ColorSelector {
+                        id: mainColorSelector
+                        controller: root.controller
+                    }
                 }
             }
         }

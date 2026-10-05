@@ -9,6 +9,9 @@ import "Theme.js" as T
 Rectangle {
     id: docker
     required property AppController controller
+    /// True when hosted in the tabbed docker column: the tab already names the
+    /// panel, so only its action buttons are kept.
+    property bool embedded: false
 
     color: T.panel
     radius: T.radius
@@ -30,6 +33,7 @@ Rectangle {
             anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             text: qsTr("Layers")
+            visible: !docker.embedded
             color: T.text
             font.pixelSize: 11
         }

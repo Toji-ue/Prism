@@ -9,6 +9,8 @@ import "Theme.js" as T
 Rectangle {
     id: docker
     required property AppController controller
+    /// True when hosted in the tabbed docker column (see LayersDocker).
+    property bool embedded: false
 
     color: T.panel
     radius: T.radius
@@ -48,6 +50,7 @@ Rectangle {
             anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             text: qsTr("Brush Presets")
+            visible: !docker.embedded
             color: T.text
             font.pixelSize: 11
         }
