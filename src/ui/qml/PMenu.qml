@@ -23,6 +23,7 @@ Menu {
         background: Rectangle {
             color: !isSeparator && item.highlighted && item.enabled ? T.highlight
                                                                     : "transparent"
+            radius: T.radiusSmall
             Rectangle {
                 visible: item.isSeparator
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -54,5 +55,6 @@ Menu {
         color: T.popup
         border.color: T.popupBorder
         border.width: 1
+        radius: T.radiusSmall
     }
 }

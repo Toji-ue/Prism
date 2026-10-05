@@ -27,6 +27,7 @@ ComboBox {
             elide: Text.ElideRight
         }
         background: Rectangle {
+            radius: T.radiusSmall
             color: highlighted ? T.highlight : "transparent"
         }
     }
@@ -54,6 +55,7 @@ ComboBox {
         color: T.panelRaised
         border.color: T.border
         border.width: 1
+        radius: T.radiusSmall
     }
 
     popup: Popup {
@@ -66,6 +68,7 @@ ComboBox {
             color: T.popup
             border.color: T.popupBorder
             border.width: 1
+            radius: T.radiusSmall
         }
 
         contentItem: ListView {

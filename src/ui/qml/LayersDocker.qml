@@ -11,6 +11,7 @@ Rectangle {
     required property AppController controller
 
     color: T.panel
+    radius: T.radius
 
     // Opacity is edited live (no history per pixel of drag); the history
     // entry is created once on release, seeded with the drag-start value.
@@ -22,6 +23,7 @@ Rectangle {
         width: parent.width
         height: T.dockerHeaderHeight
         color: T.windowAlt
+        radius: T.radius
 
         Text {
             anchors.left: parent.left

@@ -32,6 +32,7 @@ Item {
         color: T.windowAlt
         border.color: T.border
         border.width: 1
+        radius: T.radiusSmall
     }
 
     TextInput {

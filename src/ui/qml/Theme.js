@@ -1,15 +1,21 @@
 .pragma library
 
-// Two-colour palette.
+// Prism visual identity: a warm ink-on-paper look with one coral accent.
 //
-//   light = #ffffff   (foreground: text, icons, highlights)
+//   light = #ffffff   (foreground: text, icons)
 //   dark  = #1f1f1f   (background: window, panels, canvas backdrop)
+//   accent = #ff5a4e  (active tool, selection, sliders — the one hue)
 //
-// Every other shade is mixed from those two, so the whole UI is literally two
-// colours plus automatic tints. That constraint is deliberate: it keeps the
-// interface calm, and it means adding a screen never means inventing a colour.
+// Every neutral shade is mixed from light/dark, and every "active" state uses
+// accent, so the UI stays calm while reading as clearly NOT Krita (dark,
+// angular, monochrome). Rounded corners replace the square, hairline look.
 var light = "#ffffff"
 var dark = "#1f1f1f"
+var accent = "#ff5a4e"
+
+// Corner radii, so every surface rounds the same way.
+var radius = 7
+var radiusSmall = 5
 
 /// Mix two #rrggbb colours; t = 0 returns a, t = 1 returns b.
 function mix(a, b, t) {
@@ -47,11 +53,11 @@ var text = light
 var textDim = tint(0.62)
 
 // ---- interaction ----
-// Selection is the foreground colour with inverted text, so "selected" reads
-// instantly without a second hue.
-var highlight = tint(0.88)
+// Active/selected state is the accent hue with dark text, so "selected" reads
+// instantly and gives the whole interface its signature colour.
+var highlight = accent
 var highlightText = dark
-var buttonHover = tint(0.11)
+var buttonHover = fade(accent, 0.14)
 var sliderGroove = tint(0.06)
 var danger = light
 

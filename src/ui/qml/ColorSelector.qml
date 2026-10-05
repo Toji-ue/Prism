@@ -10,6 +10,7 @@ Rectangle {
     required property AppController controller
 
     color: T.panel
+    radius: T.radius
 
     readonly property color current: controller.brushColor
     /// 0 = Advanced Color Selector, 1 = Tool Options (Krita's docker tabs).

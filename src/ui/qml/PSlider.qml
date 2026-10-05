@@ -15,14 +15,14 @@ Slider {
         y: control.topPadding + control.availableHeight / 2 - height / 2
         width: control.availableWidth
         height: 4
-        radius: 2
+        radius: T.radiusSmall
         color: T.sliderGroove
         border.color: T.border
 
         Rectangle {
             width: control.visualPosition * parent.width
             height: parent.height
-            radius: 2
+            radius: T.radiusSmall
             color: T.highlight
         }
     }

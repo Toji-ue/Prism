@@ -11,6 +11,7 @@ Rectangle {
     required property AppController controller
 
     color: T.panel
+    radius: T.radius
 
     // Filter state — the grid shows preset indices that survive the filter.
     property string query: ""

@@ -15,6 +15,7 @@ Rectangle {
     color: T.panel
     border.color: T.border
     border.width: 1
+    radius: T.radius
 
     // ready: true  -> working tool
     // ready: false -> shown disabled with an explanatory tooltip
@@ -105,6 +106,7 @@ Rectangle {
                            : (hover.hovered && modelData.ready ? T.buttonHover : T.windowAlt)
                     border.color: T.border
                     border.width: 1
+                    radius: T.radiusSmall
                     // Unimplemented tools are visibly inert, never silently dead.
                     opacity: modelData.ready ? 1.0 : 0.35
 
