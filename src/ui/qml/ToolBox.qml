@@ -19,37 +19,36 @@ Rectangle {
 
     // ready: true  -> working tool
     // ready: false -> shown disabled with an explanatory tooltip
+    //
+    // Scoped to what a DRAWING app needs (Clip Studio Paint's set), not a
+    // bitmap editor's. Dropped: Multibrush and Magnetic/Outline/Bezier/Similar
+    // selection (photo-retouch selections), Pattern and Arc (material/photo
+    // tools). The engine still implements them; only the product exposes a
+    // smaller, drawing-first set.
     readonly property var tools: [
         { icon: "brush",       name: qsTr("Freehand Brush"),         key: "B", tool: AppController.BrushTool,             ready: true },
         { icon: "eraser",      name: qsTr("Eraser"),                 key: "E", tool: AppController.EraserTool,            ready: true },
+        { icon: "dynamic",     name: qsTr("Stabilized Brush"),       key: "",  tool: AppController.DynamicBrushTool,      ready: true },
         { icon: "line",        name: qsTr("Line"),                   key: "L", tool: AppController.LineTool,              ready: true },
+        { icon: "polyline",    name: qsTr("Polyline"),               key: "",  tool: AppController.PolylineTool,          ready: true },
+        { icon: "bezier",      name: qsTr("Curve"),                  key: "",  tool: AppController.BezierTool,            ready: true },
+        { icon: "path",        name: qsTr("Freehand Curve"),         key: "",  tool: AppController.FreehandPathTool,      ready: true },
         { icon: "select-rect", name: qsTr("Rectangle"),              key: "R", tool: AppController.RectangleTool,         ready: true },
         { icon: "ellipse",     name: qsTr("Ellipse"),                key: "O", tool: AppController.EllipseTool,           ready: true },
-        { icon: "gradient",    name: qsTr("Gradient"),               key: "G", tool: AppController.GradientTool,          ready: true },
         { icon: "fill",        name: qsTr("Fill"),                   key: "F", tool: AppController.FillTool,              ready: true },
+        { icon: "gradient",    name: qsTr("Gradient"),               key: "G", tool: AppController.GradientTool,          ready: true },
         { icon: "picker",      name: qsTr("Color Picker"),           key: "I", tool: AppController.EyedropperTool,        ready: true },
-        { icon: "pan",         name: qsTr("Pan"),                    key: "",  tool: AppController.PanTool,               ready: true },
-        { icon: "zoom",        name: qsTr("Zoom"),                   key: "Z", tool: AppController.ZoomTool,              ready: true },
         { icon: "select-rect-dashed", name: qsTr("Rectangular Selection"),  key: "M", tool: AppController.RectSelectTool,        ready: true },
         { icon: "select-ellipse-dashed", name: qsTr("Elliptical Selection"),   key: "",  tool: AppController.EllipseSelectTool,     ready: true },
         { icon: "lasso",       name: qsTr("Freehand Selection"),     key: "",  tool: AppController.LassoSelectTool,       ready: true },
         { icon: "polygon",     name: qsTr("Polygon Selection"),      key: "",  tool: AppController.PolygonSelectTool,     ready: true },
         { icon: "wand",        name: qsTr("Contiguous Selection"),   key: "W", tool: AppController.MagicWandTool,         ready: true },
-        { icon: "similar",     name: qsTr("Similar Color Selection"), key: "", tool: AppController.SimilarColorSelectTool, ready: true },
         { icon: "move",        name: qsTr("Move Layer"),             key: "V", tool: AppController.MoveTool,              ready: true },
-        { icon: "text",        name: qsTr("Text"),                   key: "",  tool: AppController.TextTool,              ready: true },
-        { icon: "polyline",    name: qsTr("Polyline"),               key: "",  tool: AppController.PolylineTool,          ready: true },
-        { icon: "bezier",      name: qsTr("Bezier Curve"),           key: "",  tool: AppController.BezierTool,            ready: true },
-        { icon: "path",        name: qsTr("Freehand Path"),          key: "",  tool: AppController.FreehandPathTool,      ready: true },
-        { icon: "arc",         name: qsTr("Arc"),                    key: "",  tool: AppController.ArcTool,               ready: true },
-        { icon: "multibrush",  name: qsTr("Multibrush"),             key: "",  tool: AppController.MultiBrushTool,        ready: true },
-        { icon: "dynamic",     name: qsTr("Dynamic Brush"),          key: "",  tool: AppController.DynamicBrushTool,      ready: true },
-        { icon: "bezier",      name: qsTr("Bezier Selection"),       key: "",  tool: AppController.BezierSelectTool,      ready: true },
-        { icon: "magnetic",    name: qsTr("Magnetic Selection"),     key: "",  tool: AppController.MagneticSelectTool,    ready: true },
-        { icon: "outline",     name: qsTr("Outline Selection"),      key: "",  tool: AppController.OutlineSelectTool,     ready: true },
         { icon: "transform",   name: qsTr("Transform"),              key: "",  tool: AppController.TransformTool,         ready: true },
+        { icon: "text",        name: qsTr("Text"),                   key: "",  tool: AppController.TextTool,              ready: true },
         { icon: "crop",        name: qsTr("Crop"),                   key: "",  tool: AppController.CropTool,              ready: true },
-        { icon: "pattern",     name: qsTr("Pattern"),                key: "",  tool: AppController.PatternTool,           ready: true }
+        { icon: "pan",         name: qsTr("Pan"),                    key: "",  tool: AppController.PanTool,               ready: true },
+        { icon: "zoom",        name: qsTr("Zoom"),                   key: "Z", tool: AppController.ZoomTool,              ready: true }
     ]
 
     // Current tool, always visible at the top so it is obvious which tool is

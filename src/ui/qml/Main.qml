@@ -605,24 +605,13 @@ ApplicationWindow {
                                 case AppController.MagicWandTool:
                                     controller.magicWandAt(cx, cy, 32)
                                     break
-                                case AppController.OutlineSelectTool:
-                                    controller.selectOutlineAt(cx, cy)
-                                    break
-                                case AppController.SimilarColorSelectTool:
-                                    controller.similarColorAt(cx, cy, 32)
-                                    break
                                 // Click-based paths: collect points, finish with Enter.
                                 case AppController.PolylineTool:
                                 case AppController.BezierTool:
-                                case AppController.BezierSelectTool:
-                                case AppController.MagneticSelectTool:
                                     controller.addPathPoint(cx, cy)
                                     break
                                 case AppController.FreehandPathTool:
                                     controller.beginFreePath(cx, cy)
-                                    break
-                                case AppController.ArcTool:
-                                    controller.beginArc(cx, cy)
                                     break
                                 case AppController.CropTool:
                                     controller.setSelection(cx, cy, 0, 0)
@@ -632,14 +621,8 @@ ApplicationWindow {
                                     textPopup.pendingY = cy
                                     textPopup.open()
                                     break
-                                case AppController.PatternTool:
-                                    controller.fillPattern(patternMenu.index, 16)
-                                    break
                                 case AppController.TransformTool:
                                     draggingLayer = true
-                                    break
-                                case AppController.MultiBrushTool:
-                                    controller.beginStroke(cx, cy)
                                     break
                                 case AppController.DynamicBrushTool:
                                     controller.beginStroke(cx, cy)
@@ -703,15 +686,11 @@ ApplicationWindow {
                                 case AppController.FreehandPathTool:
                                     controller.extendFreePath(cx, cy)
                                     break
-                                case AppController.ArcTool:
-                                    controller.updateArc(cx, cy)
-                                    break
                                 case AppController.CropTool:
                                     controller.setSelection(startX, startY, cx - startX, cy - startY)
                                     break
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
-                                case AppController.MultiBrushTool:
                                 case AppController.DynamicBrushTool:
                                     controller.extendStroke(cx, cy)
                                     break
@@ -738,10 +717,6 @@ ApplicationWindow {
                                 }
                                 if (controller.tool === AppController.FreehandPathTool) {
                                     controller.endFreePath()
-                                    return
-                                }
-                                if (controller.tool === AppController.ArcTool) {
-                                    controller.endArc()
                                     return
                                 }
                                 if (controller.tool === AppController.CropTool) {
