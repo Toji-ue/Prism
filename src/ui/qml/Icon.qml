@@ -9,7 +9,9 @@ Canvas {
 
     property string name: "brush"
     property color color: T.text
-    property real strokeWidth: 1.4
+    // 1.7 on the 16px grid: line icons this small need weight to stay legible
+    // inside 26px chips — 1.4 read as thin grey hair at arm's length.
+    property real strokeWidth: 1.7
 
     implicitWidth: 18
     implicitHeight: 18
@@ -365,7 +367,7 @@ Canvas {
             ctx.closePath()
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(8, 8, 2, 0, Math.PI * 2)
+            ctx.arc(8, 8, 2.4, 0, Math.PI * 2)
             ctx.fill()
             break
 

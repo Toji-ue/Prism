@@ -289,8 +289,8 @@ ApplicationWindow {
 
             Repeater {
                 model: [
-                    { icon: "undo", tip: qsTr("Undo"),    act: "undo", on: controller.canUndo },
-                    { icon: "redo", tip: qsTr("Redo"),    act: "redo", on: controller.canRedo }
+                    { icon: "undo", tip: qsTr("Undo (Ctrl+Z)"),    act: "undo", on: controller.canUndo },
+                    { icon: "redo", tip: qsTr("Redo (Ctrl+Shift+Z or Ctrl+Y)"), act: "redo", on: controller.canRedo }
                 ]
                 delegate: Rectangle {
                     width: 24; height: 24
