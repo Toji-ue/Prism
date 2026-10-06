@@ -64,6 +64,8 @@ Rectangle {
             Repeater {
                 model: [
                     { icon: "plus",       tip: qsTr("Save current brush as preset"), act: "add" },
+                    { icon: "file-open",  tip: qsTr("Import brush from .prismbrush file"), act: "import" },
+                    { icon: "export",     tip: qsTr("Export active brush to .prismbrush file"), act: "export" },
                     { icon: "arrow-up",   tip: qsTr("Move preset up"),   act: "up" },
                     { icon: "arrow-down", tip: qsTr("Move preset down"), act: "down" },
                     { icon: "trash",      tip: qsTr("Delete preset"),    act: "del" }
@@ -83,10 +85,12 @@ Rectangle {
                         onClicked: {
                             var i = docker.controller.activePresetIndex
                             switch (modelData.act) {
-                            case "add":  docker.controller.addPreset(); break
-                            case "up":   docker.controller.movePreset(i, 1); break
-                            case "down": docker.controller.movePreset(i, -1); break
-                            case "del":  docker.controller.removePreset(i); break
+                            case "add":    docker.controller.addPreset(); break
+                            case "import": brushImportDialog.open(); break
+                            case "export": brushExportDialog.open(); break
+                            case "up":     docker.controller.movePreset(i, 1); break
+                            case "down":   docker.controller.movePreset(i, -1); break
+                            case "del":    docker.controller.removePreset(i); break
                             }
                         }
                     }
@@ -362,6 +366,23 @@ Rectangle {
         title: qsTr("Select a tip image (max 1024x1024)")
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.bmp)") ]
         onAccepted: docker.controller.loadTipImage(selectedFile)
+    }
+
+    FileDialog {
+        id: brushImportDialog
+        title: qsTr("Import brush")
+        nameFilters: [ qsTr("Prism brush (*.prismbrush)") ]
+        onAccepted: docker.controller.importBrush(selectedFile)
+    }
+
+    FileDialog {
+        id: brushExportDialog
+        title: qsTr("Export brush")
+        fileMode: FileDialog.SaveFile
+        nameFilters: [ qsTr("Prism brush (*.prismbrush)") ]
+        defaultSuffix: "prismbrush"
+        onAccepted: docker.controller.exportBrush(selectedFile,
+                                                 docker.controller.activePresetIndex)
     }
 
     // ---- search row ----
