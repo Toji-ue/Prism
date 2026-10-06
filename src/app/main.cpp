@@ -662,6 +662,23 @@ int runSelfTest()
         check(!openFilters.filter(QStringLiteral("jpeg")).isEmpty()
                   == QImageReader::supportedImageFormats().contains(QByteArray("jpeg")),
               "Open advertises JPEG only when Qt can read it");
+        // The dialog opens with the first filter. If that is a single format, a
+        // folder holding only a .jpg shows an empty list and the user reports
+        // "there is no image to import" — so the first entry must accept every
+        // format we can read.
+        const QString firstFilter = openFilters.first();
+        const QStringList openPatterns = firstFilter.mid(firstFilter.indexOf(QLatin1Char('(')) + 1)
+                                             .chopped(1)
+                                             .split(QLatin1Char(' '));
+        QStringList missingFromFirst;
+        for (const QByteArray& f : prism::io::ProjectIO::readableFormats())
+            if (!openPatterns.contains(QStringLiteral("*.") + QString::fromLatin1(f)))
+                missingFromFirst << QString::fromLatin1(f);
+        if (!missingFromFirst.isEmpty())
+            qWarning().noquote() << "not in the default Open filter:"
+                                 << missingFromFirst.join(QLatin1Char(' '));
+        check(missingFromFirst.isEmpty(),
+              "the Open dialog opens on a filter that accepts every readable format");
         // A raw path string into the layer import must also work for the
         // formats whose plugin is optional (jpg arrived percent-encoded too).
         check(controller.imageOpenFilters().size() > 3, "open filters list real formats");

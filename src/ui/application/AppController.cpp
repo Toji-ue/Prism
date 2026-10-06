@@ -1915,7 +1915,18 @@ QStringList AppController::writableFormatNames() const
 
 QStringList AppController::imageOpenFilters() const
 {
-    return filterStringsFor(io::ProjectIO::readableFormats());
+    const QList<QByteArray> formats = io::ProjectIO::readableFormats();
+    QStringList out = filterStringsFor(formats);
+    // "Everything we can read" goes FIRST, because the first entry is the
+    // filter the dialog opens with. Defaulting to a per-format filter means a
+    // folder whose only image is a .jpg looks empty under "PNG image (*.png)",
+    // and the user concludes the app cannot import their picture at all.
+    QStringList patterns;
+    for (const QByteArray& f : formats)
+        patterns << QStringLiteral("*.") + QString::fromLatin1(f);
+    if (!patterns.isEmpty())
+        out.prepend(tr("Images (%1)").arg(patterns.join(QLatin1Char(' '))));
+    return out;
 }
 
 QStringList AppController::imageSaveFilters() const
