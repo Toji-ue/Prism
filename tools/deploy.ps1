@@ -50,20 +50,32 @@ if ($built -ne $deployed) {
     throw "Deploy mismatch: build=$built deploy=$deployed"
 }
 
-# Image format plugins. Without them only PNG works: JPEG/GIF/ICO are plugins.
+# Image format plugins. Qt keeps PNG in QtGui and ships everything else as a
+# plugin, so a deploy without plugins\imageformats cannot read a .jpg at all.
+# Copy EVERY plugin the Qt install has (WebP, TIFF, TGA, ICNS, JP2, ...) rather
+# than a hand-picked few: the Open dialog derives its filters from the formats
+# this Qt build reports, so a missing plugin means the user's image is not even
+# selectable — which reads as "it does not accept this format".
 $imageFormats = Join-Path $target '..\plugins\imageformats'
 New-Item -ItemType Directory -Force -Path $imageFormats | Out-Null
-foreach ($plugin in @('qjpeg.dll', 'qgif.dll', 'qico.dll')) {
-    $from = Join-Path $qtPlugins "imageformats\$plugin"
-    if (Test-Path $from) {
-        Copy-Item $from $imageFormats -Force
-    } else {
-        Write-Warning "missing Qt plugin: $from"
-    }
+$plugins = Get-ChildItem (Join-Path $qtPlugins 'imageformats') -Filter 'q*.dll' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notlike '*.debug' }
+if (-not $plugins) {
+    Write-Warning "no image format plugins in $(Join-Path $qtPlugins 'imageformats')"
+}
+foreach ($plugin in @($plugins)) {
+    Copy-Item $plugin.FullName $imageFormats -Force
 }
 
-# Non-Qt libraries the plugins link against (qjpeg -> libjpeg-8).
-foreach ($lib in @('libjpeg-8.dll')) {
+# Non-Qt libraries those plugins link against (qwebp -> libwebp-7, qtiff ->
+# libtiff-6, qjp2 -> libjasper, qmng -> libmng-2). The --check-formats probe
+# below is what catches a missing one.
+# ponytail: explicit list, not a PE import walk; add a name when a new plugin
+# needs it.
+foreach ($lib in @('libjpeg-8.dll', 'libwebp-7.dll', 'libwebpdemux-2.dll', 'libwebpmux-3.dll',
+                   'libsharpyuv-0.dll', 'libtiff-6.dll', 'liblzma-5.dll', 'libdeflate.dll',
+                   'libjbig-0.dll', 'libLerc.dll', 'libjasper.dll', 'libmng-2.dll',
+                   'liblcms2-2.dll')) {
     $from = Join-Path $msysBin $lib
     if (Test-Path $from) {
         Copy-Item $from (Join-Path $target '..') -Force

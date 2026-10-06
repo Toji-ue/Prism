@@ -1,4 +1,4 @@
-﻿#include <QGuiApplication>
+#include <QGuiApplication>
 #include <QImageReader>
 #include <QImageWriter>
 #include <QInputDevice>
@@ -665,6 +665,40 @@ int runSelfTest()
         // A raw path string into the layer import must also work for the
         // formats whose plugin is optional (jpg arrived percent-encoded too).
         check(controller.imageOpenFilters().size() > 3, "open filters list real formats");
+        // Every format Qt can decode must be selectable in the dialog. The old
+        // fixed whitelist hid .jfif/.webp/.tga from the file picker, so the
+        // user's image could not even be chosen ("it does not accept the
+        // format"). The list is derived now; this is the guard against drift.
+        const QString allOpenFilters = openFilters.join(QLatin1Char(' '));
+        QStringList notSelectable;
+        for (const QByteArray& f : prism::io::ProjectIO::readableFormats())
+            if (!allOpenFilters.contains(QStringLiteral("*.") + QString::fromLatin1(f)))
+                notSelectable << QString::fromLatin1(f);
+        if (!notSelectable.isEmpty())
+            qWarning().noquote() << "formats hidden from the Open dialog:"
+                                 << notSelectable.join(QLatin1Char(' '));
+        check(notSelectable.isEmpty(), "every readable format is selectable in the Open dialog");
+    }
+
+    // WebP is the format browsers and social sites hand users, and its plugin is
+    // the one this Qt build does NOT ship by default — the reported "I cannot
+    // import my image" case. Same shape as the JPEG check above: skip loudly
+    // when the plugin is absent, never silently green.
+    {
+        if (!QImageWriter::supportedImageFormats().contains(QByteArray("webp"))) {
+            qInfo() << "SKIP webp import: no webp plugin in this run directory"
+                       " (tools/deploy.ps1 installs the Qt image format plugins)";
+        } else {
+            const QString webp = QDir::temp().filePath(QStringLiteral("prism-selftest.webp"));
+            QFile::remove(webp);
+            check(controller.saveFile(QUrl::fromLocalFile(webp)), "saveFile writes a WebP");
+            controller.newDocument(320, 240);
+            const int layersBeforeWebp = controller.layers()->rowCount();
+            check(controller.importImageAsLayer(QUrl::fromLocalFile(webp)),
+                  "import a WebP as a layer");
+            check(controller.layers()->rowCount() == layersBeforeWebp + 1,
+                  "WebP import added exactly one layer");
+        }
     }
 
     // Tool shortcuts are configurable and persisted; conflicts are resolved.
@@ -1104,6 +1138,7 @@ int runSelfTest()
         controller.forgetRecentFilesUnder(tempDir);
         for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
                                       "prism-selftest.png", "prism-selftest.jpg",
+                                      "prism-selftest.webp",
                                       "prism-blend.prism", "prism-selftest.prismbrush",
                                       "prism-selftest-v1.prismbrush",
                                       "prism-selftest-bad.prismbrush",
@@ -1405,7 +1440,7 @@ int main(int argc, char* argv[])
         qInfo().noquote() << "writable:" << writeList.join(QLatin1Char(' '));
 
         QStringList missing;
-        for (const char* required : { "png", "jpg", "jpeg" })
+        for (const char* required : { "png", "jpg", "jpeg", "webp", "tiff" })
             if (!readable.contains(QByteArray(required)))
                 missing << QString::fromLatin1(required);
         if (!missing.isEmpty()) {

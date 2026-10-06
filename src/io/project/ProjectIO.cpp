@@ -223,15 +223,21 @@ QList<QByteArray> ProjectIO::writableFormats()
 
 QList<QByteArray> ProjectIO::readableFormats()
 {
-    // Ordered by usefulness for a drawing app, filtered to what this Qt build
-    // can actually decode (JPEG/GIF/ICO arrive as plugins).
-    static const QList<QByteArray> candidates = {
-        "png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "gif", "ppm", "pgm", "pbm", "ico",
+    // Common formats first, then EVERYTHING else this Qt build can decode.
+    // The tail must stay derived from Qt: the fixed whitelist that used to live
+    // here silently dropped supported extensions (.jfif, .tga, .jp2) from the
+    // file dialogs, so the user's image was not even selectable — which reads
+    // as "the app does not accept this format".
+    static const QList<QByteArray> preferred = {
+        "png", "jpg", "jpeg", "jfif", "webp", "tif", "tiff", "bmp", "gif", "tga",
     };
     const QList<QByteArray> supported = QImageReader::supportedImageFormats();
     QList<QByteArray> out;
-    for (const QByteArray& f : candidates)
+    for (const QByteArray& f : preferred)
         if (supported.contains(f))
+            out.append(f);
+    for (const QByteArray& f : supported)
+        if (!out.contains(f))
             out.append(f);
     return out;
 }

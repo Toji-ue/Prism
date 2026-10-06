@@ -124,6 +124,12 @@ clang-tidy -p build <files>     # lint
 
 Add presets in `CMakePresets.json` rather than inventing ad-hoc flag combinations.
 
+**Qt toolchain (MSYS2 UCRT64).** PNG lives in QtGui; every other image format is a plugin, and
+`mingw-w64-ucrt-x86_64-qt6-base` ships only JPEG/GIF/ICO. Run
+`pacman -S mingw-w64-ucrt-x86_64-qt6-imageformats` once or the build cannot read WebP/TIFF/TGA at
+all — `tools/deploy.ps1` copies whatever plugins exist and then fails on `--check-formats` if the
+essentials are missing, so a machine without the package cannot ship a silently crippled installer.
+
 ## Core domain concepts
 
 Understand these before touching canvas, rendering, or history code:
