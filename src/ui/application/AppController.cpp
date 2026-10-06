@@ -2161,6 +2161,7 @@ float AppController::shapedPressure(float pressure) const
 void AppController::beginStroke(float x, float y, float pressure)
 {
     m_currentStroke.clear();
+    m_smoothedPressure = pressure;
     m_currentStroke.push_back({ x, y, shapedPressure(pressure) });
     // Only the region the previous stroke touched can still hold preview
     // pixels; clearing the whole canvas here (a full-buffer memset, 64 MB on a
@@ -2236,16 +2237,20 @@ void AppController::extendStroke(float x, float y, float pressure)
     if (m_currentStroke.empty())
         return;
     const auto prev = m_currentStroke.back();
+    // One bad sample must not spike the stamp: the raw pen signal dips at tip
+    // contact and jitters sample to sample, so follow it with a lag.
+    m_smoothedPressure += (pressure - m_smoothedPressure) * 0.4F;
+    const float penPressure = m_smoothedPressure;
     // Dynamic Brush lags behind the pointer: the painted point eases toward the
     // input instead of jumping to it, which is what gives the tool its weight.
     if (m_tool == Tool::DynamicBrushTool) {
         constexpr float kFollow = 0.35F;
         m_dynamicPos.x += (x - m_dynamicPos.x) * kFollow;
         m_dynamicPos.y += (y - m_dynamicPos.y) * kFollow;
-        m_dynamicPos.pressure = shapedPressure(pressure);
+        m_dynamicPos.pressure = shapedPressure(penPressure);
         m_currentStroke.push_back(m_dynamicPos);
     } else {
-        m_currentStroke.push_back({ x, y, shapedPressure(pressure) });
+        m_currentStroke.push_back({ x, y, shapedPressure(penPressure) });
     }
     const auto current = m_currentStroke.back();
 

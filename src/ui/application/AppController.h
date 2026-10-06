@@ -479,6 +479,10 @@ private:
     std::vector<prism::canvas::StrokePoint> m_freePath;
     /// Dynamic Brush: the lagged brush position.
     prism::canvas::StrokePoint m_dynamicPos;
+    /// Smoothed pen pressure for the stroke in progress. Real tablets report a
+    /// noisy signal (and a dip right at tip contact), which otherwise spikes the
+    /// stamp size sample to sample.
+    float m_smoothedPressure = 1.0F;
     /// Live-edit drag state (eraser AND blend): the active layer as it was
     /// before the drag, kept for the undo command. The layer is edited live.
     prism::core::raster::RasterBuffer m_eraseBefore;

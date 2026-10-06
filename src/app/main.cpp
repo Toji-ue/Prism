@@ -107,7 +107,10 @@ int countOpaquePixels(const QImage& img)
 /// falls through to the normal mouse path untouched.
 class TabletStrokeFilter : public QObject {
 public:
-    explicit TabletStrokeFilter(AppController* controller) : m_controller(controller) {}
+    explicit TabletStrokeFilter(AppController* controller, bool trace = false)
+        : m_controller(controller), m_trace(trace)
+    {
+    }
 
     bool eventFilter(QObject* watched, QEvent* event) override
     {
@@ -148,6 +151,37 @@ public:
             x = m_controller->canvasWidth() - x;
         if (m_controller->mirrorVertical())
             y = m_controller->canvasHeight() - y;
+
+        // --tablet-trace: what the driver actually sends, and where it lands.
+        // Drawn strokes coming out angular has three candidate causes — sparse
+        // samples, a coordinate/DPI mismatch, or a broken pressure signal — and
+        // they are indistinguishable from a screenshot.
+        if (m_trace) {
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            const qreal dt = m_lastMs > 0 ? static_cast<qreal>(now - m_lastMs) : 0.0;
+            const qreal gap = m_haveLast ? std::hypot(x - m_lastX, y - m_lastY) : 0.0;
+            m_lastMs = now;
+            m_lastX = x;
+            m_lastY = y;
+            m_haveLast = true;
+            m_samples++;
+            m_length += gap;
+            m_maxGap = std::max(m_maxGap, gap);
+            if (m_samples == 1) {
+                // A pen position that does not agree with the system cursor is a
+                // coordinate-space (DPI) mismatch, not a stroke-quality problem.
+                const QPointF cursorLocal = window->mapFromGlobal(QCursor::pos());
+                m_firstDt = now;
+                qInfo().noquote()
+                    << "tablet-trace: press raw" << tablet->position() << "cursor"
+                    << QPointF(cursorLocal) << "devicePixelRatio" << window->devicePixelRatio()
+                    << "zoom" << m_controller->zoom() << "canvas" << QPointF(x, y);
+            } else {
+                qInfo().noquote() << "tablet-trace: move" << m_samples << "raw"
+                                  << tablet->position() << "canvas" << QPointF(x, y) << "pressure"
+                                  << tablet->pressure() << "dt(ms)" << dt << "gap(px)" << gap;
+            }
+        }
         if (x < 0 || y < 0 || x >= m_controller->canvasWidth()
             || y >= m_controller->canvasHeight())
             return false; // over UI: let the mouse path click it
@@ -168,17 +202,42 @@ public:
             m_stroking = false;
             qInfo() << "tablet: stroke committed, pressure range" << m_minPressure << "-"
                     << m_maxPressure;
+            if (m_trace && m_samples > 0) {
+                const qreal seconds = (QDateTime::currentMSecsSinceEpoch() - m_firstDt) / 1000.0;
+                qInfo().noquote()
+                    << "tablet-trace: stroke summary: samples" << m_samples << "in" << seconds
+                    << "s (" << (m_samples / std::max(0.001, seconds)) << "Hz ) path" << m_length
+                    << "px, longest straight run" << m_maxGap << "px"
+                    << (m_maxGap > 0.25 * m_length
+                            ? "  <-- input is starving or jumping"
+                            : "");
+            }
             m_minPressure = 1.0F;
             m_maxPressure = 0.0F;
+            m_samples = 0;
+            m_length = 0.0;
+            m_maxGap = 0.0;
+            m_haveLast = false;
+            m_lastMs = 0;
         }
         return true; // consumed: no synthesized mouse, no double stroke
     }
 
 private:
     AppController* m_controller;
+    bool m_trace = false;
     bool m_stroking = false;
     float m_minPressure = 1.0F;
     float m_maxPressure = 0.0F;
+    // Trace-only state.
+    int m_samples = 0;
+    qreal m_length = 0.0;
+    qreal m_maxGap = 0.0;
+    qreal m_lastX = 0.0;
+    qreal m_lastY = 0.0;
+    qint64 m_lastMs = 0;
+    qint64 m_firstDt = 0;
+    bool m_haveLast = false;
 };
 
 /// --tablettest: drives a real QTabletEvent stroke (pressure ramp 0.15 -> 1.0)
@@ -237,11 +296,29 @@ void runTabletTest(AppController* controller, QQmlApplicationEngine* engine)
     };
     const QImage img = controller->canvasImage();
     const int y = static_cast<int>(start.y() / zoom);
-    const int alphaLow = qAlpha(img.pixel(static_cast<int>(canvasX(start.x() + 30)), y));
+    // Sampled at the FIRST stamp of the stroke, not 30px in: consecutive stamps
+    // overlap, so along the path the alpha saturates at 255 whatever the
+    // pressure is, and the probe silently measured nothing once the light-touch
+    // stamp got big enough. The starting dot only gets the initial deposit.
+    const int alphaLow = qAlpha(img.pixel(static_cast<int>(canvasX(start.x() + 1)), y));
     const int alphaHigh = qAlpha(img.pixel(static_cast<int>(canvasX(end.x() - 30)), y));
+    // Stroke width at each end. Pressure scales the stamp radius, so a pen that
+    // touches lightly gets a *thinner* line — and with no floor the light end
+    // collapses to a scratch. Counting painted pixels per column makes that
+    // measurable instead of a matter of opinion.
+    const auto widthAt = [&img, y](int cx) {
+        int count = 0;
+        for (int sy = std::max(0, y - 40); sy < std::min(img.height(), y + 40); ++sy)
+            if (qAlpha(img.pixel(cx, sy)) > 0)
+                ++count;
+        return count;
+    };
+    const int widthLow = widthAt(static_cast<int>(canvasX(start.x() + 30)));
+    const int widthHigh = widthAt(static_cast<int>(canvasX(end.x() - 30)));
     const bool pass = alphaHigh > alphaLow && alphaLow > 0;
     qInfo() << "tablettest:" << (pass ? "PASS" : "FAIL") << "alpha at light end" << alphaLow
-            << "at heavy end" << alphaHigh << "(pressure must raise the deposit)";
+            << "at heavy end" << alphaHigh << "(pressure must raise the deposit)"
+            << "| width" << widthLow << "->" << widthHigh << "px";
     QCoreApplication::exit(pass ? 0 : 1);
 }
 
@@ -1145,6 +1222,37 @@ int runSelfTest()
         controller.setPressureCurve(1.0);
         controller.setPressureOpacity(false);
         controller.undo();
+
+        // Pen pressure is noisy and dips at tip contact. A single bad sample
+        // must not spike the stamp size, and a light touch must keep most of the
+        // brush: raw linear scaling from zero drew 0.6px scratches and made the
+        // width swing 3x inside one stroke (user report: "broken, angular
+        // lines"). Measure the painted width after a dip and after a peak.
+        auto strokeWidthAt = [&controller](float firstPressure, float dipPressure) {
+            controller.beginStroke(40.0F, 200.0F, firstPressure);
+            for (int i = 1; i <= 12; ++i)
+                controller.extendStroke(40.0F + i * 8.0F, 200.0F,
+                                        i == 6 ? dipPressure : firstPressure);
+            controller.endStroke();
+            const QImage img = controller.canvasImage();
+            const int x = 110; // just past the dipped sample, still inside the line
+            int painted = 0;
+            for (int y = 170; y < 230; ++y)
+                if (qAlpha(img.pixel(x, y)) > 0)
+                    ++painted;
+            controller.undo();
+            return painted;
+        };
+        controller.setBrushSize(20.0F);
+        const int steady = strokeWidthAt(0.9F, 0.9F);
+        const int dipped = strokeWidthAt(0.9F, 0.05F);
+        check(steady > 0 && dipped > 0 && dipped * 1.6F >= steady,
+              "one low-pressure sample does not collapse the stroke width");
+        // Same probe without the smoothing lag would drop to ~55%: assert the
+        // light touch itself keeps at least half the brush.
+        const int allLight = strokeWidthAt(0.15F, 0.15F);
+        check(allLight * 2 > steady,
+              "a light pen touch keeps at least half of the brush size");
     }
 
     // Leave no trace: earlier runs wrote their documents into the Recent list,
@@ -1511,10 +1619,12 @@ int main(int argc, char* argv[])
     }
 
     // Tablet pressure: intercept QTabletEvents on the window (see
-    // TabletStrokeFilter) so pen strokes carry real pressure.
+    // TabletStrokeFilter) so pen strokes carry real pressure. --tablet-trace
+    // logs every pen event, for diagnosing strokes that come out angular.
     if (!engine.rootObjects().isEmpty()) {
         if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
-            auto* tabletFilter = new TabletStrokeFilter(controller);
+            auto* tabletFilter = new TabletStrokeFilter(
+                controller, app.arguments().contains(QStringLiteral("--tablet-trace")));
             tabletFilter->setParent(window);
             window->installEventFilter(tabletFilter);
         }

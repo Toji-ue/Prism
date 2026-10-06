@@ -27,7 +27,13 @@ void BrushStroke::stamp(RasterBuffer& buffer, const BrushSettings& brush, float 
                         float pressure, Rect& bounds)
 {
     const float p = std::clamp(pressure, 0.05F, 1.0F);
-    const float radius = std::max(brush.radius * p, 0.6F);
+    // Pressure scales the stamp, but only across the top half of the range:
+    // a pen that barely touches the tablet (drivers report 0.01-0.2 for a light
+    // touch) must still draw with the brush the user picked. Scaling linearly
+    // from zero turned every light stroke into a 0.6px scratch and made the
+    // width swing 3x within one stroke, which reads as broken, angular lines.
+    const float sizePressure = 0.5F + 0.5F * p;
+    const float radius = std::max(brush.radius * sizePressure, 1.0F);
     const float rCeil = std::ceil(radius + 0.5F);
     const int x0 = static_cast<int>(std::floor(cx - rCeil));
     const int y0 = static_cast<int>(std::floor(cy - rCeil));

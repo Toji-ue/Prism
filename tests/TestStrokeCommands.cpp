@@ -96,6 +96,27 @@ TEST(BrushStrokeTest, HardCircleCoversFullRadius)
     EXPECT_EQ(rect.height, 7);
 }
 
+TEST(BrushStrokeTest, LightPenTouchKeepsMostOfTheBrushSize)
+{
+    // A real tablet reports 0.01-0.2 for a light touch. Scaling the radius from
+    // zero turned those strokes into 0.6px scratches and swung the width 3x
+    // inside one stroke, which the user saw as broken, angular lines.
+    const auto width = [](float pressure) {
+        raster::RasterBuffer buf(64, 64);
+        BrushSettings b{ .radius = 20.0F, .hardness = 1.0F, .color = raster::kOpaqueWhite,
+                         .flow = 1.0F };
+        const auto rect = BrushStroke::paint(buf, b, { { 32.0F, 32.0F, pressure } });
+        return rect.width;
+    };
+    const int light = width(0.15F);
+    const int full = width(1.0F);
+    EXPECT_GT(light, 0);
+    // Half the brush at the lightest touch, full size at full pressure, and
+    // never more than a 2.1x swing between them.
+    EXPECT_GE(light, full * 0.5F);
+    EXPECT_LE(static_cast<float>(full) / static_cast<float>(light), 2.1F);
+}
+
 TEST(BrushStrokeTest, StrokeClipsAtCanvasEdge)
 {
     raster::RasterBuffer buf(32, 32);
