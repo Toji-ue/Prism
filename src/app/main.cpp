@@ -1,11 +1,14 @@
-#include <QGuiApplication>
+﻿#include <QGuiApplication>
 #include <QImageReader>
 #include <QImageWriter>
+#include <QInputDevice>
 #include <QMouseEvent>
 #include <QPalette>
+#include <QPointingDevice>
 #include <QQmlApplicationEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QTabletEvent>
 #include <QTest>
 #include <QTimer>
 #include <QVariant>
@@ -59,7 +62,7 @@ void logToFile(QtMsgType type, const QMessageLogContext&, const QString& msg)
 ///
 /// QObject::findChild is not enough: items created by a Repeater (or by any
 /// delegate) are visual children with no QObject parent, so a toolbar button
-/// built from a model is invisible to findChild — which is why the verification
+/// built from a model is invisible to findChild â€” which is why the verification
 /// hooks below use this instead.
 QQuickItem* findItemByName(QQuickItem* root, const QString& name)
 {
@@ -94,6 +97,152 @@ int countOpaquePixels(const QImage& img)
             if (qAlpha(img.pixel(x, y)) > 0)
                 ++count;
     return count;
+}
+
+/// Qt Quick's MouseArea only sees tablet input as synthesized mouse events,
+/// which carry no pressure. This filter intercepts real QTabletEvents on the
+/// window and drives the stroke tools with actual pen pressure; consuming the
+/// event also suppresses the synthesized mouse press, so the stroke is not
+/// drawn twice. Everything that is not a stroke tool (pan, select, shapes)
+/// falls through to the normal mouse path untouched.
+class TabletStrokeFilter : public QObject {
+public:
+    explicit TabletStrokeFilter(AppController* controller) : m_controller(controller) {}
+
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        switch (event->type()) {
+        case QEvent::TabletPress: case QEvent::TabletMove: case QEvent::TabletRelease: break;
+        default: return false;
+        }
+        auto* tablet = static_cast<QTabletEvent*>(event);
+        const auto pointer = tablet->pointerType();
+        if (pointer != QPointingDevice::PointerType::Pen
+            && pointer != QPointingDevice::PointerType::Eraser)
+            return false;
+        if (!m_stroking && event->type() != QEvent::TabletPress)
+            return false; // hover moves must not paint
+        switch (m_controller->tool()) {
+        case AppController::BrushTool:
+        case AppController::EraserTool:
+        case AppController::DynamicBrushTool:
+        case AppController::BlendTool:
+            break;
+        default:
+            return false; // non-stroke tools keep the synthesized-mouse path
+        }
+        if (m_controller->startPageVisible())
+            return false;
+
+        auto* window = qobject_cast<QQuickWindow*>(watched);
+        auto* area = window
+            ? findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea"))
+            : nullptr;
+        if (!area)
+            return false;
+        // Window -> mouse-area -> canvas, the same math as the QML canvasX/Y.
+        const QPointF local = area->mapFromScene(tablet->position());
+        qreal x = local.x() / m_controller->zoom();
+        qreal y = local.y() / m_controller->zoom();
+        if (m_controller->mirrorHorizontal())
+            x = m_controller->canvasWidth() - x;
+        if (m_controller->mirrorVertical())
+            y = m_controller->canvasHeight() - y;
+        if (x < 0 || y < 0 || x >= m_controller->canvasWidth()
+            || y >= m_controller->canvasHeight())
+            return false; // over UI: let the mouse path click it
+
+        // Some drivers report 0 pressure at first contact; treat as full.
+        const float pressure = tablet->pressure() > 0.0
+            ? static_cast<float>(tablet->pressure()) : 1.0F;
+        m_minPressure = std::min(m_minPressure, pressure);
+        m_maxPressure = std::max(m_maxPressure, pressure);
+
+        if (event->type() == QEvent::TabletPress) {
+            m_controller->beginStroke(static_cast<float>(x), static_cast<float>(y), pressure);
+            m_stroking = true;
+        } else if (event->type() == QEvent::TabletMove) {
+            m_controller->extendStroke(static_cast<float>(x), static_cast<float>(y), pressure);
+        } else {
+            m_controller->endStroke();
+            m_stroking = false;
+            qInfo() << "tablet: stroke committed, pressure range" << m_minPressure << "-"
+                    << m_maxPressure;
+            m_minPressure = 1.0F;
+            m_maxPressure = 0.0F;
+        }
+        return true; // consumed: no synthesized mouse, no double stroke
+    }
+
+private:
+    AppController* m_controller;
+    bool m_stroking = false;
+    float m_minPressure = 1.0F;
+    float m_maxPressure = 0.0F;
+};
+
+/// --tablettest: drives a real QTabletEvent stroke (pressure ramp 0.15 -> 1.0)
+/// through the window filter and checks the painted alpha followed the
+/// pressure. Verifies the tablet path on a machine with no tablet; a real pen
+/// is verified by drawing (every stroke logs its pressure range).
+void runTabletTest(AppController* controller, QQmlApplicationEngine* engine)
+{
+    if (engine->rootObjects().isEmpty()) {
+        qWarning() << "tablettest: no window";
+        QCoreApplication::exit(1);
+        return;
+    }
+    controller->setPressureOpacity(true);
+    controller->setStartPageVisible(false);
+    controller->newDocument(640, 480);
+    controller->setBrushColor(QColor(0, 0, 0));
+    controller->setBrushSize(24.0F);
+
+    auto* window = qobject_cast<QQuickWindow*>(engine->rootObjects().first());
+    auto* area = window ? findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea"))
+                        : nullptr;
+    if (!area) {
+        qWarning() << "tablettest: canvasMouseArea not found";
+        QCoreApplication::exit(1);
+        return;
+    }
+    // A synthetic pen: stylus device, pressure capable.
+    static QPointingDevice pen(QStringLiteral("test-pen"), 1, QInputDevice::DeviceType::Stylus,
+                               QPointingDevice::PointerType::Pen,
+                               QInputDevice::Capability::Pressure, 1, 1);
+    // Positions are mouse-area local, sent as window coords.
+    const QPointF start(0.25 * area->width(), 0.5 * area->height());
+    const QPointF end(0.75 * area->width(), 0.5 * area->height());
+    const auto send = [window, area](QEvent::Type type, const QPointF& p, qreal pressure,
+                                     Qt::MouseButtons buttons) {
+        const QPointF w = area->mapToScene(p);
+        QTabletEvent ev(type, &pen, w, w, pressure, 0.0F, 0.0F, 0.0F, 0.0, 0.0F, Qt::NoModifier,
+                        Qt::LeftButton, buttons);
+        QCoreApplication::sendEvent(window, &ev);
+    };
+    send(QEvent::TabletPress, start, 0.15, Qt::LeftButton);
+    for (int i = 1; i <= 30; ++i) {
+        const qreal t = i / 30.0;
+        send(QEvent::TabletMove,
+             QPointF(start.x() + (end.x() - start.x()) * t, start.y() + (end.y() - start.y()) * t),
+             0.15 + 0.85 * t, Qt::LeftButton);
+    }
+    send(QEvent::TabletRelease, end, 1.0, Qt::NoButton);
+
+    // Same canvas mapping the filter uses, for the pixel checks.
+    const qreal zoom = controller->zoom();
+    const auto canvasX = [controller, zoom](qreal localX) {
+        const qreal x = localX / zoom;
+        return controller->mirrorHorizontal() ? controller->canvasWidth() - x : x;
+    };
+    const QImage img = controller->canvasImage();
+    const int y = static_cast<int>(start.y() / zoom);
+    const int alphaLow = qAlpha(img.pixel(static_cast<int>(canvasX(start.x() + 30)), y));
+    const int alphaHigh = qAlpha(img.pixel(static_cast<int>(canvasX(end.x() - 30)), y));
+    const bool pass = alphaHigh > alphaLow && alphaLow > 0;
+    qInfo() << "tablettest:" << (pass ? "PASS" : "FAIL") << "alpha at light end" << alphaLow
+            << "at heavy end" << alphaHigh << "(pressure must raise the deposit)";
+    QCoreApplication::exit(pass ? 0 : 1);
 }
 
 /// Headless smoke test of the same code path the canvas UI drives: stroke,
@@ -469,7 +618,7 @@ int runSelfTest()
         // Regression: QML converts a plain path string to QUrl, which parses
         // "C" as a scheme and percent-encodes the backslashes. That made the
         // import fail with an empty/garbled file name while the file dialog
-        // path worked — i.e. "import does nothing" depending on the caller.
+        // path worked â€” i.e. "import does nothing" depending on the caller.
         const QUrl fromPlainString(png);
         check(fromPlainString.toLocalFile().isEmpty(),
               "a Windows path string is NOT a local file url (bug precondition)");
@@ -563,7 +712,7 @@ int runSelfTest()
 
     // Painting must keep the brush colour, and the DEFAULT colour must be a real
     // black rather than a washed-out grey. No earlier check looked at the RGB of
-    // a stroke — only its alpha and pixel count — so a colour loss anywhere in
+    // a stroke â€” only its alpha and pixel count â€” so a colour loss anywhere in
     // the preview -> commit path would have gone unnoticed. (Placed here because
     // it swaps the document; the checks above still need the original canvas.)
     {
@@ -649,7 +798,7 @@ int runSelfTest()
 
         // Raise/Lower must move the layer UP the stack (higher index). The
         // docker draws the top layer first, so a raise has to increase the
-        // index — the opposite mapping made the arrows look swapped.
+        // index â€” the opposite mapping made the arrows look swapped.
         controller.setActiveLayerIndex(0);
         const QString bottomName = controller.layers()
                                        ->data(controller.layers()->index(0, 0),
@@ -970,7 +1119,7 @@ int runSelfTest()
     return failures == 0 ? 0 : 1;
 }
 
-/// Audits every tool for its ACTUAL EFFECT, not just that it can be selected —
+/// Audits every tool for its ACTUAL EFFECT, not just that it can be selected â€”
 /// "all tools selectable without crashing" is what let broken tools ship.
 /// Each tool runs on a fresh document and has to change something observable.
 int runToolAudit()
@@ -1241,7 +1390,7 @@ int main(int argc, char* argv[])
     // Verification hook: reports which image formats this build can actually
     // read and write, and fails if the essentials are missing. Qt keeps PNG in
     // QtGui but ships JPEG/GIF/ICO as plugins, so a deploy without
-    // plugins\imageformats cannot open a .jpg at all — that silently looked
+    // plugins\imageformats cannot open a .jpg at all â€” that silently looked
     // like "import image as layer does nothing". tools/deploy.ps1 runs this.
     if (app.arguments().contains(QStringLiteral("--check-formats"))) {
         const QList<QByteArray> readable = QImageReader::supportedImageFormats();
@@ -1299,6 +1448,26 @@ int main(int argc, char* argv[])
         Qt::QueuedConnection);
     engine.load(url);
 
+    // --tablettest runs on its own timer: it must not sit behind the
+    // --screenshot gate, or invoking it alone leaves the app up doing nothing.
+    if (app.arguments().contains(QStringLiteral("--tablettest"))) {
+        QTimer::singleShot(1500, &app, [controller, &engine]() { runTabletTest(controller, &engine); });
+        QTimer::singleShot(30000, &app, []() {
+            qWarning() << "tablettest: timed out";
+            QCoreApplication::exit(1);
+        });
+    }
+
+    // Tablet pressure: intercept QTabletEvents on the window (see
+    // TabletStrokeFilter) so pen strokes carry real pressure.
+    if (!engine.rootObjects().isEmpty()) {
+        if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+            auto* tabletFilter = new TabletStrokeFilter(controller);
+            tabletFilter->setParent(window);
+            window->installEventFilter(tabletFilter);
+        }
+    }
+
     // Verification hook: --screenshot=<path> grabs the rendered window once
     // the scene is up. OS-level capture (PrintWindow) cannot see Qt Quick's
     // Direct3D content, so the app renders its own proof image.
@@ -1331,7 +1500,7 @@ int main(int argc, char* argv[])
                 demoImport = a.section(QLatin1Char('='), 1);
         // --demo-drag-slider=<objectName>: sends real mouse press/move/release
         // events to a slider. Binding-vs-drag bugs are invisible to any other
-        // kind of test — the property changes, only the interaction is broken.
+        // kind of test â€” the property changes, only the interaction is broken.
         QString demoDragSlider;
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-drag-slider=")))
@@ -1356,7 +1525,7 @@ int main(int argc, char* argv[])
                 demoActive = a.section(QLatin1Char('='), 1);
         // --demo-stroke-bench=N: drives N real mouse moves across the canvas and
         // reports frame timing and texture-upload volume. Latency work has to be
-        // measured, not guessed — and this hook works on the old and new
+        // measured, not guessed â€” and this hook works on the old and new
         // renderer alike, so the numbers are comparable.
         int demoStrokeBench = 0;
         for (const QString& a : app.arguments())
@@ -1392,6 +1561,10 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-stress-ops=")))
                 demoStressOps = a.section(QLatin1Char('='), 1);
+        // --tablettest: synthesizes a real QTabletEvent stroke (pressure ramp)
+        // through the window filter and verifies the painted alpha follows the
+        // pressure. Proves the tablet path without hardware; the real pen is
+        // then verified by just drawing (each stroke logs its pressure range).
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
                                        demoClick, demoActive, demoStrokeBench, demoDocW, demoDocH,

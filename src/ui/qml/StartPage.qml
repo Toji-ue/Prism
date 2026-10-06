@@ -236,9 +236,25 @@ Rectangle {
                                 height: 62
                                 radius: T.radiusSmall
                                 color: T.panelSunken
+                                // Show the file's own picture. Qt decodes any
+                                // raster format itself, so no provider is
+                                // needed; .prism projects (and anything that
+                                // fails to load) keep the format icon.
+                                Image {
+                                    id: recentThumb
+                                    anchors.fill: parent
+                                    anchors.margins: 3
+                                    asynchronous: true
+                                    fillMode: Image.PreserveAspectFit
+                                    sourceSize.width: 100
+                                    sourceSize.height: 56
+                                    source: modelData.name.endsWith(".prism") ? "" : modelData.url
+                                    visible: status === Image.Ready
+                                }
                                 Icon {
                                     anchors.centerIn: parent
                                     width: 28; height: 28
+                                    visible: recentThumb.status !== Image.Ready
                                     name: modelData.name.endsWith(".prism")
                                           ? "file-save" : "file-open"
                                     color: rh.hovered ? T.highlight : T.textDim

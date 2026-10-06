@@ -492,6 +492,7 @@ ApplicationWindow {
 
                         MouseArea {
                             id: canvasMouse
+                            objectName: "canvasMouseArea"
                             anchors.fill: parent
                             acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                             // The brush draws its own grey size ring; the
