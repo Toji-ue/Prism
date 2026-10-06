@@ -1,5 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
+import QtQuick.Layouts
 import Prism.Ui 1.0
 import "Theme.js" as T
 
@@ -148,7 +150,7 @@ Rectangle {
         anchors.topMargin: 4
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: searchRow.top
+        anchors.bottom: tipEditor.top
         anchors.leftMargin: 4
         anchors.rightMargin: 4
         clip: true
@@ -189,6 +191,177 @@ Rectangle {
             ToolTip.delay: 500
             ToolTip.text: docker.controller.presetName(presetIndex)
         }
+    }
+
+    // ---- tip editor ----
+    // Edits the active brush's tip: shape, roundness, angle, image, and the
+    // pressure dynamics. Everything writes straight through to the controller,
+    // so an edited tip is what the next stroke paints with.
+    Column {
+        id: tipEditor
+        anchors.bottom: searchRow.top
+        anchors.bottomMargin: 4
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: 4
+        anchors.rightMargin: 4
+        spacing: 3
+
+        Rectangle { width: parent.width; height: 1; color: T.border }
+
+        Row {
+            spacing: 4
+            Text {
+                text: qsTr("Tip:")
+                color: T.textDim
+                font.pixelSize: 10
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            // Round / Square / Image selector.
+            Repeater {
+                model: [
+                    { label: qsTr("Round"),  act: "round" },
+                    { label: qsTr("Square"), act: "square" },
+                    { label: qsTr("Image"),  act: "image" }
+                ]
+                delegate: Rectangle {
+                    width: 44; height: 18
+                    readonly property bool on:
+                        modelData.act === "image" ? docker.controller.tipIsImage
+                        : !docker.controller.tipIsImage && docker.controller.brushTipSquare === (modelData.act === "square")
+                    color: on ? T.highlight : T.windowAlt
+                    border.color: on ? T.highlight : T.border
+                    Text {
+                        anchors.centerIn: parent
+                        text: modelData.label
+                        color: on ? T.highlightText : T.text
+                        font.pixelSize: 9
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (modelData.act === "image")
+                                tipImageDialog.open()
+                            else
+                                docker.controller.brushTipSquare = (modelData.act === "square")
+                        }
+                    }
+                }
+            }
+            // Leave an image tip back to procedural defaults.
+            Rectangle {
+                visible: docker.controller.tipIsImage
+                width: 18; height: 18
+                color: clearTipHover.hovered ? T.buttonHover : "transparent"
+                Icon { anchors.centerIn: parent; width: 12; height: 12; name: "close"; color: T.textDim }
+                HoverHandler { id: clearTipHover }
+                MouseArea { anchors.fill: parent; onClicked: docker.controller.clearTipImage() }
+                ToolTip.visible: clearTipHover.hovered
+                ToolTip.text: qsTr("Remove tip image")
+            }
+        }
+
+        Row {
+            spacing: 4
+            Text {
+                text: qsTr("Round:")
+                color: T.textDim
+                font.pixelSize: 10
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Slider {
+                id: roundnessSlider
+                objectName: "tipRoundnessSlider"
+                width: tipEditor.width - 110
+                from: 0.05; to: 1
+                value: docker.controller.brushTipRoundness
+                onMoved: docker.controller.brushTipRoundness = value
+                Connections {
+                    target: docker.controller
+                    function onBrushChanged() {
+                        if (!roundnessSlider.pressed)
+                            roundnessSlider.value = docker.controller.brushTipRoundness
+                    }
+                }
+            }
+            Text {
+                text: Math.round(docker.controller.brushTipRoundness * 100) + "%"
+                color: T.text
+                font.pixelSize: 10
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        Row {
+            spacing: 4
+            Text {
+                text: qsTr("Angle:")
+                color: T.textDim
+                font.pixelSize: 10
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Slider {
+                id: angleSlider
+                objectName: "tipAngleSlider"
+                width: tipEditor.width - 110
+                from: 0; to: 359
+                stepSize: 1
+                value: docker.controller.brushTipAngle
+                onMoved: docker.controller.brushTipAngle = value
+                Connections {
+                    target: docker.controller
+                    function onBrushChanged() {
+                        if (!angleSlider.pressed)
+                            angleSlider.value = docker.controller.brushTipAngle
+                    }
+                }
+            }
+            Text {
+                text: Math.round(docker.controller.brushTipAngle) + "°"
+                color: T.text
+                font.pixelSize: 10
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        Row {
+            spacing: 4
+            CheckBox {
+                id: pressureOpacityBox
+                objectName: "pressureOpacityBox"
+                text: qsTr("P→Opacity")
+                checked: docker.controller.pressureOpacity
+                onToggled: docker.controller.pressureOpacity = checked
+                font.pixelSize: 10
+                Connections {
+                    target: docker.controller
+                    function onBrushChanged() {
+                        pressureOpacityBox.checked = docker.controller.pressureOpacity
+                    }
+                }
+            }
+            Text {
+                text: qsTr("Curve:")
+                color: T.textDim
+                font.pixelSize: 10
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Slider {
+                id: curveSlider
+                objectName: "pressureCurveSlider"
+                width: tipEditor.width - 190
+                from: 0.3; to: 3
+                value: docker.controller.pressureCurve
+                onMoved: docker.controller.pressureCurve = value
+            }
+        }
+    }
+
+    FileDialog {
+        id: tipImageDialog
+        title: qsTr("Select a tip image (max 1024x1024)")
+        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.bmp)") ]
+        onAccepted: docker.controller.loadTipImage(selectedFile)
     }
 
     // ---- search row ----

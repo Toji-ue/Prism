@@ -37,6 +37,14 @@ class AppController : public QObject {
     Q_PROPERTY(float brushSize READ brushSize WRITE setBrushSize NOTIFY brushChanged)
     Q_PROPERTY(float brushHardness READ brushHardness WRITE setBrushHardness NOTIFY brushChanged)
     Q_PROPERTY(float brushFlow READ brushFlow WRITE setBrushFlow NOTIFY brushChanged)
+    Q_PROPERTY(bool brushTipSquare READ brushTipSquare WRITE setBrushTipSquare NOTIFY brushChanged)
+    Q_PROPERTY(float brushTipRoundness READ brushTipRoundness WRITE setBrushTipRoundness NOTIFY brushChanged)
+    Q_PROPERTY(float brushTipAngle READ brushTipAngle WRITE setBrushTipAngle NOTIFY brushChanged)
+    Q_PROPERTY(bool pressureOpacity READ pressureOpacity WRITE setPressureOpacity NOTIFY brushChanged)
+    Q_PROPERTY(bool tipIsImage READ tipIsImage NOTIFY brushChanged)
+    /// Pressure curve gamma (0.3 soft .. 3.0 hard). Applied to incoming pen
+    /// pressure before the engine sees it.
+    Q_PROPERTY(qreal pressureCurve READ pressureCurve WRITE setPressureCurve NOTIFY brushChanged)
     Q_PROPERTY(bool eraser READ eraser WRITE setEraser NOTIFY brushChanged)
     Q_PROPERTY(qreal zoom READ zoom WRITE setZoom NOTIFY viewChanged)
     Q_PROPERTY(int tool READ tool WRITE setTool NOTIFY toolChanged)
@@ -121,6 +129,20 @@ public:
     void setBrushHardness(float hardness);
     float brushFlow() const;
     void setBrushFlow(float flow);
+    bool brushTipSquare() const;
+    void setBrushTipSquare(bool square);
+    float brushTipRoundness() const;
+    void setBrushTipRoundness(float roundness);
+    float brushTipAngle() const;
+    void setBrushTipAngle(float angle);
+    bool pressureOpacity() const;
+    void setPressureOpacity(bool on);
+    bool tipIsImage() const;
+    /// Loads a grayscale PNG (max 1024x1024) as the brush tip.
+    Q_INVOKABLE bool loadTipImage(const QUrl& url);
+    Q_INVOKABLE void clearTipImage();
+    qreal pressureCurve() const;
+    void setPressureCurve(qreal gamma);
     bool eraser() const;
     void setEraser(bool erase);
     qreal zoom() const;
@@ -381,8 +403,10 @@ public:
     Q_INVOKABLE void fitToViewport(qreal viewportWidth, qreal viewportHeight);
 
     // --- stroking ---------------------------------------------------------
-    Q_INVOKABLE void beginStroke(float x, float y);
-    Q_INVOKABLE void extendStroke(float x, float y);
+    Q_INVOKABLE void beginStroke(float x, float y, float pressure = 1.0F);
+    Q_INVOKABLE void extendStroke(float x, float y, float pressure = 1.0F);
+    /// Applies the pressure-curve gamma to a raw pressure value.
+    float shapedPressure(float pressure) const;
     Q_INVOKABLE void endStroke();
 
 signals:
@@ -413,6 +437,7 @@ private:
     prism::core::History m_history;
     prism::canvas::Compositor m_compositor{ m_doc };
     prism::canvas::BrushSettings m_brush;
+    qreal m_pressureCurve = 1.0;
     std::vector<prism::canvas::StrokePoint> m_currentStroke;
     prism::core::raster::RasterBuffer m_preview;
     prism::core::geometry::Rect m_strokeDirty;

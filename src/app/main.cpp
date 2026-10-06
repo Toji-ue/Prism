@@ -860,6 +860,93 @@ int runSelfTest()
         QFile::remove(bigFile);
     }
 
+    // Brush tip rendering: the engine must actually paint with the tip.
+    {
+        controller.newDocument(400, 300);
+        controller.selectPreset(0);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.setBrushSize(40.0F);
+        controller.setBrushHardness(1.0F);
+
+        // Square tip paints the bbox corners a round tip leaves empty.
+        controller.setBrushTipSquare(true);
+        controller.beginStroke(100.0F, 100.0F);
+        controller.endStroke();
+        const QImage sq = controller.canvasImage();
+        check(qAlpha(sq.pixel(100 + 30, 100 + 30)) > 0, "square tip paints the corner");
+        check(qAlpha(sq.pixel(100 - 30, 100 - 30)) > 0, "square tip paints the opposite corner");
+        controller.undo();
+
+        // Roundness squashes the tip vertically.
+        controller.setBrushTipSquare(false);
+        controller.setBrushTipRoundness(0.3F);
+        controller.beginStroke(100.0F, 100.0F);
+        controller.endStroke();
+        const QImage flat = controller.canvasImage();
+        check(qAlpha(flat.pixel(100, 100 - 34)) == 0 && qAlpha(flat.pixel(100 + 34, 100)) > 0,
+              "roundness flattens the tip vertically, not horizontally");
+        controller.undo();
+
+        // Angle rotates the flattened tip.
+        controller.setBrushTipAngle(90.0F);
+        controller.beginStroke(100.0F, 100.0F);
+        controller.endStroke();
+        const QImage rotated = controller.canvasImage();
+        check(qAlpha(rotated.pixel(100 + 34, 100)) == 0
+                  && qAlpha(rotated.pixel(100, 100 - 34)) > 0,
+              "angle rotates the flattened tip");
+        controller.setBrushTipAngle(0.0F);
+        controller.setBrushTipRoundness(1.0F);
+        controller.undo();
+
+        // Image tip: a white-centre / black-rim PNG must paint the centre only.
+        QImage tipImg(64, 64, QImage::Format_Grayscale8);
+        tipImg.fill(0);
+        for (int y = 16; y < 48; ++y)
+            for (int x = 16; x < 48; ++x)
+                tipImg.setPixel(x, y, 255);
+        const QString tipPath = QDir::temp().filePath(QStringLiteral("prism-selftest-tip.png"));
+        tipImg.save(tipPath);
+        check(controller.loadTipImage(QUrl::fromLocalFile(tipPath)), "tip image loads");
+        check(controller.tipIsImage(), "tip switched to image kind");
+        controller.beginStroke(200.0F, 100.0F);
+        controller.endStroke();
+        const QImage masked = controller.canvasImage();
+        check(qAlpha(masked.pixel(200, 100)) > 0, "image tip paints its solid centre");
+        check(qAlpha(masked.pixel(200 + 30, 100 + 30)) == 0, "image tip leaves its empty rim");
+        check(!controller.loadTipImage(
+                  QUrl::fromLocalFile(QDir::temp().filePath(QStringLiteral("no-such.png")))),
+              "missing tip image fails with an error");
+        controller.clearTipImage();
+        check(!controller.tipIsImage(), "clearTipImage returns to procedural");
+
+        // Pressure dynamics: pressure scales alpha when enabled.
+        controller.setBrushSize(20.0F);
+        controller.setPressureOpacity(true);
+        controller.beginStroke(100.0F, 200.0F, 1.0F);
+        controller.endStroke();
+        const QRgb full = controller.canvasImage().pixel(100, 200);
+        controller.undo();
+        controller.beginStroke(100.0F, 200.0F, 0.3F);
+        controller.endStroke();
+        const QRgb light = controller.canvasImage().pixel(100, 200);
+        check(qAlpha(full) == 255 && qAlpha(light) < 120,
+              "pressureOpacity scales deposited alpha by pressure");
+        controller.undo();
+
+        // Pressure curve hardens: gamma 2 at pressure .5 must paint fainter
+        // than gamma 1 at pressure .5.
+        controller.setPressureCurve(2.0);
+        controller.beginStroke(100.0F, 200.0F, 0.5F);
+        controller.endStroke();
+        const QRgb curved = controller.canvasImage().pixel(100, 200);
+        check(qAlpha(curved) < qAlpha(light),
+              "pressure curve gamma > 1 paints lighter at the same pressure");
+        controller.setPressureCurve(1.0);
+        controller.setPressureOpacity(false);
+        controller.undo();
+    }
+
     // Leave no trace: earlier runs wrote their documents into the Recent list,
     // so a tester could open one and find a layer stuck at ColorDodge 60%,
     // where every stroke reads as grey. Purge those entries and the files.
@@ -872,7 +959,8 @@ int runSelfTest()
                                       "prism-selftest-v1.prismbrush",
                                       "prism-selftest-bad.prismbrush",
                                       "prism-selftest-imgtip.prismbrush",
-                                      "prism-selftest-bigtip.prismbrush" })
+                                      "prism-selftest-bigtip.prismbrush",
+                                      "prism-selftest-tip.png" })
             QFile::remove(tempDir + QLatin1Char('/') + QLatin1String(leftover));
         check(true, "selftest leaves no documents behind");
     }

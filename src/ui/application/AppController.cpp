@@ -10,6 +10,7 @@
 #include "shapes/Shapes.h"
 
 #include <QCoreApplication>
+#include <QBuffer>
 #include <QClipboard>
 #include <QDir>
 #include <QFont>
@@ -212,6 +213,103 @@ void AppController::setBrushFlow(float flow)
 {
     m_brush.flow = std::clamp(flow, 0.01F, 1.0F);
     m_presetIntact = false;
+    emit brushChanged();
+}
+
+bool AppController::brushTipSquare() const
+{
+    return m_brush.tip.shape == canvas::BrushTip::Shape::Square;
+}
+
+void AppController::setBrushTipSquare(bool square)
+{
+    // Switching to the procedural editor implicitly leaves an image tip.
+    m_brush.tip.kind = canvas::BrushTip::Kind::Procedural;
+    m_brush.tip.shape = square ? canvas::BrushTip::Shape::Square
+                               : canvas::BrushTip::Shape::Round;
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+float AppController::brushTipRoundness() const { return m_brush.tip.roundness; }
+
+void AppController::setBrushTipRoundness(float roundness)
+{
+    m_brush.tip.roundness = std::clamp(roundness, 0.02F, 1.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+float AppController::brushTipAngle() const { return m_brush.tip.angle; }
+
+void AppController::setBrushTipAngle(float angle)
+{
+    m_brush.tip.angle = std::fmod(std::fabs(angle), 360.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+bool AppController::pressureOpacity() const { return m_brush.pressureOpacity; }
+
+void AppController::setPressureOpacity(bool on)
+{
+    m_brush.pressureOpacity = on;
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+bool AppController::tipIsImage() const
+{
+    return m_brush.tip.kind == canvas::BrushTip::Kind::Image;
+}
+
+bool AppController::loadTipImage(const QUrl& url)
+{
+    const QString path = localPathFrom(url);
+    QImage image(path);
+    if (image.isNull()) {
+        setLastError(tr("Tip image could not be loaded: %1").arg(path));
+        return false;
+    }
+    if (image.width() > 1024 || image.height() > 1024) {
+        setLastError(tr("Tip image is too large (max 1024x1024): %1x%2")
+                         .arg(image.width())
+                         .arg(image.height()));
+        return false;
+    }
+
+    // Re-encode as PNG so the tip carries its own bytes for export.
+    QByteArray png;
+    QBuffer buf(&png);
+    buf.open(QIODevice::WriteOnly);
+    image.save(&buf, "PNG");
+
+    const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+    auto& tip = m_brush.tip;
+    tip.kind = canvas::BrushTip::Kind::Image;
+    tip.image.mime = "image/png";
+    tip.image.invert = false;
+    tip.image.data.assign(png.begin(), png.end());
+    tip.image.maskW = gray.width();
+    tip.image.maskH = gray.height();
+    tip.image.mask.assign(gray.constBits(), gray.constBits() + gray.sizeInBytes());
+    m_presetIntact = false;
+    emit brushChanged();
+    return true;
+}
+
+void AppController::clearTipImage()
+{
+    m_brush.tip = canvas::BrushTip{};
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+qreal AppController::pressureCurve() const { return m_pressureCurve; }
+
+void AppController::setPressureCurve(qreal gamma)
+{
+    m_pressureCurve = std::clamp(gamma, 0.3, 3.0);
     emit brushChanged();
 }
 
@@ -1188,6 +1286,7 @@ void AppController::loadUserPresets()
         const auto hardness = static_cast<float>(obj["hardness"].toDouble(1.0));
         const auto flow = static_cast<float>(obj["flow"].toDouble(1.0));
         const auto erase = obj["erase"].toBool(false);
+        const auto pressureOpacity = obj["pressureOpacity"].toBool(false);
         const auto colorStr = obj["color"].toString("#000000");
         const QColor qc(colorStr);
         const auto color = core::raster::Color{
@@ -1203,6 +1302,7 @@ void AppController::loadUserPresets()
         preset.brush.hardness = std::clamp(hardness, 0.0F, 1.0F);
         preset.brush.flow = std::clamp(flow, 0.01F, 1.0F);
         preset.brush.erase = erase;
+        preset.brush.pressureOpacity = pressureOpacity;
         preset.brush.color = color;
         preset.brush.tip = io::ProjectIO::brushTipFromJson(obj["tip"].toObject());
         m_presets.push_back(preset);
@@ -1227,6 +1327,7 @@ void AppController::saveUserPresets()
         obj["hardness"] = preset.brush.hardness;
         obj["flow"] = preset.brush.flow;
         obj["erase"] = preset.brush.erase;
+        obj["pressureOpacity"] = preset.brush.pressureOpacity;
         const QColor qc(preset.brush.color.r, preset.brush.color.g, preset.brush.color.b);
         obj["color"] = qc.name();
         obj["tip"] = io::ProjectIO::brushTipToJson(preset.brush.tip);
@@ -2039,10 +2140,17 @@ QString AppController::windowTitle() const
 
 // ------------------------------------------------------------------- stroking
 
-void AppController::beginStroke(float x, float y)
+float AppController::shapedPressure(float pressure) const
+{
+    // Gamma curve: >1 hardens (light presses stay thin/faint), <1 softens.
+    const float p = std::clamp(pressure, 0.0F, 1.0F);
+    return std::pow(p, static_cast<float>(m_pressureCurve));
+}
+
+void AppController::beginStroke(float x, float y, float pressure)
 {
     m_currentStroke.clear();
-    m_currentStroke.push_back({ x, y, 1.0F });
+    m_currentStroke.push_back({ x, y, shapedPressure(pressure) });
     // Only the region the previous stroke touched can still hold preview
     // pixels; clearing the whole canvas here (a full-buffer memset, 64 MB on a
     // 4000x4000 document) was pure overhead on every mouse-down.
@@ -2112,7 +2220,7 @@ void AppController::clearPreviewRegion(const core::geometry::Rect& rect)
             m_preview.set(x, y, core::raster::kTransparent);
 }
 
-void AppController::extendStroke(float x, float y)
+void AppController::extendStroke(float x, float y, float pressure)
 {
     if (m_currentStroke.empty())
         return;
@@ -2123,9 +2231,10 @@ void AppController::extendStroke(float x, float y)
         constexpr float kFollow = 0.35F;
         m_dynamicPos.x += (x - m_dynamicPos.x) * kFollow;
         m_dynamicPos.y += (y - m_dynamicPos.y) * kFollow;
+        m_dynamicPos.pressure = shapedPressure(pressure);
         m_currentStroke.push_back(m_dynamicPos);
     } else {
-        m_currentStroke.push_back({ x, y, 1.0F });
+        m_currentStroke.push_back({ x, y, shapedPressure(pressure) });
     }
     const auto current = m_currentStroke.back();
 

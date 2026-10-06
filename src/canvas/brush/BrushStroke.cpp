@@ -26,12 +26,25 @@ float BrushStroke::coverage(float dist, float radius, float hardness) noexcept
 void BrushStroke::stamp(RasterBuffer& buffer, const BrushSettings& brush, float cx, float cy,
                         float pressure, Rect& bounds)
 {
-    const float radius = std::max(brush.radius * std::clamp(pressure, 0.05F, 1.0F), 0.6F);
+    const float p = std::clamp(pressure, 0.05F, 1.0F);
+    const float radius = std::max(brush.radius * p, 0.6F);
     const float rCeil = std::ceil(radius + 0.5F);
     const int x0 = static_cast<int>(std::floor(cx - rCeil));
     const int y0 = static_cast<int>(std::floor(cy - rCeil));
     const int x1 = static_cast<int>(std::ceil(cx + rCeil));
     const int y1 = static_cast<int>(std::ceil(cy + rCeil));
+
+    // Tip geometry: rotate the sample point by -angle, then stretch y by
+    // 1/roundness. Round, square and image tips are all evaluated in that
+    // rotated/stretched space, so one path serves every tip kind.
+    const bool isImage = brush.tip.kind == BrushTip::Kind::Image && brush.tip.image.maskW > 0
+                         && brush.tip.image.maskH > 0;
+    const float rad = brush.tip.angle * 3.14159265F / 180.0F;
+    const float cosA = std::cos(rad);
+    const float sinA = std::sin(rad);
+    // roundness 0 would divide by zero; clamp to a 2% sliver.
+    const float stretch = 1.0F / std::max(brush.tip.roundness, 0.02F);
+    const bool square = brush.tip.shape == BrushTip::Shape::Square;
 
     for (int y = y0; y <= y1; ++y) {
         for (int x = x0; x <= x1; ++x) {
@@ -39,13 +52,39 @@ void BrushStroke::stamp(RasterBuffer& buffer, const BrushSettings& brush, float 
                 continue;
             const float dx = static_cast<float>(x) - cx;
             const float dy = static_cast<float>(y) - cy;
-            const float dist = std::sqrt(dx * dx + dy * dy);
-            const float cov = coverage(dist, radius, brush.hardness);
+            const float rx = dx * cosA + dy * sinA;
+            const float ry = (-dx * sinA + dy * cosA) * stretch;
+
+            float cov;
+            if (isImage) {
+                // Nearest-neighbour sample of the grayscale mask: the stamp's
+                // rotated extent mapped onto the whole image.
+                const auto& img = brush.tip.image;
+                const float u = (rx / radius * 0.5F + 0.5F) * static_cast<float>(img.maskW);
+                const float v = (ry / radius * 0.5F + 0.5F) * static_cast<float>(img.maskH);
+                const int mx = static_cast<int>(u);
+                const int my = static_cast<int>(v);
+                if (mx < 0 || my < 0 || mx >= img.maskW || my >= img.maskH)
+                    continue;
+                cov = static_cast<float>(img.mask[static_cast<std::size_t>(my) * img.maskW + mx])
+                      / 255.0F;
+                if (img.invert)
+                    cov = 1.0F - cov;
+            } else if (square) {
+                // Chebyshev distance gives a square with a soft rim.
+                cov = coverage(std::max(std::fabs(rx), std::fabs(ry)), radius, brush.hardness);
+            } else {
+                cov = coverage(std::sqrt(rx * rx + ry * ry), radius, brush.hardness);
+            }
             if (cov <= 0.0F)
                 continue;
 
+            // Dynamics: pressure scales deposited alpha, on top of the size
+            // scaling above. Off by default so mouse input (pressure always
+            // 1.0) paints exactly as before.
+            const float dyn = brush.pressureOpacity ? p : 1.0F;
             const std::uint8_t deposit = static_cast<std::uint8_t>(
-                255.0F * cov * std::clamp(brush.flow, 0.0F, 1.0F) + 0.5F);
+                255.0F * cov * std::clamp(brush.flow, 0.0F, 1.0F) * dyn + 0.5F);
             if (deposit == 0)
                 continue;
 
@@ -83,7 +122,10 @@ Rect BrushStroke::paintSegment(RasterBuffer& buffer, const BrushSettings& brush,
     const float dy = current.y - prev.y;
     const float dist = std::sqrt(dx * dx + dy * dy);
     const float step = std::max(brush.radius * 0.25F, 1.0F);
-    const int n = std::max(1, static_cast<int>(std::ceil(dist / step)));
+    // A zero-length segment (a click) must stamp ONCE: n=1 made the loop run
+    // twice at t=0, depositing double alpha on every click — invisible while
+    // deposits saturated at 255, glaring once pressureOpacity scaled them.
+    const int n = dist < 1e-4F ? 0 : std::max(1, static_cast<int>(std::ceil(dist / step)));
     for (int i = 0; i <= n; ++i) {
         const float t = dist < 1e-4F ? 0.0F : static_cast<float>(i) / static_cast<float>(n);
         const float px = prev.x + dx * t;

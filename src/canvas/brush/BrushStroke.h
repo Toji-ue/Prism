@@ -34,8 +34,13 @@ struct BrushTip {
     // when kind == Image
     struct Image {
         std::string mime;              // "image/png"
-        std::vector<std::uint8_t> data; // PNG bytes
+        std::vector<std::uint8_t> data; // PNG bytes (serialization)
         bool invert = false;           // black = paint or white = paint
+        // Decoded grayscale mask, filled by the loader (Qt side) so the
+        // paint loop never decodes PNG. Sampled nearest-neighbour.
+        int maskW = 0;
+        int maskH = 0;
+        std::vector<std::uint8_t> mask;
     } image;
 };
 
@@ -50,8 +55,9 @@ struct BrushSettings {
     /// Eraser: removes paint instead of depositing it.
     bool erase = false;
 
-    // tip field is optional — defaults to procedural round when missing
-    // ponytail: version field added, older files load tip as default procedural round
+    /// Dynamics: pressure scales deposited alpha (not just size).
+    bool pressureOpacity = false;
+
     BrushTip tip;
 };
 

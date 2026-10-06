@@ -1,4 +1,4 @@
-﻿#include "project/ProjectIO.h"
+#include "project/ProjectIO.h"
 
 #include "compositor/Compositor.h"
 #include "layer/Layer.h"
@@ -286,6 +286,12 @@ bool parseBrushTip(const QJsonObject& root, prism::canvas::BrushTip& tip, QStrin
         // Convert QByteArray to std::vector<uint8_t>
         tip.image.data.assign(data.begin(), data.end());
         tip.image.invert = img["invert"].toBool(false);
+
+        // Decode the grayscale mask here so the paint loop never touches PNG.
+        const QImage gray = imgLoad.convertToFormat(QImage::Format_Grayscale8);
+        tip.image.maskW = gray.width();
+        tip.image.maskH = gray.height();
+        tip.image.mask.assign(gray.constBits(), gray.constBits() + gray.sizeInBytes());
     } else {
         if (error) *error = QString("unknown tip kind: %1").arg(kindStr);
         return false;
@@ -305,6 +311,7 @@ bool ProjectIO::exportBrush(const prism::canvas::BrushPreset& preset, const QStr
     root["hardness"] = preset.brush.hardness;
     root["flow"] = preset.brush.flow;
     root["erase"] = preset.brush.erase;
+    root["pressureOpacity"] = preset.brush.pressureOpacity;
     root["color"] = QStringLiteral("#%1%2%3")
                         .arg(preset.brush.color.r, 2, 16, QLatin1Char('0'))
                         .arg(preset.brush.color.g, 2, 16, QLatin1Char('0'))
@@ -344,6 +351,7 @@ std::optional<prism::canvas::BrushPreset> ProjectIO::importBrush(const QString& 
     preset.brush.hardness = static_cast<float>(root["hardness"].toDouble(0.8));
     preset.brush.flow = static_cast<float>(root["flow"].toDouble(1.0));
     preset.brush.erase = root["erase"].toBool(false);
+    preset.brush.pressureOpacity = root["pressureOpacity"].toBool(false);
     const QColor color(root["color"].toString(QStringLiteral("#000000")));
     preset.brush.color = prism::core::raster::Color{ static_cast<std::uint8_t>(color.red()),
                                                      static_cast<std::uint8_t>(color.green()),
