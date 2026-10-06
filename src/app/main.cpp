@@ -1575,6 +1575,21 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-active=")))
                 demoActive = a.section(QLatin1Char('='), 1);
+        // --demo-click-layer=N: clicks layer row N with a real left click and
+        // reports which layer became active. Selecting a layer by clicking is an
+        // interaction, so it needs the event pipeline, not a property write.
+        int demoClickLayer = -1;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-click-layer=")))
+                demoClickLayer = a.section(QLatin1Char('='), 1).toInt();
+        // --demo-focus-undo: reproduces the "Ctrl+Z only works sometimes" report.
+        // Puts focus in a text field (which legitimately swallows Ctrl+Z for its
+        // own text undo), then clicks the canvas and checks the same keystroke
+        // now reaches the document.
+        const bool demoFocusUndo = app.arguments().contains(QStringLiteral("--demo-focus-undo"));
+        // --demo-right-pan: holds the right button and drags, which must scroll
+        // the canvas and leave no stroke behind.
+        const bool demoRightPan = app.arguments().contains(QStringLiteral("--demo-right-pan"));
         // --demo-stroke-bench=N: drives N real mouse moves across the canvas and
         // reports frame timing and texture-upload volume. Latency work has to be
         // measured, not guessed â€” and this hook works on the old and new
@@ -1619,7 +1634,9 @@ int main(int argc, char* argv[])
         // then verified by just drawing (each stroke logs its pressure range).
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
-                                       demoClick, demoActive, demoStrokeBench, demoDocW, demoDocH,
+                                       demoClick, demoActive, demoClickLayer, demoFocusUndo,
+                                       demoRightPan,
+                                       demoStrokeBench, demoDocW, demoDocH,
                                        demoMirror, demoStress, demoStressOps, &engine]() {
             if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
@@ -1939,6 +1956,143 @@ int main(int argc, char* argv[])
                                       << "active =" << controller->activeLayerIndex();
                 } else {
                     qWarning() << "demo: layer list not found";
+                }
+            }
+            // Click a layer row with a real left click: the row must become
+            // active. Clicking did nothing before (only the drag handler set the
+            // active layer), so "change layer by clicking" was impossible.
+            if (demoClickLayer >= 0 && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                controller->addLayer();
+                controller->addLayer();
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* listItem = window ? findItemByName(window->contentItem(), QStringLiteral("layerList"))
+                                        : nullptr;
+                if (!listItem) {
+                    qWarning() << "demo: layer list not found";
+                } else {
+                    QVariant rowY;
+                    QMetaObject::invokeMethod(listItem, "demoRowY", Q_RETURN_ARG(QVariant, rowY),
+                                              Q_ARG(QVariant, QVariant(demoClickLayer)));
+                    const QPointF click = listItem->mapToScene(
+                        QPointF(listItem->width() - 10.0, rowY.toDouble()));
+                    controller->setActiveLayerIndex(0);
+                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, click.toPoint());
+                    qInfo().noquote() << "demo: clicked layer row" << demoClickLayer
+                                      << "-> active layer" << controller->activeLayerIndex();
+                }
+            }
+            // Right button held = temporary pan. Must scroll the canvas (the
+            // flickable behind it) and draw nothing.
+            if (demoRightPan && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                    auto* flick = findItemByName(window->contentItem(), QStringLiteral("canvasFlick"));
+                    auto* canvas = findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
+                    if (!flick || !canvas) {
+                        qWarning() << "demo: canvas not found (flick" << (flick != nullptr)
+                                   << "canvas" << (canvas != nullptr) << ")";
+                    } else {
+                        const QPointF centre = canvas->mapToScene(
+                            QPointF(canvas->width() / 2.0, canvas->height() / 2.0));
+                        const double x0 = flick->property("contentX").toDouble();
+                        const double y0 = flick->property("contentY").toDouble();
+                        const bool canUndoBefore = controller->canUndo();
+                        QTest::mousePress(window, Qt::RightButton, Qt::NoModifier, centre.toPoint());
+                        for (int step = 1; step <= 6; ++step)
+                            QTest::mouseMove(window, (centre + QPointF(-12 * step, -8 * step)).toPoint());
+                        QTest::mouseRelease(window, Qt::RightButton, Qt::NoModifier,
+                                            (centre + QPointF(-72, -48)).toPoint());
+                        const double dx = flick->property("contentX").toDouble() - x0;
+                        const double dy = flick->property("contentY").toDouble() - y0;
+                        qInfo().noquote() << "demo: right-drag pan moved content by" << dx << dy
+                                          << "undo entries added:"
+                                          << (controller->canUndo() != canUndoBefore);
+                    }
+                }
+            }
+            // "Ctrl+Z works sometimes": a focused text field swallows it (Qt's
+            // ShortcutOverride), and nothing used to take focus back. Clicking
+            // the canvas must restore the document shortcuts.
+            if (demoFocusUndo && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                    auto focusName = [window]() {
+                        QQuickItem* item = window->activeFocusItem();
+                        if (!item)
+                            return QStringLiteral("<none>");
+                        return QString::fromLatin1(item->metaObject()->className())
+                            + QLatin1Char('#') + item->objectName();
+                    };
+                    auto strokeOnce = [controller]() {
+                        controller->beginStroke(60.0F, 60.0F);
+                        controller->extendStroke(140.0F, 90.0F);
+                        controller->endStroke();
+                    };
+                    auto* canvas = findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
+                    const QPointF centre =
+                        canvas->mapToScene(QPointF(canvas->width() / 2.0, canvas->height() / 2.0));
+                    // Pan tool: these clicks move the view, they must not paint.
+                    controller->setTool(AppController::PanTool);
+                    strokeOnce();
+
+                    // Baseline: does a synthetic Ctrl+Z reach the window shortcut
+                    // at all, with focus already on the canvas?
+                    qInfo().noquote()
+                        << "demo: step | canUndo | undoLabel | focus";
+                    auto report = [controller, &focusName](const char* step) {
+                        qInfo().noquote() << "demo:" << step << "|" << controller->canUndo() << "|"
+                                          << controller->undoLabel() << "|" << focusName();
+                    };
+                    report("after stroke (canvas focus)");
+                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+                    report("after clicking the canvas");
+                    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+                    report("after Ctrl+Z");
+                    const bool shortcutWorks = !controller->canUndo();
+
+                    // A text field legitimately takes Ctrl+Z for its own undo.
+                    // The brush-size box in the status bar is used on purpose:
+                    // invisible delegate editors (the layer-name field) would
+                    // commit a rename on focus-out and spend an undo entry,
+                    // which would muddy the measurement.
+                    auto findTextInput = [](QQuickItem* root) {
+                        QQuickItem* found = nullptr;
+                        QList<QQuickItem*> pending{ root };
+                        while (!pending.isEmpty() && !found) {
+                            QQuickItem* item = pending.takeLast();
+                            if (QString::fromLatin1(item->metaObject()->className())
+                                == QLatin1String("QQuickTextInput"))
+                                found = item;
+                            else
+                                pending.append(item->childItems());
+                        }
+                        return found;
+                    };
+                    QQuickItem* sizeBox =
+                        findItemByName(window->contentItem(), QStringLiteral("sizeBox"));
+                    QQuickItem* textField = sizeBox ? findTextInput(sizeBox) : nullptr;
+                    bool leaked = false;
+                    bool recovered = false;
+                    QString focusInField;
+                    if (textField) {
+                        strokeOnce();
+                        report("after stroke (before text focus)");
+                        textField->forceActiveFocus();
+                        report("with a text field focused");
+                        QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+                        report("after Ctrl+Z in the text field");
+                        leaked = controller->canUndo();
+                        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+                        report("after clicking the canvas");
+                        QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+                        report("after Ctrl+Z on the canvas");
+                        recovered = !controller->canUndo();
+                    }
+                    qInfo().noquote()
+                        << "demo: Ctrl+Z on a canvas-focused window undoes:" << shortcutWorks
+                        << "| leaked in the text field:" << leaked
+                        << "| works again after clicking the canvas:" << recovered;
                 }
             }
             if (!demoDragSlider.isEmpty() && !engine.rootObjects().isEmpty()) {

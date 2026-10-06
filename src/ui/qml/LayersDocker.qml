@@ -362,6 +362,11 @@ Rectangle {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: mouse => {
+                    // A plain click makes the row active (Krita selects on
+                    // click); the drag handler below only fires once the
+                    // pointer actually moves, so without this a click on a
+                    // layer did nothing and the user could not switch layers.
+                    controller.activeLayerIndex = index
                     if (mouse.button === Qt.RightButton) {
                         layerMenu.targetIndex = index
                         layerMenu.parent = layerRow

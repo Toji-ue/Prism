@@ -423,6 +423,7 @@ ApplicationWindow {
 
             Flickable {
                 id: flick
+                objectName: "canvasFlick"
                 anchors.fill: parent
                 contentWidth: Math.max(canvasSheet.width, flick.width)
                 contentHeight: Math.max(canvasSheet.height, flick.height)
@@ -492,13 +493,24 @@ ApplicationWindow {
                             id: canvasMouse
                             objectName: "canvasMouseArea"
                             anchors.fill: parent
-                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                            // Clicking the canvas takes focus back from whatever
+                            // text field was last used. Window shortcuts (Ctrl+Z,
+                            // Ctrl+S...) are swallowed by a focused TextInput —
+                            // Qt sends it a ShortcutOverride that it accepts — so
+                            // without this, undo kept editing the last text field
+                            // instead of the document, "working sometimes".
+                            focus: true
+                            /// Right button held = temporary pan (Krita-style).
+                            property bool rightPanning: false
                             // The brush draws its own grey size ring; the
                             // system cursor is hidden while painting so the
                             // ring is the only pointer.
                             cursorShape: {
                                 // Cursor-leak fix lives in StartPage.qml (its
                                 // background MouseArea pins an arrow cursor).
+                                if (canvasMouse.rightPanning)
+                                    return Qt.ClosedHandCursor
                                 switch (controller.tool) {
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
@@ -516,6 +528,7 @@ ApplicationWindow {
                                 id: brushCursor
                                 visible: (controller.tool === AppController.BrushTool
                                           || controller.tool === AppController.EraserTool)
+                                         && !canvasMouse.rightPanning
                                          && (canvasMouse.containsMouse || root.demoPointer !== null)
                                 width: Math.max(4, controller.brushSize * 2 * controller.zoom)
                                 height: width
@@ -567,6 +580,21 @@ ApplicationWindow {
                             }
 
                             onPressed: mouse => {
+                                // Explicit, not left to activeFocusOnPress: a
+                                // focused text field keeps active focus for the
+                                // whole press otherwise, and every window
+                                // shortcut stayed routed to that field.
+                                forceActiveFocus()
+                                // Right button alone is a temporary pan; it must
+                                // not start a stroke on its way through here.
+                                if (mouse.button === Qt.RightButton) {
+                                    rightPanning = true
+                                    startX = canvasX(mouse.x)
+                                    startY = canvasY(mouse.y)
+                                    lastX = mouse.x
+                                    lastY = mouse.y
+                                    return
+                                }
                                 const cx = canvasX(mouse.x)
                                 const cy = canvasY(mouse.y)
                                 startX = cx
@@ -649,7 +677,7 @@ ApplicationWindow {
                             onPositionChanged: mouse => {
                                 const cx = canvasX(mouse.x)
                                 const cy = canvasY(mouse.y)
-                                const panning = (mouse.buttons & Qt.MiddleButton)
+                                const panning = (mouse.buttons & (Qt.MiddleButton | Qt.RightButton))
                                                 || controller.tool === AppController.PanTool
                                 if (panning) {
                                     flick.contentX -= (mouse.x - lastX)
@@ -711,6 +739,14 @@ ApplicationWindow {
                             onReleased: mouse => {
                                 const cx = canvasX(mouse.x)
                                 const cy = canvasY(mouse.y)
+                                // Ending a right-button pan must not fall through
+                                // to the stroke handling below: no stroke was
+                                // started, and "endStroke" there would end one
+                                // that belongs to a different press.
+                                if (mouse.button === Qt.RightButton) {
+                                    canvasMouse.rightPanning = false
+                                    return
+                                }
                                 if (controller.tool === AppController.MoveTool && draggingLayer) {
                                     const dx = Math.round(cx - startX)
                                     const dy = Math.round(cy - startY)
