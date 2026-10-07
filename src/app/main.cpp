@@ -962,6 +962,46 @@ int runSelfTest()
               "the cropped-away content survives a save/load");
     }
 
+    // Crop an imported image and check WHICH region lands on the canvas: four
+    // coloured quadrants make a wrong offset obvious, and cropping twice
+    // exercises a non-zero canvas origin.
+    {
+        const QString quadPath =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-quad.png"));
+        QFile::remove(quadPath);
+        QImage quad(200, 200, QImage::Format_RGBA8888);
+        for (int y = 0; y < 200; ++y)
+            for (int x = 0; x < 200; ++x)
+                quad.setPixelColor(x, y, x < 100 ? (y < 100 ? QColor(255, 0, 0)
+                                                             : QColor(0, 0, 255))
+                                                  : (y < 100 ? QColor(0, 255, 0)
+                                                             : QColor(255, 255, 0)));
+        check(quad.save(quadPath), "quadrant image written");
+        controller.newDocument(200, 200);
+        check(controller.importImageAsLayer(QUrl::fromLocalFile(quadPath)),
+              "quadrant image imported");
+
+        controller.cropTo(90, 90, 40, 40); // crosses all four quadrants
+        const QImage c1 = controller.canvasImage();
+        check(c1.width() == 40 && c1.height() == 40, "crop of the imported image resizes");
+        check(c1.pixelColor(5, 5) == QColor(255, 0, 0), "crop shows the framed top-left");
+        check(c1.pixelColor(35, 5) == QColor(0, 255, 0), "crop shows the framed top-right");
+        check(c1.pixelColor(5, 35) == QColor(0, 0, 255), "crop shows the framed bottom-left");
+        check(c1.pixelColor(35, 35) == QColor(255, 255, 0),
+              "crop shows the framed bottom-right");
+
+        // Second crop, now with a non-zero origin: the canvas must keep showing
+        // the same part of the image, not jump back to the layer's (0,0).
+        controller.cropTo(10, 10, 20, 20);
+        const QImage c2 = controller.canvasImage();
+        check(c2.width() == 20, "second crop resizes");
+        check(c2.pixelColor(10, 10) == QColor(255, 255, 0),
+              "second crop keeps the framed region (origin applied once)");
+        controller.undo();
+        check(controller.canvasImage().pixelColor(5, 5) == QColor(255, 0, 0),
+              "undoing the second crop brings the first one back");
+    }
+
     // Stroke latency: informational, so a regression is visible in CI logs.
     // The per-move path must not do per-tick full-canvas work.
     {
