@@ -190,24 +190,32 @@ CropCommand::CropCommand(Document& doc, int x, int y, int width, int height)
 
 void CropCommand::redo()
 {
+    // The crop frame becomes the canvas, and each layer's content slides up-left
+    // by the frame's offset. The buffer keeps whatever sat beyond the frame's
+    // right/bottom edge, so it is only hidden, not deleted.
     std::size_t i = 0;
     for (const auto& layer : m_doc.layers()) {
         if (layer->type() != Layer::Type::Raster)
             continue;
-        layer->pixels() = m_before[i++].copyRect(m_x, m_y, m_width, m_height);
+        const auto& src = m_before[i++];
+        const int width = std::max(m_width, src.width() - m_x);
+        const int height = std::max(m_height, src.height() - m_y);
+        raster::RasterBuffer cropped(width, height);
+        cropped.blit(src, -m_x, -m_y);
+        layer->pixels() = std::move(cropped);
     }
-    m_doc.resizeCanvas(CanvasSize{ m_width, m_height, m_beforeSize.dpi });
+    m_doc.setCanvasSize(CanvasSize{ m_width, m_height, m_beforeSize.dpi });
 }
 
 void CropCommand::undo()
 {
-    m_doc.resizeCanvas(m_beforeSize);
     std::size_t i = 0;
     for (const auto& layer : m_doc.layers()) {
         if (layer->type() != Layer::Type::Raster)
             continue;
         layer->pixels() = m_before[i++];
     }
+    m_doc.setCanvasSize(m_beforeSize);
 }
 
 // ------------------------------------------------------- MoveLayerContent

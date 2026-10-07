@@ -31,6 +31,14 @@ public:
     [[nodiscard]] const CanvasSize& canvasSize() const noexcept { return m_size; }
     [[nodiscard]] const std::string& colorProfile() const noexcept { return m_colorProfile; }
 
+    /// Changes the canvas size without touching layer pixels — what a crop
+    /// needs. A layer buffer may stay larger than the canvas: only the canvas
+    /// rectangle is ever composited or exported, and the rest is the cropped-away
+    /// content that comes back when the layer is moved.
+    void setCanvasSize(CanvasSize size);
+
+    /// Destructive resize: every raster layer is reallocated to the new size
+    /// (content anchored top-left, hidden margins dropped).
     void resizeCanvas(CanvasSize size);
 
     /// Layers paint bottom-to-top; index 0 is the bottom of the stack.

@@ -151,11 +151,16 @@ private:
     std::unique_ptr<Layer> m_upper;
 };
 
-/// Resizes the canvas and crops every raster layer to a sub-rectangle.
+/// Crops by shrinking the canvas and shifting the content of every raster layer
+/// so the frame lands at (0,0) — no pixel is thrown away that can be kept.
 ///
-/// Undoable on purpose: crop used to edit every layer's pixels directly and
-/// then clear the whole history, so one stray drag cost the artist the entire
-/// undo stack (and the crop itself could not be taken back).
+/// The layer buffers stay as large as the content needs, so the part of the
+/// image that lies to the right/below the frame is still there and comes back
+/// when the layer is moved: Photoshop's crop with "delete cropped pixels" off.
+///
+/// ponytail: content to the LEFT/ABOVE the frame cannot be represented while a
+/// layer buffer is anchored to the canvas' top-left, so that side is lost; a
+/// document-level canvas origin would keep all four sides.
 class CropCommand final : public Command {
 public:
     CropCommand(Document& doc, int x, int y, int width, int height);
@@ -172,8 +177,8 @@ private:
     int m_width;
     int m_height;
     CanvasSize m_beforeSize;
-    /// Raster layers in document order. ponytail: full copies, not just the
-    /// cropped-away strips; strips are the optimization if memory ever bites.
+    /// Raster layers in document order, as they were before the crop. Redo
+    /// rebuilds from these every time, so it stays idempotent.
     std::vector<raster::RasterBuffer> m_before;
 };
 

@@ -15,12 +15,20 @@ Document::Document(CanvasSize size, std::string colorProfile)
         throw std::invalid_argument("Document: invalid canvas size");
 }
 
+void Document::setCanvasSize(CanvasSize size)
+{
+    if (!size.isValid())
+        throw std::invalid_argument("Document::setCanvasSize: invalid canvas size");
+    m_size = size;
+}
+
 void Document::resizeCanvas(CanvasSize size)
 {
     if (!size.isValid())
         throw std::invalid_argument("Document::resizeCanvas: invalid canvas size");
     // Resize every raster layer to the new size, preserving top-left content
-    // (extra space is transparent, overflow is cropped).
+    // (extra space is transparent, overflow is cropped). This is the destructive
+    // path: hidden margins outside the canvas are dropped.
     for (auto& layer : m_layers) {
         if (layer->type() != Layer::Type::Raster)
             continue;

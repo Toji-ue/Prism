@@ -56,7 +56,10 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
             m_result.set(x, y, prism::core::raster::kTransparent);
 
     // Layers paint bottom-to-top. Layer opacity multiplies the source alpha
-    // before blending; invisible layers are skipped entirely.
+    // before blending; invisible layers are skipped entirely. A layer buffer may
+    // be larger than the canvas (a crop keeps the cropped-away content), and a
+    // layer loaded from an odd file could be smaller — reads are bounds-checked
+    // so neither can throw.
     std::size_t layerIndex = 0;
     for (const auto& layer : m_doc.layers()) {
         const bool overridden = m_overridePixels
@@ -67,8 +70,10 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
             continue;
 
         const auto& src = pixels;
-        for (int y = area.y; y < area.y + area.height; ++y) {
-            for (int x = area.x; x < area.x + area.width; ++x) {
+        const int maxX = std::min(area.x + area.width, src.width());
+        const int maxY = std::min(area.y + area.height, src.height());
+        for (int y = area.y; y < maxY; ++y) {
+            for (int x = area.x; x < maxX; ++x) {
                 Color s = src.at(x, y);
                 if (layer->opacity() < 1.0F)
                     s.a = static_cast<std::uint8_t>(

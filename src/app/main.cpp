@@ -881,23 +881,58 @@ int runSelfTest()
         controller.undo();
     }
 
-    // Crop: undoable, and it takes the pixels with it.
+    // Crop: undoable, keeps the pixels inside, and — Photoshop's "delete
+    // cropped pixels" off — keeps the cropped-away content so moving the layer
+    // brings it back.
     {
         controller.newDocument(300, 200);
         controller.setBrushColor(QColor(0, 0, 0));
-        controller.beginStroke(60.0F, 60.0F);
-        controller.extendStroke(140.0F, 120.0F);
+        // A mark inside the frame, and one outside it (x 230..270 is beyond the
+        // frame's right edge at 120).
+        controller.setBrushSize(20.0F);
+        controller.beginStroke(50.0F, 50.0F);
+        controller.endStroke();
+        controller.beginStroke(250.0F, 150.0F);
         controller.endStroke();
         const QImage full = controller.canvasImage().copy();
-        controller.cropTo(50, 50, 100, 80);
+        controller.cropTo(20, 20, 100, 80);
         check(controller.canvasWidth() == 100 && controller.canvasHeight() == 80,
               "crop resizes the canvas");
-        check(qAlpha(controller.canvasImage().pixel(20, 20)) > 0, "crop keeps the pixels inside");
+        check(qAlpha(controller.canvasImage().pixel(30, 30)) > 0, "crop keeps the pixels inside");
         check(controller.canUndo(), "crop is undoable");
+        // The mark that lived outside the frame is not visible...
+        bool marginHidden = true;
+        const QImage cropped = controller.canvasImage();
+        for (int y = 0; y < cropped.height() && marginHidden; ++y)
+            for (int x = 0; x < cropped.width(); ++x)
+                if (x > 200 && qAlpha(cropped.pixel(x, y)) > 0) {
+                    marginHidden = false;
+                    break;
+                }
+        check(marginHidden, "content outside the crop frame is hidden");
+        // ...until the layer moves, which pulls it back into the canvas.
+        controller.moveActiveLayer(-160, -60);
+        check(qAlpha(controller.canvasImage().pixel(70, 70)) > 0,
+              "moving the layer brings the cropped-away content back");
+        controller.undo();
+        check(qAlpha(controller.canvasImage().pixel(70, 70)) == 0, "the move is undoable");
         controller.undo();
         check(controller.canvasWidth() == 300 && controller.canvasHeight() == 200,
               "undo restores the canvas size");
         check(controller.canvasImage() == full, "undo restores the cropped pixels exactly");
+
+        // The hidden margin must survive a save/load too: the layer's PNG carries
+        // its own size, so the format needs no new field.
+        controller.cropTo(20, 20, 100, 80);
+        const QString path = QDir::temp().filePath(QStringLiteral("prism-selftest-crop.prism"));
+        QFile::remove(path);
+        check(controller.saveFile(QUrl::fromLocalFile(path)) != false,
+              "a cropped document saves");
+        check(controller.openFile(QUrl::fromLocalFile(path)), "and reopens");
+        check(controller.canvasWidth() == 100, "the canvas size round-trips");
+        controller.moveActiveLayer(-160, -60);
+        check(qAlpha(controller.canvasImage().pixel(70, 70)) > 0,
+              "the cropped-away content survives a save/load");
     }
 
     // Stroke latency: informational, so a regression is visible in CI logs.
@@ -1353,6 +1388,7 @@ int runSelfTest()
         const QString tempDir = QDir::tempPath();
         controller.forgetRecentFilesUnder(tempDir);
         for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
+                                      "prism-selftest-crop.prism",
                                       "prism-selftest.png", "prism-selftest.jpg",
                                       "prism-selftest.webp",
                                       "prism-blend.prism", "prism-selftest.prismbrush",
@@ -2401,6 +2437,25 @@ int main(int argc, char* argv[])
                                       << heightBefore << ") ink pixels:" << inkPixels
                                       << "undoable:" << undoable;
                     if (undoable) {
+                        // Photoshop behaviour: the frame crops the canvas, the
+                        // content outside it is only hidden — moving the layer
+                        // pulls it back into view.
+                        const auto inkCount = [controller]() {
+                            const QImage img = controller->canvasImage();
+                            int n = 0;
+                            for (int y = 0; y < img.height(); ++y)
+                                for (int x = 0; x < img.width(); ++x)
+                                    if (qAlpha(img.pixel(x, y)) > 0)
+                                        ++n;
+                            return n;
+                        };
+                        const int beforeMove = inkCount();
+                        controller->moveActiveLayer(-120, -90);
+                        const int afterMove = inkCount();
+                        qInfo().noquote()
+                            << "demo: ink inside the canvas before moving the layer:" << beforeMove
+                            << "after moving it:" << afterMove;
+                        controller->undo();
                         controller->undo();
                         qInfo().noquote() << "demo: after undo canvas" << controller->canvasWidth()
                                           << "x" << controller->canvasHeight();

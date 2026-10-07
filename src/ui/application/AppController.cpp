@@ -661,6 +661,26 @@ core::geometry::Rect AppController::contentBounds(const core::raster::RasterBuff
     return core::geometry::Rect{ x0, y0, x1 - x0 + 1, y1 - y0 + 1 };
 }
 
+void AppController::restoreOutsideCanvas(const core::geometry::Rect& dirty,
+                                         core::raster::RasterBuffer& pixels,
+                                         const core::raster::RasterBuffer& before)
+{
+    const auto size = m_doc.canvasSize();
+    if (pixels.width() <= size.width && pixels.height() <= size.height)
+        return; // no hidden margin: nothing can have been touched
+    const int x1 = std::min(dirty.x + dirty.width, pixels.width());
+    const int y1 = std::min(dirty.y + dirty.height, pixels.height());
+    for (int y = std::max(0, dirty.y); y < y1; ++y) {
+        const bool outsideRow = y >= size.height;
+        for (int x = std::max(0, dirty.x); x < x1; ++x) {
+            if (!outsideRow && x < size.width)
+                continue; // inside the canvas: keep the edit
+            const bool known = x < before.width() && y < before.height();
+            pixels.set(x, y, known ? before.at(x, y) : core::raster::kTransparent);
+        }
+    }
+}
+
 void AppController::previewLayerMove(int dx, int dy)
 {
     if (!m_movingLayer || (dx == m_moveDx && dy == m_moveDy))
@@ -923,10 +943,16 @@ QSize AppController::clipboardImageSize() const
 
 void AppController::commitPatch(const core::raster::RasterBuffer& original,
                                const core::raster::RasterBuffer& work,
-                               const core::geometry::Rect& rect, const char* label)
+                               core::geometry::Rect rect, const char* label)
 {
     if (rect.isEmpty() || m_activeLayer < 0
         || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+    // Only the canvas is editable: a crop keeps the cropped-away pixels in a
+    // larger layer buffer, and they must not collect edits.
+    const auto size = m_doc.canvasSize();
+    rect = rect.intersected(core::geometry::Rect{ 0, 0, size.width, size.height });
+    if (rect.isEmpty())
         return;
     auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
     auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
@@ -2502,6 +2528,7 @@ void AppController::endStroke()
             return;
         }
         auto& pixels = activeLayer.pixels();
+        restoreOutsideCanvas(rect, pixels, m_eraseBefore);
         auto before = m_eraseBefore.copyRect(rect.x, rect.y, rect.width, rect.height);
         auto after = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
         canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
@@ -2540,6 +2567,7 @@ void AppController::endStroke()
         // Clip the patch to the selection and record the before/after pair so
         // undo restores exactly what was there.
         auto& layerPixels = activeLayer.pixels();
+        restoreOutsideCanvas(rect, layerPixels, m_eraseBefore);
         auto before = m_eraseBefore.copyRect(rect.x, rect.y, rect.width, rect.height);
         auto after = layerPixels.copyRect(rect.x, rect.y, rect.width, rect.height);
         canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
@@ -2575,6 +2603,7 @@ void AppController::endStroke()
             return;
         }
         canvas::clipToSelection(work, m_selection, &original);
+        restoreOutsideCanvas(rect, work, original);
 
         auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
         auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);

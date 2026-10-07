@@ -194,6 +194,13 @@ public:
     /// Bounding box of a buffer's non-transparent pixels (empty when blank).
     static prism::core::geometry::Rect contentBounds(
         const prism::core::raster::RasterBuffer& buffer);
+    /// Live edits (erase, blend) paint straight into the layer buffer, which can
+    /// be larger than the canvas after a crop. Anything spilled outside the
+    /// canvas is put back from \p before, or it shows up as a stray mark when
+    /// the layer is moved.
+    void restoreOutsideCanvas(const prism::core::geometry::Rect& dirty,
+                              prism::core::raster::RasterBuffer& pixels,
+                              const prism::core::raster::RasterBuffer& before);
     /// Drag the active layer with the Move tool: press, per-move preview (so
     /// the image follows the pointer instead of jumping on release), release.
     Q_INVOKABLE void beginLayerMove();
@@ -519,7 +526,7 @@ private:
     /// Commits a patch of the active layer (shared by every non-stroke tool).
     void commitPatch(const prism::core::raster::RasterBuffer& original,
                      const prism::core::raster::RasterBuffer& work,
-                     const prism::core::geometry::Rect& rect, const char* label);
+                     prism::core::geometry::Rect rect, const char* label);
 
     /// Clears just \p rect in the stroke preview (see m_previewDirty).
     void clearPreviewRegion(const prism::core::geometry::Rect& rect);
