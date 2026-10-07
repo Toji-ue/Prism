@@ -56,6 +56,20 @@ class AppController : public QObject {
     Q_PROPERTY(int selectionY READ selectionY NOTIFY selectionChanged)
     Q_PROPERTY(int selectionW READ selectionW NOTIFY selectionChanged)
     Q_PROPERTY(int selectionH READ selectionH NOTIFY selectionChanged)
+    /// Exposed so the QML selection/crop overlay can re-fetch its image when the
+    /// selection changes. Without this property the URL rendered as
+    /// "image://selection/undefined", the provider failed, and NO selection or
+    /// crop frame was ever drawn on the canvas.
+    Q_PROPERTY(int selectionRevision READ selectionRevision NOTIFY selectionChanged)
+    /// Emits selectionChanged AND rebuilds the overlay image the QML canvas
+    /// draws it from. The 250 ms snapshot timer only watched the LAYER revision,
+    /// so a selection change alone left the overlay empty: the crop frame and
+    /// every marching-ants outline were invisible.
+    void notifySelectionChanged();
+    /// Builds the selection tint the QML overlay shows (bounded resolution).
+    [[nodiscard]] QImage buildSelectionOverlay() const;
+    /// Publishes a fresh overlay for the image provider to serve.
+    void refreshSelectionOverlay();
     /// Bumped on every composite change: image-provider URLs append it so
     /// QML re-fetches layer thumbnails instead of serving a cached image.
     Q_PROPERTY(int layerRevision READ layerRevision NOTIFY canvasChanged)
@@ -321,7 +335,9 @@ public:
     QString lastError() const { return m_lastError; }
     void setLastError(const QString& error);
     QString statusMessage() const { return m_statusMessage; }
-    void setStatusMessage(const QString& message);
+    /// Q_INVOKABLE because QML sets it (the crop tool's "Enter to crop" hint);
+    /// a plain C++ setter is not callable from QML and threw a TypeError.
+    Q_INVOKABLE void setStatusMessage(const QString& message);
 
     // --- layer state ------------------------------------------------------
     Q_INVOKABLE void setLayerLocked(int index, bool locked);

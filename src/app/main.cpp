@@ -2382,7 +2382,7 @@ int main(int argc, char* argv[])
                                                        QStringLiteral("canvasItem"))
                                       : nullptr;
                 const QStringList parts = demoCrop.split(QLatin1Char(','));
-                if (!canvas || parts.size() != 4) {
+                if (!canvas || parts.size() < 4) {
                     qWarning() << "demo: crop needs --demo-crop=X,Y,W,H and a canvas";
                 } else {
                     const qreal cx = parts.at(0).toDouble();
@@ -2391,11 +2391,12 @@ int main(int argc, char* argv[])
                     const qreal ch = parts.at(3).toDouble();
                     const int widthBefore = controller->canvasWidth();
                     const int heightBefore = controller->canvasHeight();
-                    // Paint a known mark so the crop can be checked for content,
-                    // not just for the new canvas size.
+                    // Paint a known mark that runs PAST the frame's right/bottom
+                    // edge, so the cropped-away content can be shown to come back
+                    // when the layer is dragged.
                     controller->setBrushColor(QColor(0, 0, 0));
                     controller->beginStroke(cx + 60, cy + 60);
-                    controller->extendStroke(cx + cw - 20, cy + ch - 20);
+                    controller->extendStroke(cx + cw + 300, cy + ch + 200);
                     controller->endStroke();
                     controller->setTool(AppController::CropTool);
                     const QPointF from = canvasPointToWindow(canvas, controller, cx, cy);
@@ -2411,6 +2412,10 @@ int main(int argc, char* argv[])
                         << controller->canvasHeight() << "frame at" << controller->selectionX()
                         << controller->selectionY() << controller->selectionW() << "x"
                         << controller->selectionH();
+                    // --demo-crop=X,Y,W,H,hold stops here, so a screenshot shows
+                    // whether the frame is actually drawn on the canvas.
+                    if (parts.size() >= 5 && parts.at(4) == QLatin1String("hold"))
+                        return;
                     // Drag the frame itself to reposition it.
                     const QPointF grab = canvasPointToWindow(canvas, controller, cx + cw / 2,
                                                              cy + ch / 2);

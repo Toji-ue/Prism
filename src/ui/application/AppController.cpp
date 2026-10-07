@@ -743,6 +743,16 @@ int AppController::selectionW() const { return m_selection.bounds().width; }
 int AppController::selectionH() const { return m_selection.bounds().height; }
 int AppController::selectionRevision() const { return m_selection.revision(); }
 
+void AppController::notifySelectionChanged()
+{
+    // Publish the new overlay BEFORE announcing the change: QML re-fetches the
+    // image the moment the revision changes, and Qt serves it on another thread,
+    // so emitting first let the request race the new snapshot and render nothing
+    // (invisible crop frame, invisible selection).
+    refreshSelectionOverlay();
+    emit selectionChanged();
+}
+
 void AppController::setSelection(float x, float y, float w, float h)
 {
     const auto s = m_doc.canvasSize();
@@ -751,7 +761,7 @@ void AppController::setSelection(float x, float y, float w, float h)
     const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, s.width);
     const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, s.height);
     m_selection.selectRect(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::setLassoSelection(const QVariantList& points)
@@ -763,7 +773,7 @@ void AppController::setLassoSelection(const QVariantList& points)
         poly.push_back(core::geometry::Point{ static_cast<int>(p.x()), static_cast<int>(p.y()) });
     }
     m_selection.selectPolygon(poly);
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::magicWandAt(float x, float y, int tolerance)
@@ -772,25 +782,25 @@ void AppController::magicWandAt(float x, float y, int tolerance)
     // least surprising behaviour when several layers overlap.
     m_selection.selectSimilar(m_compositor.result(), static_cast<int>(std::floor(x)),
                               static_cast<int>(std::floor(y)), tolerance);
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::clearSelection()
 {
     m_selection.clear();
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::selectAll()
 {
     m_selection.selectAll();
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::invertSelection()
 {
     m_selection.invert();
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::selectLayerContent()
@@ -799,7 +809,7 @@ void AppController::selectLayerContent()
         return;
     m_selection.selectFromAlpha(
         m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels());
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::setEllipseSelection(float x, float y, float w, float h)
@@ -810,14 +820,14 @@ void AppController::setEllipseSelection(float x, float y, float w, float h)
     const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, s.width);
     const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, s.height);
     m_selection.selectEllipse(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::similarColorAt(float x, float y, int tolerance)
 {
     m_selection.selectSimilarGlobal(m_compositor.result(), static_cast<int>(std::floor(x)),
                                     static_cast<int>(std::floor(y)), tolerance);
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 void AppController::selectOutlineAt(float x, float y)
@@ -825,7 +835,7 @@ void AppController::selectOutlineAt(float x, float y)
     const auto& flat = m_compositor.result();
     m_selection.selectContiguousOpaque(flat, static_cast<int>(std::floor(x)),
                                        static_cast<int>(std::floor(y)));
-    emit selectionChanged();
+    notifySelectionChanged();
 }
 
 // ------------------------------------------------------------ shape tools
@@ -1016,13 +1026,13 @@ void AppController::finishPath(int mode)
     case 2:
         m_selection.selectSmoothPolygon(m_pathPoints);
         m_pathPoints.clear();
-        emit selectionChanged();
+        notifySelectionChanged();
         rebuildFullComposite();
         return;
     case 3:
         m_selection.selectMagnetic(m_compositor.result(), m_pathPoints);
         m_pathPoints.clear();
-        emit selectionChanged();
+        notifySelectionChanged();
         rebuildFullComposite();
         return;
     default: { // Polyline
@@ -1262,6 +1272,14 @@ void AppController::cropTo(float x, float y, float w, float h)
     emit layersChanged();
     emit historyChanged();
     rebuildFullComposite();
+
+    // Hand over the Move tool: the next thing anyone does after a crop is place
+    // the image, and the layer still holds whatever was outside the frame.
+    setTool(MoveTool);
+    setStatusMessage(
+        tr("Cropped to %1x%2. Drag the layer to bring the cropped part back.")
+            .arg(cw)
+            .arg(ch));
 }
 
 void AppController::transformLayer(float degrees, float scale)
@@ -1354,32 +1372,7 @@ void AppController::refreshSnapshots()
                           .copy());
     }
 
-    QImage overlay;
-    const int cw = m_doc.canvasSize().width;
-    const int ch = m_doc.canvasSize().height;
-    if (!m_selection.isEmpty() && cw > 0 && ch > 0) {
-        const float scale = std::min(1.0F, static_cast<float>(kOverlayMax)
-                                              / static_cast<float>(std::max(cw, ch)));
-        const int w = std::max(1, static_cast<int>(cw * scale));
-        const int h = std::max(1, static_cast<int>(ch * scale));
-        core::raster::RasterBuffer out(w, h);
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                const std::uint8_t cov =
-                    m_selection.coverageAt(std::min(cw - 1, static_cast<int>(x / scale)),
-                                           std::min(ch - 1, static_cast<int>(y / scale)));
-                if (cov == 0)
-                    continue;
-                // Tint the selected area so any shape (lasso, wand) is visible.
-                // Neutral white keeps the overlay inside the two-colour palette.
-                out.set(x, y, core::raster::Color{ 255, 255, 255,
-                                                   static_cast<std::uint8_t>(cov / 5) });
-            }
-        }
-        overlay = QImage(out.data(), out.width(), out.height(), out.width() * 4,
-                         QImage::Format_RGBA8888)
-                      .copy();
-    }
+    QImage overlay = buildSelectionOverlay();
 
     {
         QMutexLocker lock(&m_snapshotMutex);
@@ -1387,6 +1380,46 @@ void AppController::refreshSnapshots()
         m_selectionSnapshot = std::move(overlay);
         m_snapshotRevision = m_layerRevision;
     }
+}
+
+QImage AppController::buildSelectionOverlay() const
+{
+    QImage overlay;
+    const int cw = m_doc.canvasSize().width;
+    const int ch = m_doc.canvasSize().height;
+    if (m_selection.isEmpty() || cw <= 0 || ch <= 0)
+        return overlay;
+
+    // The overlay is drawn stretched over the canvas by QML, so a bounded
+    // version is enough — building it at canvas resolution walked 16M pixels per
+    // request on a 4000x4000 document.
+    constexpr int kOverlayMax = 512;
+    const float scale =
+        std::min(1.0F, static_cast<float>(kOverlayMax) / static_cast<float>(std::max(cw, ch)));
+    const int w = std::max(1, static_cast<int>(cw * scale));
+    const int h = std::max(1, static_cast<int>(ch * scale));
+    core::raster::RasterBuffer out(w, h);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const std::uint8_t cov =
+                m_selection.coverageAt(std::min(cw - 1, static_cast<int>(x / scale)),
+                                       std::min(ch - 1, static_cast<int>(y / scale)));
+            if (cov == 0)
+                continue;
+            // Tint the selected area so any shape (lasso, wand) is visible.
+            // Neutral white keeps the overlay inside the two-colour palette.
+            out.set(x, y, core::raster::Color{ 255, 255, 255, static_cast<std::uint8_t>(cov / 5) });
+        }
+    }
+    return QImage(out.data(), out.width(), out.height(), out.width() * 4, QImage::Format_RGBA8888)
+        .copy();
+}
+
+void AppController::refreshSelectionOverlay()
+{
+    QImage overlay = buildSelectionOverlay();
+    QMutexLocker lock(&m_snapshotMutex);
+    m_selectionSnapshot = std::move(overlay);
 }
 
 // ----------------------------------------------------------------------- view
@@ -2118,7 +2151,7 @@ bool AppController::openProject(const QUrl& url)
     emit documentNameChanged();
     emit layersChanged();
     emit historyChanged();
-    emit selectionChanged();
+    notifySelectionChanged();
     // The start page was covering the canvas, so a successfully opened file
     // looked like nothing happened. Opening a document must dismiss it.
     setStartPageVisible(false);
@@ -2148,7 +2181,7 @@ bool AppController::importImage(const QUrl& url)
     emit documentNameChanged();
     emit layersChanged();
     emit historyChanged();
-    emit selectionChanged();
+    notifySelectionChanged();
     setStartPageVisible(false);
     rebuildFullComposite();
     return true;
@@ -2292,7 +2325,7 @@ void AppController::createDocument(int width, int height, const QString& name, i
     emit layersChanged();
     emit historyChanged();
     emit documentNameChanged();
-    emit selectionChanged();
+    notifySelectionChanged();
     setStartPageVisible(false);
     rebuildFullComposite();
 }
