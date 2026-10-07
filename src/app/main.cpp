@@ -2471,6 +2471,8 @@ int main(int argc, char* argv[])
                         qInfo().noquote()
                             << "demo: ink inside the canvas before moving the layer:" << beforeMove
                             << "after dragging it with the Move tool:" << afterMove;
+                        if (parts.size() >= 5 && parts.at(4) == QLatin1String("holdmove"))
+                            return;
                         controller->undo();
                         controller->undo();
                         qInfo().noquote() << "demo: after undo canvas" << controller->canvasWidth()

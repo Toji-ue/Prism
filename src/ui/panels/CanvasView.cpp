@@ -136,6 +136,12 @@ QSGNode* CanvasView::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*)
     const qreal sy = height() / canvasH;
 
     const int tileCount = m_cols * m_rows;
+    // A crop shrinks the canvas, so the grid has fewer tiles: the leftover nodes
+    // kept their old textures AND their old rects, which painted the old content
+    // outside the canvas — "crop then move" showed image spilling past the paper.
+    while (root->childCount() > tileCount)
+        delete root->childAtIndex(root->childCount() - 1);
+
     for (int i = 0; i < tileCount; ++i) {
         const int col = i % m_cols;
         const int row = i / m_cols;
