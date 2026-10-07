@@ -962,6 +962,52 @@ int runSelfTest()
               "the cropped-away content survives a save/load");
     }
 
+    // The Crop tool's cut-and-drag: the framed region leaves the layer and lands
+    // on its own layer, where the Move tool can place it. The canvas keeps its
+    // size (unlike cropTo, which shrinks the canvas and keeps every pixel).
+    {
+        controller.newDocument(200, 200);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.setBrushSize(10.0F);
+        controller.beginStroke(60.0F, 60.0F);
+        controller.endStroke();
+        const int layersBefore = controller.layers()->rowCount();
+
+        check(controller.cutSelectionToLayer(45, 45, 30, 30), "cutting a framed region works");
+        check(controller.canvasWidth() == 200 && controller.canvasHeight() == 200,
+              "cutting keeps the canvas size");
+        check(controller.layers()->rowCount() == layersBefore + 1,
+              "the cut piece is a new layer");
+        check(controller.activeLayerIndex() == controller.layers()->rowCount() - 1,
+              "the piece becomes the active layer");
+        // The piece sits exactly on top, so the canvas looks unchanged...
+        check(qAlpha(controller.canvasImage().pixel(60, 60)) > 0, "the piece is on screen");
+
+        // Move the piece away: whatever shows through at the old spot is the
+        // SOURCE layer, so an empty pixel there proves the pixels left it. Doing
+        // this with a move rather than a visibility toggle keeps the history
+        // stack to one entry per gesture (visibility is a history entry too).
+        controller.moveActiveLayer(-40, 20);
+        check(controller.layers()->rowCount() == layersBefore + 1, "moving the piece works");
+        check(qAlpha(controller.canvasImage().pixel(60, 60)) == 0,
+              "the source layer no longer has the cut pixels");
+        check(qAlpha(controller.canvasImage().pixel(20, 80)) > 0,
+              "the piece is at its new place");
+
+        // Undo the move, then the cut: the pixels return and the piece layer goes.
+        controller.undo();
+        check(qAlpha(controller.canvasImage().pixel(60, 60)) > 0, "undo puts the piece back");
+        controller.undo();
+        check(controller.layers()->rowCount() == layersBefore, "undo removes the cut piece");
+        check(qAlpha(controller.canvasImage().pixel(60, 60)) > 0,
+              "undo restores the cut pixels to their layer");
+
+        // Cutting empty space must say so, not create an empty layer.
+        check(!controller.cutSelectionToLayer(150, 150, 30, 30),
+              "cutting an empty area is refused");
+        check(controller.layers()->rowCount() == layersBefore, "and adds no layer");
+    }
+
     // Crop an imported image and check WHICH region lands on the canvas: four
     // coloured quadrants make a wrong offset obvious, and cropping twice
     // exercises a non-zero canvas origin.
@@ -2496,10 +2542,12 @@ int main(int argc, char* argv[])
                                       << controller->selectionX() << controller->selectionY()
                                       << controller->selectionW() << "x" << controller->selectionH();
                     // The way it actually gets used: pick the Move tool to place
-                    // the image. That tool change has to COMMIT the pending frame
-                    // — it used to discard it, so the crop never happened and the
-                    // user saw "nothing was cropped out".
+                    // the piece. That tool change COMMITS the frame — since the
+                    // Crop tool became cut-and-drag, committing lifts the framed
+                    // pixels onto their own layer and leaves the canvas size
+                    // alone.
                     const int widthBeforeSwitch = controller->canvasWidth();
+                    const int layersBeforeCut = controller->layers()->rowCount();
                     controller->setTool(AppController::MoveTool);
                     const bool undoable = controller->canUndo();
                     const QImage cropped = controller->canvasImage();
@@ -2509,24 +2557,22 @@ int main(int argc, char* argv[])
                             if (qAlpha(cropped.pixel(x, y)) > 0)
                                 ++inkPixels;
                     qInfo().noquote()
-                        << "demo: switched to the Move tool -> canvas"
+                        << "demo: committed with the Move tool -> canvas"
                         << controller->canvasWidth() << "x" << controller->canvasHeight()
-                        << "(was" << widthBeforeSwitch << "x" << heightBefore << ") ink pixels:"
-                        << inkPixels << "undoable:" << undoable;
+                        << "(was" << widthBeforeSwitch << "x" << heightBefore << ") layers"
+                        << layersBeforeCut << "->" << controller->layers()->rowCount()
+                        << "ink pixels:" << inkPixels << "undoable:" << undoable;
                     if (undoable) {
-                        // Photoshop behaviour: the frame crops the canvas, the
-                        // content outside it is only hidden — moving the layer
-                        // pulls it back into view.
-                        const auto inkCount = [controller]() {
+                        // Drag the piece with the Move tool: it must follow, and
+                        // the spot it came from must now show the source layer
+                        // (i.e. empty where the pixels used to be).
+                        const auto pixelAt = [controller](qreal cx, qreal cy) {
                             const QImage img = controller->canvasImage();
-                            int n = 0;
-                            for (int y = 0; y < img.height(); ++y)
-                                for (int x = 0; x < img.width(); ++x)
-                                    if (qAlpha(img.pixel(x, y)) > 0)
-                                        ++n;
-                            return n;
+                            if (cx < 0 || cy < 0 || cx >= img.width() || cy >= img.height())
+                                return 0;
+                            return qAlpha(img.pixel(static_cast<int>(cx), static_cast<int>(cy)));
                         };
-                        const int beforeMove = inkCount();
+                        const int wasAtOrigin = pixelAt(cx + cw / 2, cy + ch / 2);
                         const QPointF grab = canvasPointToWindow(canvas, controller, 100.0, 80.0);
                         const QPointF drop = canvasPointToWindow(canvas, controller, 100.0 - 120.0,
                                                                  80.0 - 90.0);
@@ -2534,16 +2580,18 @@ int main(int argc, char* argv[])
                         for (int step = 1; step <= 5; ++step)
                             QTest::mouseMove(window, (grab + (drop - grab) * (step / 5.0)).toPoint());
                         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, drop.toPoint());
-                        const int afterMove = inkCount();
                         qInfo().noquote()
-                            << "demo: ink inside the canvas before moving the layer:" << beforeMove
-                            << "after dragging it with the Move tool:" << afterMove;
+                            << "demo: piece alpha at the frame's centre before the drag:"
+                            << wasAtOrigin << "after dragging it away:"
+                            << pixelAt(cx + cw / 2, cy + ch / 2) << "(0 = the pixels left the"
+                            << "source layer and travelled with the piece)";
                         if (parts.size() >= 5 && parts.at(4) == QLatin1String("holdmove"))
                             return;
                         controller->undo();
                         controller->undo();
                         qInfo().noquote() << "demo: after undo canvas" << controller->canvasWidth()
-                                          << "x" << controller->canvasHeight();
+                                          << "x" << controller->canvasHeight() << "layers"
+                                          << controller->layers()->rowCount();
                     }
                 }
             }
@@ -2625,6 +2673,14 @@ int main(int argc, char* argv[])
                     tool = AppController::RectSelectTool;
                 else if (demoPenTool == QLatin1String("move"))
                     tool = AppController::MoveTool;
+                // Something to cut: the crop tool lifts pixels, and an empty frame
+                // is refused on purpose.
+                if (tool == AppController::CropTool) {
+                    controller->setBrushColor(QColor(0, 0, 0));
+                    controller->beginStroke(220.0F, 170.0F);
+                    controller->extendStroke(420.0F, 310.0F);
+                    controller->endStroke();
+                }
                 controller->setTool(tool);
                 // The Move tool needs something to move, and its effect is a
                 // moved bbox rather than a selection.
@@ -2683,7 +2739,8 @@ int main(int argc, char* argv[])
                     QTest::keyClick(window, Qt::Key_Return);
                     qInfo().noquote() << "demo: after Enter -> canvas" << controller->canvasWidth()
                                       << "x" << controller->canvasHeight() << "tool"
-                                      << controller->tool();
+                                      << controller->tool() << "layers"
+                                      << controller->layers()->rowCount();
                 }
             }
             if (demoEyedropper && !engine.rootObjects().isEmpty()) {

@@ -91,6 +91,43 @@ void StrokeCommand::redo()
     }
 }
 
+// ---------------------------------------------------------- CutRegionToLayer
+
+CutRegionToLayerCommand::CutRegionToLayerCommand(Document& doc, std::size_t layerIndex,
+                                                 std::string name, int x, int y, int width,
+                                                 int height)
+    : m_doc(doc)
+    , m_index(layerIndex)
+    , m_name(std::move(name))
+    , m_x(x)
+    , m_y(y)
+    , m_width(width)
+    , m_height(height)
+{
+    m_before = doc.layers().at(layerIndex)->pixels().copyRect(x, y, width, height);
+    m_after = raster::RasterBuffer(width, height);
+}
+
+void CutRegionToLayerCommand::redo()
+{
+    // Canvas-at-origin like every other layer, so a crop that moved the canvas
+    // window does not shift the piece.
+    const auto size = m_doc.canvasSize();
+    const auto origin = m_doc.canvasOrigin();
+    auto layer = std::make_unique<Layer>(Layer::Type::Raster, m_name);
+    layer->pixels() = raster::RasterBuffer(size.width + origin.x, size.height + origin.y);
+    layer->pixels().blit(m_before, m_x, m_y);
+    m_pieceIndex = m_index + 1;
+    m_doc.insertLayer(m_pieceIndex, std::move(layer));
+    m_doc.layers().at(m_index)->pixels().blit(m_after, m_x, m_y);
+}
+
+void CutRegionToLayerCommand::undo()
+{
+    m_layer = m_doc.takeLayer(m_pieceIndex);
+    m_doc.layers().at(m_index)->pixels().blit(m_before, m_x, m_y);
+}
+
 // ---------------------------------------------------------------- RemoveLayer
 
 RemoveLayerCommand::RemoveLayerCommand(Document& doc, std::size_t index)

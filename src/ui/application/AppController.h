@@ -274,6 +274,12 @@ public:
     /// Pattern fill inside the selection (or the whole layer).
     Q_INVOKABLE void fillPattern(int kind, int scale);
     /// Crop the whole document to a dragged rectangle.
+    /// Crop tool: lift the framed region out of the active layer onto its own
+    /// layer, so the piece can be dragged around the canvas (the canvas keeps its
+    /// size). Returns false when there is nothing to cut.
+    Q_INVOKABLE bool cutSelectionToLayer(float x, float y, float w, float h);
+    /// Crop tool: shrink the canvas to the framed region, keeping every layer
+    /// pixel (the cropped-away content comes back when a layer moves).
     Q_INVOKABLE void cropTo(float x, float y, float w, float h);
     /// Transform the active layer: rotation in degrees and uniform scale about
     /// the layer centre.

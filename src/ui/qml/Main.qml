@@ -104,7 +104,7 @@ ApplicationWindow {
                 const r = canvasMouse.cropRect
                 canvasMouse.cropRect = null
                 controller.clearSelection()
-                controller.cropTo(r.x, r.y, r.width, r.height)
+                controller.cutSelectionToLayer(r.x, r.y, r.width, r.height)
                 return
             }
             const t = controller.tool
@@ -142,7 +142,7 @@ ApplicationWindow {
             const r = canvasMouse.cropRect
             canvasMouse.cropRect = null
             controller.clearSelection()
-            controller.cropTo(r.x, r.y, r.width, r.height)
+            controller.cutSelectionToLayer(r.x, r.y, r.width, r.height)
         }
     }
 
@@ -826,7 +826,7 @@ ApplicationWindow {
                                 const r = canvasMouse.cropRect
                                 canvasMouse.cropRect = null
                                 controller.clearSelection()
-                                controller.cropTo(r.x, r.y, r.width, r.height)
+                                controller.cutSelectionToLayer(r.x, r.y, r.width, r.height)
                             }
 
                             onReleased: mouse => {

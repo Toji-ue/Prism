@@ -62,6 +62,35 @@ private:
     raster::RasterBuffer m_after;
 };
 
+/// Lifts a rectangle of pixels out of a layer onto a new layer above it, in one
+/// undo step — the Crop tool's cut-and-drag. The piece is a normal layer, so the
+/// Move tool drags it and the compositor draws it with no new code.
+class CutRegionToLayerCommand final : public Command {
+public:
+    CutRegionToLayerCommand(Document& doc, std::size_t layerIndex, std::string name, int x, int y,
+                            int width, int height);
+
+    const char* description() const override { return "Cut to layer"; }
+
+    void undo() override;
+    void redo() override;
+
+private:
+    Document& m_doc;
+    std::size_t m_index;
+    std::string m_name;
+    int m_x;
+    int m_y;
+    int m_width;
+    int m_height;
+    /// Source patch as it was, and as it becomes (transparent).
+    raster::RasterBuffer m_before;
+    raster::RasterBuffer m_after;
+    /// Owned while the command sits undone.
+    std::unique_ptr<Layer> m_layer;
+    std::size_t m_pieceIndex = 0;
+};
+
 /// Removes a layer on redo (returns ownership to the command), re-inserts
 /// it at the same index on undo.
 class RemoveLayerCommand final : public Command {

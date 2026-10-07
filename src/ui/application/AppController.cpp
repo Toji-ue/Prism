@@ -1317,6 +1317,50 @@ void AppController::fillPattern(int kind, int scale)
     commitPatch(original, work, rect, "Pattern");
 }
 
+bool AppController::cutSelectionToLayer(float x, float y, float w, float h)
+{
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return false;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    if (layer.isLocked() || layer.pixels().isEmpty()) {
+        setStatusMessage(tr("This layer is locked - nothing to cut."));
+        return false;
+    }
+
+    const auto size = m_doc.canvasSize();
+    const int x0 = std::clamp(static_cast<int>(std::floor(std::min(x, x + w))), 0, size.width);
+    const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, size.height);
+    const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, size.width);
+    const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, size.height);
+    if (x1 - x0 < 2 || y1 - y0 < 2) {
+        setStatusMessage(tr("Select a larger area to cut out."));
+        return false;
+    }
+
+    // Nothing but transparency in the frame: say so instead of adding an empty
+    // layer the artist then has to hunt for.
+    const auto rect = toBuffer(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
+    if (contentBounds(layer.pixels().copyRect(rect.x, rect.y, rect.width, rect.height)).isEmpty()) {
+        setStatusMessage(tr("Nothing to cut there - that area is empty."));
+        return false;
+    }
+
+    const int sourceIndex = m_activeLayer;
+    m_history.execute(std::make_unique<core::CutRegionToLayerCommand>(
+        m_doc, static_cast<std::size_t>(sourceIndex), "Cut piece", rect.x, rect.y, rect.width,
+        rect.height));
+    m_activeLayer = static_cast<int>(m_doc.layers().size()) - 1;
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+
+    // Placing the piece is the next move, so hand over the Move tool.
+    setTool(MoveTool);
+    setStatusMessage(tr("Cut to a new layer - drag it into place."));
+    return true;
+}
+
 void AppController::cropTo(float x, float y, float w, float h)
 {
     const auto size = m_doc.canvasSize();
