@@ -894,11 +894,30 @@ int runSelfTest()
         controller.endStroke();
         controller.beginStroke(250.0F, 150.0F);
         controller.endStroke();
+        // A third mark ABOVE/LEFT of the frame: Photoshop keeps all four sides,
+        // so dragging the layer the other way must reveal it too. Small brush on
+        // purpose — a fat one would reach into the frame.
+        controller.setBrushSize(3.0F);
+        controller.beginStroke(8.0F, 8.0F);
+        controller.endStroke();
+        controller.setBrushSize(20.0F);
         const QImage full = controller.canvasImage().copy();
         controller.cropTo(20, 20, 100, 80);
         check(controller.canvasWidth() == 100 && controller.canvasHeight() == 80,
               "crop resizes the canvas");
         check(qAlpha(controller.canvasImage().pixel(30, 30)) > 0, "crop keeps the pixels inside");
+        // Every edit converts canvas coordinates into the layer buffer, which the
+        // crop moved. If that conversion is wrong, paint lands somewhere else.
+        controller.setBrushColor(QColor(0, 0, 255));
+        controller.setBrushSize(6.0F);
+        controller.beginStroke(80.0F, 60.0F);
+        controller.endStroke();
+        const QRgb dot = controller.canvasImage().pixel(80, 60);
+        check(qAlpha(dot) > 0 && qBlue(dot) > 200 && qRed(dot) < 60,
+              "painting after a crop lands where the pointer is");
+        controller.undo();
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.setBrushSize(20.0F);
         check(controller.canUndo(), "crop is undoable");
         // The mark that lived outside the frame is not visible...
         bool marginHidden = true;
@@ -916,6 +935,14 @@ int runSelfTest()
               "moving the layer brings the cropped-away content back");
         controller.undo();
         check(qAlpha(controller.canvasImage().pixel(70, 70)) == 0, "the move is undoable");
+        // The other direction: the mark at (8,8) sat above/left of the frame.
+        // Photoshop keeps it, so the canvas must be able to show it again.
+        check(qAlpha(controller.canvasImage().pixel(2, 2)) == 0,
+              "content above/left of the frame is hidden too");
+        controller.moveActiveLayer(12, 12);
+        check(qAlpha(controller.canvasImage().pixel(2, 2)) > 0,
+              "and comes back when the layer moves the other way");
+        controller.undo();
         controller.undo();
         check(controller.canvasWidth() == 300 && controller.canvasHeight() == 200,
               "undo restores the canvas size");

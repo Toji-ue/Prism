@@ -1,6 +1,7 @@
 #pragma once
 
 #include "document/Document.h"
+#include "geometry/Types.h"
 #include "layer/Layer.h"
 
 #include <memory>
@@ -31,14 +32,26 @@ public:
     [[nodiscard]] const CanvasSize& canvasSize() const noexcept { return m_size; }
     [[nodiscard]] const std::string& colorProfile() const noexcept { return m_colorProfile; }
 
+    /// Top-left corner of the canvas inside layer-buffer space.
+    ///
+    /// A crop only moves this window and shrinks the canvas; every layer keeps
+    /// its pixels, so moving a layer brings the cropped-away content back in ALL
+    /// four directions (Photoshop's crop with "delete cropped pixels" off).
+    [[nodiscard]] geometry::Point canvasOrigin() const noexcept { return m_origin; }
+    void setCanvasOrigin(geometry::Point origin) noexcept { m_origin = origin; }
+
     /// Changes the canvas size without touching layer pixels — what a crop
-    /// needs. A layer buffer may stay larger than the canvas: only the canvas
-    /// rectangle is ever composited or exported, and the rest is the cropped-away
-    /// content that comes back when the layer is moved.
+    /// needs. Layer buffers may stay larger than the canvas.
     void setCanvasSize(CanvasSize size);
 
+    /// The canvas as a rectangle in layer-buffer space.
+    [[nodiscard]] geometry::Rect canvasRect() const noexcept
+    {
+        return geometry::Rect{ m_origin.x, m_origin.y, m_size.width, m_size.height };
+    }
+
     /// Destructive resize: every raster layer is reallocated to the new size
-    /// (content anchored top-left, hidden margins dropped).
+    /// (content anchored top-left, hidden margins dropped) and the origin resets.
     void resizeCanvas(CanvasSize size);
 
     /// Layers paint bottom-to-top; index 0 is the bottom of the stack.
@@ -60,6 +73,7 @@ public:
 
 private:
     CanvasSize m_size;
+    geometry::Point m_origin{ 0, 0 };
     std::string m_colorProfile;
     std::vector<std::unique_ptr<Layer>> m_layers;
 };

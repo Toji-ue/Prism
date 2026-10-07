@@ -215,6 +215,14 @@ public:
     void restoreOutsideCanvas(const prism::core::geometry::Rect& dirty,
                               prism::core::raster::RasterBuffer& pixels,
                               const prism::core::raster::RasterBuffer& before);
+    /// Canvas coordinates -> the layer buffer's coordinates. They differ only
+    /// after a crop, which moves the canvas window inside the layer buffers.
+    [[nodiscard]] prism::core::geometry::Point toBuffer(float x, float y) const;
+    [[nodiscard]] prism::core::geometry::Rect toBuffer(prism::core::geometry::Rect r) const;
+    /// The other way, for the rects handed to the compositor and to QML.
+    [[nodiscard]] prism::core::geometry::Rect toCanvas(prism::core::geometry::Rect r) const;
+    /// Shifts a path collected in canvas coordinates into the layer buffer's.
+    void offsetToBuffer(std::vector<prism::canvas::StrokePoint>& path) const;
     /// Drag the active layer with the Move tool: press, per-move preview (so
     /// the image follows the pointer instead of jumping on release), release.
     Q_INVOKABLE void beginLayerMove();

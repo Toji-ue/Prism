@@ -28,7 +28,7 @@ void Document::resizeCanvas(CanvasSize size)
         throw std::invalid_argument("Document::resizeCanvas: invalid canvas size");
     // Resize every raster layer to the new size, preserving top-left content
     // (extra space is transparent, overflow is cropped). This is the destructive
-    // path: hidden margins outside the canvas are dropped.
+    // path: hidden margins outside the canvas are dropped, so the origin resets.
     for (auto& layer : m_layers) {
         if (layer->type() != Layer::Type::Raster)
             continue;
@@ -38,6 +38,7 @@ void Document::resizeCanvas(CanvasSize size)
         layer->pixels() = std::move(resized);
     }
     m_size = size;
+    m_origin = geometry::Point{ 0, 0 };
 }
 
 std::size_t Document::addLayer(std::unique_ptr<Layer> layer)
@@ -58,7 +59,9 @@ void Document::insertLayer(std::size_t index, std::unique_ptr<Layer> layer)
 std::size_t Document::addRasterLayer(std::string name)
 {
     auto layer = std::make_unique<Layer>(Layer::Type::Raster, std::move(name));
-    layer->pixels() = raster::RasterBuffer(m_size.width, m_size.height);
+    // Allocated canvas-at-origin, so a layer added after a crop shares the
+    // coordinate space of the layers that still hold cropped-away pixels.
+    layer->pixels() = raster::RasterBuffer(m_size.width + m_origin.x, m_size.height + m_origin.y);
     return addLayer(std::move(layer));
 }
 

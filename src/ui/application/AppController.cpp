@@ -529,8 +529,10 @@ QImage AppController::layerThumbnail(int index, int width, int height) const
 
 void AppController::fillAt(float x, float y)
 {
-    const int lx = static_cast<int>(std::floor(x));
-    const int ly = static_cast<int>(std::floor(y));
+    // Layer buffers live in buffer space; the canvas may sit inside them.
+    const auto point = toBuffer(x, y);
+    const int lx = point.x;
+    const int ly = point.y;
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
 
@@ -556,8 +558,11 @@ void AppController::fillAt(float x, float y)
     auto after = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
 
     // A selection confines the fill, and what is stored must match the command.
+    // The mask is canvas-sized, the patch is in buffer space: pass the offset.
+    const auto origin = m_doc.canvasOrigin();
     if (!m_selection.isEmpty()) {
-        canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
+        canvas::clipToSelection(after, m_selection, &before, rect.x - origin.x,
+                                rect.y - origin.y);
         pixels.blit(after, rect.x, rect.y);
     }
 
@@ -566,8 +571,8 @@ void AppController::fillAt(float x, float y)
         rect.x, rect.y, "Fill"));
 
     emit historyChanged();
-    // Only the filled rectangle changed.
-    const auto composited = m_compositor.composite(rect);
+    // Only the filled rectangle changed. The compositor takes canvas coordinates.
+    const auto composited = m_compositor.composite(toCanvas(rect));
     ++m_layerRevision;
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
@@ -665,20 +670,44 @@ void AppController::restoreOutsideCanvas(const core::geometry::Rect& dirty,
                                          core::raster::RasterBuffer& pixels,
                                          const core::raster::RasterBuffer& before)
 {
-    const auto size = m_doc.canvasSize();
-    if (pixels.width() <= size.width && pixels.height() <= size.height)
+    const auto canvas = m_doc.canvasRect();
+    if (pixels.width() <= canvas.x + canvas.width
+        && pixels.height() <= canvas.y + canvas.height)
         return; // no hidden margin: nothing can have been touched
     const int x1 = std::min(dirty.x + dirty.width, pixels.width());
     const int y1 = std::min(dirty.y + dirty.height, pixels.height());
     for (int y = std::max(0, dirty.y); y < y1; ++y) {
-        const bool outsideRow = y >= size.height;
+        const bool outsideRow = y < canvas.y || y >= canvas.y + canvas.height;
         for (int x = std::max(0, dirty.x); x < x1; ++x) {
-            if (!outsideRow && x < size.width)
+            if (!outsideRow && x >= canvas.x && x < canvas.x + canvas.width)
                 continue; // inside the canvas: keep the edit
             const bool known = x < before.width() && y < before.height();
             pixels.set(x, y, known ? before.at(x, y) : core::raster::kTransparent);
         }
     }
+}
+
+core::geometry::Point AppController::toBuffer(float x, float y) const
+{
+    const auto origin = m_doc.canvasOrigin();
+    return core::geometry::Point{ static_cast<int>(std::floor(x)) + origin.x,
+                                  static_cast<int>(std::floor(y)) + origin.y };
+}
+
+core::geometry::Rect AppController::toBuffer(core::geometry::Rect r) const
+{
+    const auto origin = m_doc.canvasOrigin();
+    r.x += origin.x;
+    r.y += origin.y;
+    return r;
+}
+
+core::geometry::Rect AppController::toCanvas(core::geometry::Rect r) const
+{
+    const auto origin = m_doc.canvasOrigin();
+    r.x -= origin.x;
+    r.y -= origin.y;
+    return r;
 }
 
 void AppController::previewLayerMove(int dx, int dy)
@@ -807,8 +836,12 @@ void AppController::selectLayerContent()
 {
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
-    m_selection.selectFromAlpha(
-        m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels());
+    // The mask is canvas-sized; the layer buffer may be larger after a crop, so
+    // select from the canvas window of it.
+    const auto canvas = m_doc.canvasRect();
+    m_selection.selectFromAlpha(m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]
+                                    ->pixels()
+                                    .copyRect(canvas.x, canvas.y, canvas.width, canvas.height));
     notifySelectionChanged();
 }
 
@@ -909,23 +942,29 @@ void AppController::endShape()
     // per shape bought nothing.
     core::raster::RasterBuffer work = layer.pixels();
 
+    const auto origin = m_doc.canvasOrigin();
+    const auto offset = [&origin](core::geometry::Point p) {
+        return core::geometry::Point{ p.x + origin.x, p.y + origin.y };
+    };
     core::geometry::Rect rect;
     if (m_tool == Tool::GradientTool) {
-        rect = canvas::linearGradient(work, m_shapeStart, m_shapeEnd, m_brush.color,
+        rect = canvas::linearGradient(work, offset(m_shapeStart), offset(m_shapeEnd), m_brush.color,
                                       core::raster::kTransparent);
     } else {
         const canvas::ShapeKind kind =
             m_tool == Tool::LineTool       ? canvas::ShapeKind::Line
             : m_tool == Tool::RectangleTool ? canvas::ShapeKind::Rectangle
                                             : canvas::ShapeKind::Ellipse;
-        rect = canvas::rasterizeShape(work, kind, m_shapeStart, m_shapeEnd, m_brush, m_shapeFilled);
+        rect = canvas::rasterizeShape(work, kind, offset(m_shapeStart), offset(m_shapeEnd), m_brush,
+                                      m_shapeFilled);
     }
 
     if (rect.isEmpty()) {
         rebuildFullComposite();
         return;
     }
-    canvas::clipToSelection(work, m_selection, &layer.pixels());
+    canvas::clipToSelection(work, m_selection, &layer.pixels(), rect.x - origin.x,
+                            rect.y - origin.y);
 
     auto before = layer.pixels().copyRect(rect.x, rect.y, rect.width, rect.height);
     auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
@@ -935,7 +974,7 @@ void AppController::endShape()
 
     emit historyChanged();
     // Only the shape's rectangle changed.
-    const auto composited = m_compositor.composite(rect);
+    const auto composited = m_compositor.composite(toCanvas(rect));
     ++m_layerRevision;
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
@@ -958,10 +997,10 @@ void AppController::commitPatch(const core::raster::RasterBuffer& original,
     if (rect.isEmpty() || m_activeLayer < 0
         || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
-    // Only the canvas is editable: a crop keeps the cropped-away pixels in a
-    // larger layer buffer, and they must not collect edits.
-    const auto size = m_doc.canvasSize();
-    rect = rect.intersected(core::geometry::Rect{ 0, 0, size.width, size.height });
+    // `rect` is in the layer buffer's space. Only the canvas is editable: a crop
+    // keeps the cropped-away pixels around and they must not collect edits.
+    const auto canvas = m_doc.canvasRect();
+    rect = rect.intersected(canvas);
     if (rect.isEmpty())
         return;
     auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
@@ -972,7 +1011,7 @@ void AppController::commitPatch(const core::raster::RasterBuffer& original,
     emit historyChanged();
     // Only the patch changed: recompositing the whole canvas here made every
     // shape, fill and filter cost the canvas size instead of the edit size.
-    const auto composited = m_compositor.composite(rect);
+    const auto composited = m_compositor.composite(toCanvas(rect));
     ++m_layerRevision;
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
@@ -1007,6 +1046,12 @@ void AppController::finishPath(int mode)
 
     core::geometry::Rect rect;
     const char* label = "Path";
+    // The path is collected in canvas coordinates; the layer buffer may be
+    // offset by a crop.
+    const auto origin = m_doc.canvasOrigin();
+    const auto toBufferPoint = [&origin](core::geometry::Point p) {
+        return core::geometry::Point{ p.x + origin.x, p.y + origin.y };
+    };
     switch (mode) {
     case 1: { // Bezier: control handles derived from the middle points
         const auto& p = m_pathPoints;
@@ -1018,6 +1063,10 @@ void AppController::finishPath(int mode)
                 a, core::geometry::Point{ (a.x * 2 + b.x) / 3, (a.y * 2 + b.y) / 3 },
                 core::geometry::Point{ (a.x + b.x * 2) / 3, (a.y + b.y * 2) / 3 }, b, 24);
             path.insert(path.end(), seg.begin(), seg.end());
+        }
+        for (auto& point : path) {
+            point.x += static_cast<float>(origin.x);
+            point.y += static_cast<float>(origin.y);
         }
         rect = canvas::strokeAlong(work, path, m_brush);
         label = "Bezier";
@@ -1037,15 +1086,18 @@ void AppController::finishPath(int mode)
         return;
     default: { // Polyline
         std::vector<canvas::StrokePoint> path;
-        for (const auto& p : m_pathPoints)
-            path.push_back({ static_cast<float>(p.x), static_cast<float>(p.y), 1.0F });
+        for (const auto& p : m_pathPoints) {
+            const auto b = toBufferPoint(p);
+            path.push_back({ static_cast<float>(b.x), static_cast<float>(b.y), 1.0F });
+        }
         rect = canvas::strokeAlong(work, path, m_brush);
         label = "Polyline";
         break;
     }
     }
     m_pathPoints.clear();
-    canvas::clipToSelection(work, m_selection, &original);
+    canvas::clipToSelection(work, m_selection, &original, rect.x - origin.x,
+                            rect.y - origin.y);
     commitPatch(original, work, rect, label);
 }
 
@@ -1102,6 +1154,9 @@ void AppController::endLassoFill()
                                                   m_doc.canvasSize().height });
     if (rect.isEmpty())
         return;
+    // The stencil is canvas-sized; the layer patch is in buffer space.
+    const auto origin = m_doc.canvasOrigin();
+    rect = toBuffer(rect);
 
     auto& pixels = layer.pixels();
     auto before = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
@@ -1109,7 +1164,8 @@ void AppController::endLassoFill()
     const auto color = m_brush.color;
     for (int y = 0; y < after.height(); ++y) {
         for (int x = 0; x < after.width(); ++x) {
-            const std::uint8_t cov = stencil.coverageAt(x + rect.x, y + rect.y);
+            const std::uint8_t cov =
+                stencil.coverageAt(x + rect.x - origin.x, y + rect.y - origin.y);
             if (cov == 0)
                 continue;
             if (cov == 255) {
@@ -1133,7 +1189,7 @@ void AppController::endLassoFill()
         m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
         rect.x, rect.y, "Lasso Fill"));
     emit historyChanged();
-    const auto composited = m_compositor.composite(rect);
+    const auto composited = m_compositor.composite(toCanvas(rect));
     ++m_layerRevision;
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
@@ -1175,11 +1231,25 @@ void AppController::endFreePath()
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
     const core::raster::RasterBuffer original = layer.pixels();
     core::raster::RasterBuffer work = original;
-    const auto rect = canvas::strokeAlong(work, canvas::smoothPath(m_freePath, 2), m_brush);
+    std::vector<canvas::StrokePoint> path = canvas::smoothPath(m_freePath, 2);
+    offsetToBuffer(path);
+    const auto rect = canvas::strokeAlong(work, path, m_brush);
     m_freePath.clear();
     m_preview.fill(core::raster::kTransparent);
-    canvas::clipToSelection(work, m_selection, &original);
+    canvas::clipToSelection(work, m_selection, &original, rect.x - m_doc.canvasOrigin().x,
+                            rect.y - m_doc.canvasOrigin().y);
     commitPatch(original, work, rect, "Freehand path");
+}
+
+void AppController::offsetToBuffer(std::vector<canvas::StrokePoint>& path) const
+{
+    const auto origin = m_doc.canvasOrigin();
+    if (origin.x == 0 && origin.y == 0)
+        return;
+    for (auto& point : path) {
+        point.x += static_cast<float>(origin.x);
+        point.y += static_cast<float>(origin.y);
+    }
 }
 
 // --------------------------------------------------------------------- arc
@@ -1221,9 +1291,12 @@ void AppController::endArc()
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
     const core::raster::RasterBuffer original = layer.pixels();
     core::raster::RasterBuffer work = original;
-    const auto rect = canvas::strokeAlong(work, canvas::arcPath(m_shapeStart, m_shapeEnd), m_brush);
+    std::vector<canvas::StrokePoint> path = canvas::arcPath(m_shapeStart, m_shapeEnd);
+    offsetToBuffer(path);
+    const auto rect = canvas::strokeAlong(work, path, m_brush);
     m_preview.fill(core::raster::kTransparent);
-    canvas::clipToSelection(work, m_selection, &original);
+    canvas::clipToSelection(work, m_selection, &original, rect.x - m_doc.canvasOrigin().x,
+                            rect.y - m_doc.canvasOrigin().y);
     commitPatch(original, work, rect, "Arc");
 }
 
@@ -1239,7 +1312,7 @@ void AppController::fillPattern(int kind, int scale)
     const auto kindEnum = static_cast<canvas::PatternKind>(std::clamp(kind, 0, 2));
     core::geometry::Rect limit = m_selection.isEmpty()
                                      ? core::geometry::Rect{}
-                                     : m_selection.bounds();
+                                     : toBuffer(m_selection.bounds());
     const auto rect = canvas::fillPattern(work, kindEnum, scale, m_brush.color, limit);
     commitPatch(original, work, rect, "Pattern");
 }
@@ -1317,7 +1390,9 @@ void AppController::renderText(float x, float y, const QString& text, int pixelS
         p.setFont(font);
         const QColor c = brushColor();
         p.setPen(c);
-        p.drawText(QPointF(x, y), text);
+        // The text arrives in canvas coordinates; the layer buffer may be offset.
+        const auto origin = m_doc.canvasOrigin();
+        p.drawText(QPointF(x + origin.x, y + origin.y), text);
     }
 
     core::raster::RasterBuffer textLayer(w, h);
@@ -2030,8 +2105,12 @@ void AppController::applyFilter(const QString& id)
     if (touched.isEmpty())
         return;
 
-    // A selection confines the filter; outside pixels come back untouched.
-    canvas::clipToSelection(work, m_selection, &original);
+    // A selection confines the filter; outside pixels come back untouched. The
+    // mask is canvas-sized while the filter works on the layer buffer, so the
+    // touched rect carries the offset.
+    const auto filterOrigin = m_doc.canvasOrigin();
+    canvas::clipToSelection(work, m_selection, &original, touched.x - filterOrigin.x,
+                            touched.y - filterOrigin.y);
 
     auto before = original.copyRect(touched.x, touched.y, touched.width, touched.height);
     auto after = work.copyRect(touched.x, touched.y, touched.width, touched.height);
@@ -2202,20 +2281,26 @@ bool AppController::importImageAsLayer(const QUrl& url)
     image = image.convertToFormat(QImage::Format_RGBA8888);
 
     const auto cs = m_doc.canvasSize();
+    const auto origin = m_doc.canvasOrigin();
     auto layer = std::make_unique<core::Layer>(
         core::Layer::Type::Raster, QFileInfo(path).completeBaseName().toStdString());
-    layer->pixels() = core::raster::RasterBuffer(cs.width, cs.height);
+    // Canvas-at-origin, like every other layer: a crop moves the canvas window
+    // inside the buffers, so a canvas-sized layer would be read at the wrong
+    // place. The image is written into the canvas rectangle of that buffer.
+    const int bufferW = cs.width + origin.x;
+    const int bufferH = cs.height + origin.y;
+    layer->pixels() = core::raster::RasterBuffer(bufferW, bufferH);
 
     // Center the image on the canvas; parts larger than the canvas are
     // clipped (no silent resample — pixel-exact placement).
-    const int dx = (cs.width - image.width()) / 2;
-    const int dy = (cs.height - image.height()) / 2;
-    const int x0 = std::max(0, dx);
-    const int y0 = std::max(0, dy);
-    const int x1 = std::min(cs.width, dx + image.width());
-    const int y1 = std::min(cs.height, dy + image.height());
+    const int dx = (cs.width - image.width()) / 2 + origin.x;
+    const int dy = (cs.height - image.height()) / 2 + origin.y;
+    const int x0 = std::max(origin.x, dx);
+    const int y0 = std::max(origin.y, dy);
+    const int x1 = std::min(origin.x + cs.width, dx + image.width());
+    const int y1 = std::min(origin.y + cs.height, dy + image.height());
     for (int y = y0; y < y1; ++y) {
-        const auto dstRow = static_cast<std::size_t>(y) * cs.width + static_cast<std::size_t>(x0);
+        const auto dstRow = static_cast<std::size_t>(y) * bufferW + static_cast<std::size_t>(x0);
         const auto srcRow = static_cast<std::size_t>(y - dy) * image.width()
             + static_cast<std::size_t>(x0 - dx);
         std::memcpy(layer->pixels().data() + dstRow * 4, image.constBits() + srcRow * 4,
@@ -2396,11 +2481,14 @@ void AppController::beginStroke(float x, float y, float pressure)
     // it keeps the accumulated preview identical to a full re-paint (which is
     // what the commit below relies on).
     if (m_erasing) {
-        const auto dot = paintSegmentSymmetrical(activeLayer.pixels(), m_brush,
-                                                 m_currentStroke.front(), m_currentStroke.front());
+        // Erasing edits the layer buffer, which lives in buffer space.
+        auto dotPoint = m_currentStroke.front();
+        dotPoint.x += static_cast<float>(m_doc.canvasOrigin().x);
+        dotPoint.y += static_cast<float>(m_doc.canvasOrigin().y);
+        const auto dot = paintSegmentSymmetrical(activeLayer.pixels(), m_brush, dotPoint, dotPoint);
         if (!dot.isEmpty()) {
             m_strokeDirty = dot;
-            const auto composited = m_compositor.composite(dot);
+            const auto composited = m_compositor.composite(toCanvas(dot));
             emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         }
     } else {
@@ -2457,8 +2545,15 @@ void AppController::extendStroke(float x, float y, float pressure)
             return;
         }
         auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
-        const auto band = canvas::BrushStroke::smudgeSegment(layer.pixels(), m_brush, prev,
-                                                            current, m_carried);
+        const auto origin = m_doc.canvasOrigin();
+        canvas::StrokePoint bufferPrev = prev;
+        canvas::StrokePoint bufferCurrent = current;
+        bufferPrev.x += static_cast<float>(origin.x);
+        bufferPrev.y += static_cast<float>(origin.y);
+        bufferCurrent.x += static_cast<float>(origin.x);
+        bufferCurrent.y += static_cast<float>(origin.y);
+        const auto band = canvas::BrushStroke::smudgeSegment(layer.pixels(), m_brush, bufferPrev,
+                                                            bufferCurrent, m_carried);
         if (band.isEmpty())
             return;
         m_strokeDirty = core::geometry::Rect{
@@ -2467,7 +2562,7 @@ void AppController::extendStroke(float x, float y, float pressure)
                 - std::min(m_strokeDirty.x, band.x),
             std::max(m_strokeDirty.y + m_strokeDirty.height, band.y + band.height)
                 - std::min(m_strokeDirty.y, band.y) };
-        const auto composited = m_compositor.composite(band);
+        const auto composited = m_compositor.composite(toCanvas(band));
         emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
     }
@@ -2484,7 +2579,15 @@ void AppController::extendStroke(float x, float y, float pressure)
             return;
         }
         auto& activeLayer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
-        const auto segment = paintSegmentSymmetrical(activeLayer.pixels(), m_brush, prev, current);
+        const auto origin = m_doc.canvasOrigin();
+        canvas::StrokePoint bufferPrev = prev;
+        canvas::StrokePoint bufferCurrent = current;
+        bufferPrev.x += static_cast<float>(origin.x);
+        bufferPrev.y += static_cast<float>(origin.y);
+        bufferCurrent.x += static_cast<float>(origin.x);
+        bufferCurrent.y += static_cast<float>(origin.y);
+        const auto segment =
+            paintSegmentSymmetrical(activeLayer.pixels(), m_brush, bufferPrev, bufferCurrent);
         if (segment.isEmpty())
             return;
         m_strokeDirty = core::geometry::Rect{
@@ -2493,7 +2596,7 @@ void AppController::extendStroke(float x, float y, float pressure)
                 - std::min(m_strokeDirty.x, segment.x),
             std::max(m_strokeDirty.y + m_strokeDirty.height, segment.y + segment.height)
                 - std::min(m_strokeDirty.y, segment.y) };
-        const auto composited = m_compositor.composite(segment);
+        const auto composited = m_compositor.composite(toCanvas(segment));
         emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
     }
@@ -2562,16 +2665,17 @@ void AppController::endStroke()
         }
         auto& pixels = activeLayer.pixels();
         restoreOutsideCanvas(rect, pixels, m_eraseBefore);
+        const auto origin = m_doc.canvasOrigin();
         auto before = m_eraseBefore.copyRect(rect.x, rect.y, rect.width, rect.height);
         auto after = pixels.copyRect(rect.x, rect.y, rect.width, rect.height);
-        canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
+        canvas::clipToSelection(after, m_selection, &before, rect.x - origin.x, rect.y - origin.y);
         pixels.blit(after, rect.x, rect.y);
         m_eraseBefore = {};
         m_history.execute(std::make_unique<core::StrokeCommand>(
             m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
             rect.x, rect.y, "Blend"));
         emit historyChanged();
-        const auto composited = m_compositor.composite(rect);
+        const auto composited = m_compositor.composite(toCanvas(rect));
         ++m_layerRevision;
         emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
@@ -2601,9 +2705,10 @@ void AppController::endStroke()
         // undo restores exactly what was there.
         auto& layerPixels = activeLayer.pixels();
         restoreOutsideCanvas(rect, layerPixels, m_eraseBefore);
+        const auto origin = m_doc.canvasOrigin();
         auto before = m_eraseBefore.copyRect(rect.x, rect.y, rect.width, rect.height);
         auto after = layerPixels.copyRect(rect.x, rect.y, rect.width, rect.height);
-        canvas::clipToSelection(after, m_selection, &before, rect.x, rect.y);
+        canvas::clipToSelection(after, m_selection, &before, rect.x - origin.x, rect.y - origin.y);
         // What is stored must match the command's "after" patch.
         layerPixels.blit(after, rect.x, rect.y);
         m_eraseBefore = {};
@@ -2626,7 +2731,10 @@ void AppController::endStroke()
         // was not available, e.g. no active layer.)
         const core::raster::RasterBuffer original = activeLayer.pixels();
         core::raster::RasterBuffer work = original;
-        const auto rect = canvas::BrushStroke::paint(work, m_brush, m_currentStroke);
+        // The stroke points are canvas coordinates; this path paints the layer.
+        std::vector<canvas::StrokePoint> points = m_currentStroke;
+        offsetToBuffer(points);
+        const auto rect = canvas::BrushStroke::paint(work, m_brush, points);
         m_currentStroke.clear();
         clearPreviewRegion(m_previewDirty);
         m_previewDirty = {};
@@ -2635,7 +2743,9 @@ void AppController::endStroke()
         if (rect.isEmpty()) {
             return;
         }
-        canvas::clipToSelection(work, m_selection, &original);
+        const auto origin = m_doc.canvasOrigin();
+        canvas::clipToSelection(work, m_selection, &original, rect.x - origin.x,
+                                rect.y - origin.y);
         restoreOutsideCanvas(rect, work, original);
 
         auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
@@ -2646,7 +2756,7 @@ void AppController::endStroke()
         emit historyChanged();
         // Only the erased rectangle changed; recompositing the whole canvas
         // here was the mouse-up freeze on large documents.
-        const auto composited = m_compositor.composite(rect);
+        const auto composited = m_compositor.composite(toCanvas(rect));
         ++m_layerRevision;
         emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
@@ -2678,8 +2788,12 @@ void AppController::endStroke()
     m_previewDirty = {};
     m_strokeDirty = {};
 
+    // The preview is canvas-sized, the layer is not: place the patch at the
+    // buffer-space position. The compositor stays in canvas coordinates.
+    const auto bufferRect = toBuffer(rect);
     m_history.execute(std::make_unique<core::StrokeCommand>(
-        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(painted), rect.x, rect.y));
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(painted), bufferRect.x,
+        bufferRect.y));
 
     emit historyChanged();
     // Repaint only the stroke's rectangle instead of the whole canvas.

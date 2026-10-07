@@ -56,10 +56,12 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
             m_result.set(x, y, prism::core::raster::kTransparent);
 
     // Layers paint bottom-to-top. Layer opacity multiplies the source alpha
-    // before blending; invisible layers are skipped entirely. A layer buffer may
-    // be larger than the canvas (a crop keeps the cropped-away content), and a
-    // layer loaded from an odd file could be smaller — reads are bounds-checked
-    // so neither can throw.
+    // before blending; invisible layers are skipped entirely.
+    //
+    // The app works in CANVAS coordinates; a layer buffer lives in buffer space,
+    // which a crop shifts by the canvas origin. Reads are bounds-checked, so a
+    // layer smaller than the canvas cannot throw either.
+    const auto origin = m_doc.canvasOrigin();
     std::size_t layerIndex = 0;
     for (const auto& layer : m_doc.layers()) {
         const bool overridden = m_overridePixels
@@ -69,12 +71,20 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
         if (!layer->isVisible() || pixels.isEmpty())
             continue;
 
+        // The eraser/blend override is a canvas-sized scratch buffer, so it is
+        // read WITHOUT the origin.
+        const int offsetX = overridden ? 0 : origin.x;
+        const int offsetY = overridden ? 0 : origin.y;
         const auto& src = pixels;
-        const int maxX = std::min(area.x + area.width, src.width());
-        const int maxY = std::min(area.y + area.height, src.height());
-        for (int y = area.y; y < maxY; ++y) {
-            for (int x = area.x; x < maxX; ++x) {
-                Color s = src.at(x, y);
+        for (int y = area.y; y < area.y + area.height; ++y) {
+            const int sy = y + offsetY;
+            if (sy < 0 || sy >= src.height())
+                continue;
+            for (int x = area.x; x < area.x + area.width; ++x) {
+                const int sx = x + offsetX;
+                if (sx < 0 || sx >= src.width())
+                    continue;
+                Color s = src.at(sx, sy);
                 if (layer->opacity() < 1.0F)
                     s.a = static_cast<std::uint8_t>(
                         static_cast<float>(s.a) * layer->opacity() + 0.5F);

@@ -111,6 +111,14 @@ bool ProjectIO::save(const Document& doc, const QString& path)
     root["height"] = size.height;
     root["dpi"] = size.dpi;
     root["colorProfile"] = QString::fromStdString(doc.colorProfile());
+    // Where the canvas sits inside the layer buffers. Absent in files written
+    // before cropping became non-destructive, and (0,0) for an uncropped
+    // document, so the field needs no version bump.
+    const auto origin = doc.canvasOrigin();
+    if (origin.x != 0 || origin.y != 0) {
+        root["originX"] = origin.x;
+        root["originY"] = origin.y;
+    }
 
     QJsonArray layers;
     for (const auto& layer : doc.layers()) {
@@ -148,6 +156,8 @@ std::optional<Document> ProjectIO::load(const QString& path)
     Document doc(CanvasSize{ root["width"].toInt(), root["height"].toInt(),
                              root["dpi"].toInt(72) },
                  root["colorProfile"].toString("sRGB").toStdString());
+    doc.setCanvasOrigin(prism::core::geometry::Point{ root["originX"].toInt(0),
+                                                      root["originY"].toInt(0) });
 
     for (const auto& lv : root["layers"].toArray()) {
         const QJsonObject lo = lv.toObject();
