@@ -2423,7 +2423,12 @@ int main(int argc, char* argv[])
                     qInfo().noquote() << "demo: after dragging the frame -> frame at"
                                       << controller->selectionX() << controller->selectionY()
                                       << controller->selectionW() << "x" << controller->selectionH();
-                    QTest::keyClick(window, Qt::Key_Return);
+                    // The way it actually gets used: pick the Move tool to place
+                    // the image. That tool change has to COMMIT the pending frame
+                    // — it used to discard it, so the crop never happened and the
+                    // user saw "nothing was cropped out".
+                    const int widthBeforeSwitch = controller->canvasWidth();
+                    controller->setTool(AppController::MoveTool);
                     const bool undoable = controller->canUndo();
                     const QImage cropped = controller->canvasImage();
                     int inkPixels = 0;
@@ -2431,11 +2436,11 @@ int main(int argc, char* argv[])
                         for (int x = 0; x < cropped.width(); x += 3)
                             if (qAlpha(cropped.pixel(x, y)) > 0)
                                 ++inkPixels;
-                    qInfo().noquote() << "demo: crop applied with Enter -> canvas"
-                                      << controller->canvasWidth() << "x"
-                                      << controller->canvasHeight() << "(was" << widthBefore << "x"
-                                      << heightBefore << ") ink pixels:" << inkPixels
-                                      << "undoable:" << undoable;
+                    qInfo().noquote()
+                        << "demo: switched to the Move tool -> canvas"
+                        << controller->canvasWidth() << "x" << controller->canvasHeight()
+                        << "(was" << widthBeforeSwitch << "x" << heightBefore << ") ink pixels:"
+                        << inkPixels << "undoable:" << undoable;
                     if (undoable) {
                         // Photoshop behaviour: the frame crops the canvas, the
                         // content outside it is only hidden — moving the layer
@@ -2450,11 +2455,17 @@ int main(int argc, char* argv[])
                             return n;
                         };
                         const int beforeMove = inkCount();
-                        controller->moveActiveLayer(-120, -90);
+                        const QPointF grab = canvasPointToWindow(canvas, controller, 100.0, 80.0);
+                        const QPointF drop = canvasPointToWindow(canvas, controller, 100.0 - 120.0,
+                                                                 80.0 - 90.0);
+                        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, grab.toPoint());
+                        for (int step = 1; step <= 5; ++step)
+                            QTest::mouseMove(window, (grab + (drop - grab) * (step / 5.0)).toPoint());
+                        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, drop.toPoint());
                         const int afterMove = inkCount();
                         qInfo().noquote()
                             << "demo: ink inside the canvas before moving the layer:" << beforeMove
-                            << "after moving it:" << afterMove;
+                            << "after dragging it with the Move tool:" << afterMove;
                         controller->undo();
                         controller->undo();
                         qInfo().noquote() << "demo: after undo canvas" << controller->canvasWidth()

@@ -128,15 +128,21 @@ ApplicationWindow {
     Shortcut { sequence: "-"; onActivated: controller.brushSize = Math.max(1, controller.brushSize - 2) }
     Shortcut { sequence: "Delete"; onActivated: controller.clearCanvas() }
 
-    // Leaving the crop tool drops a pending frame: it is a crop marquee, not a
-    // selection, and it must not silently become one.
+    // Leaving the crop tool commits the pending frame, like Photoshop: picking
+    // another tool is how most people finish a crop ("drag a frame, then grab
+    // the Move tool to place the image"). Discarding it silently meant the crop
+    // never happened at all.
     Connections {
         target: controller
         function onToolChanged() {
-            if (controller.tool !== AppController.CropTool && canvasMouse.cropRect) {
-                canvasMouse.cropRect = null
-                controller.clearSelection()
-            }
+            if (controller.tool === AppController.CropTool)
+                return
+            if (!canvasMouse.cropRect)
+                return
+            const r = canvasMouse.cropRect
+            canvasMouse.cropRect = null
+            controller.clearSelection()
+            controller.cropTo(r.x, r.y, r.width, r.height)
         }
     }
 
@@ -809,6 +815,18 @@ ApplicationWindow {
                                     controller.extendStroke(cx, cy)
                                     break
                                 }
+                            }
+
+                            onDoubleClicked: {
+                                // Double-clicking inside the crop frame is the
+                                // other way Photoshop finishes a crop.
+                                if (controller.tool !== AppController.CropTool
+                                        || !canvasMouse.cropRect)
+                                    return
+                                const r = canvasMouse.cropRect
+                                canvasMouse.cropRect = null
+                                controller.clearSelection()
+                                controller.cropTo(r.x, r.y, r.width, r.height)
                             }
 
                             onReleased: mouse => {
