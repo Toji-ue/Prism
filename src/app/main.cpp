@@ -123,35 +123,58 @@ public:
         if (pointer != QPointingDevice::PointerType::Pen
             && pointer != QPointingDevice::PointerType::Eraser)
             return false;
-        if (!m_stroking && event->type() != QEvent::TabletPress)
-            return false; // hover moves must not paint
+        auto* window = qobject_cast<QQuickWindow*>(watched);
+        if (!window)
+            return false;
+
+        // Which events does the pressure-aware C++ stroke path take? Only the
+        // stroke tools, only on an open document, only inside the canvas.
+        bool strokeTool = false;
         switch (m_controller->tool()) {
         case AppController::BrushTool:
         case AppController::EraserTool:
         case AppController::DynamicBrushTool:
         case AppController::BlendTool:
+            strokeTool = true;
             break;
         default:
-            return false; // non-stroke tools keep the synthesized-mouse path
+            break;
         }
-        if (m_controller->startPageVisible())
-            return false;
+        // Hover moves must not paint, and a pen that is not on the canvas (over
+        // a docker, a button) belongs to the UI.
+        if (strokeTool && (m_stroking || event->type() == QEvent::TabletPress)
+            && !m_controller->startPageVisible()) {
+            auto* area = findItemByName(window->contentItem(),
+                                        QStringLiteral("canvasMouseArea"));
+            if (area) {
+                // Window -> mouse-area -> canvas, the same math as QML canvasX/Y.
+                const QPointF local = area->mapFromScene(tablet->position());
+                qreal x = local.x() / m_controller->zoom();
+                qreal y = local.y() / m_controller->zoom();
+                if (m_controller->mirrorHorizontal())
+                    x = m_controller->canvasWidth() - x;
+                if (m_controller->mirrorVertical())
+                    y = m_controller->canvasHeight() - y;
+                if (x >= 0 && y >= 0 && x < m_controller->canvasWidth()
+                    && y < m_controller->canvasHeight() && strokeEvent(event, tablet, x, y, window))
+                    return true;
+            }
+        }
 
-        auto* window = qobject_cast<QQuickWindow*>(watched);
-        auto* area = window
-            ? findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea"))
-            : nullptr;
-        if (!area)
-            return false;
-        // Window -> mouse-area -> canvas, the same math as the QML canvasX/Y.
-        const QPointF local = area->mapFromScene(tablet->position());
-        qreal x = local.x() / m_controller->zoom();
-        qreal y = local.y() / m_controller->zoom();
-        if (m_controller->mirrorHorizontal())
-            x = m_controller->canvasWidth() - x;
-        if (m_controller->mirrorVertical())
-            y = m_controller->canvasHeight() - y;
+        // Everything else: hand the pen to the QML canvas as a MOUSE event.
+        // A MouseArea ignores a stylus and Qt Quick does not turn a pen into a
+        // mouse, so with a tablet every tool the filter does not drive itself
+        // (crop, selections, shapes, fill, move, pan, text, the picker) was
+        // dead — which is how "crop does not work" showed up on a tablet while
+        // it worked fine with a mouse.
+        synthesizeMouse(window, tablet->position(), event->type());
+        return true;
+    }
 
+private:
+    /// The pressure-aware stroke path.
+    bool strokeEvent(QEvent* event, QTabletEvent* tablet, qreal x, qreal y, QQuickWindow* window)
+    {
         // --tablet-trace: what the driver actually sends, and where it lands.
         // Drawn strokes coming out angular has three candidate causes — sparse
         // samples, a coordinate/DPI mismatch, or a broken pressure signal — and
@@ -184,7 +207,7 @@ public:
         }
         if (x < 0 || y < 0 || x >= m_controller->canvasWidth()
             || y >= m_controller->canvasHeight())
-            return false; // over UI: let the mouse path click it
+            return false; // caller falls back to the mouse event
 
         // Some drivers report 0 pressure at first contact; treat as full.
         const float pressure = tablet->pressure() > 0.0
@@ -221,6 +244,21 @@ public:
             m_lastMs = 0;
         }
         return true; // consumed: no synthesized mouse, no double stroke
+    }
+
+    /// Replays a pen event as a mouse event on the window, so the QML canvas
+    /// handles it exactly as it does for a mouse (one tool-dispatch path, no
+    /// second copy of the tool logic in C++).
+    static void synthesizeMouse(QQuickWindow* window, const QPointF& pos, QEvent::Type type)
+    {
+        const Qt::MouseButton button =
+            type == QEvent::TabletRelease ? Qt::NoButton : Qt::LeftButton;
+        QMouseEvent me(type == QEvent::TabletPress     ? QEvent::MouseButtonPress
+                           : type == QEvent::TabletRelease ? QEvent::MouseButtonRelease
+                                                           : QEvent::MouseMove,
+                       pos, window->mapToGlobal(pos), button, button, Qt::NoModifier,
+                       QPointingDevice::primaryPointingDevice());
+        QCoreApplication::sendEvent(window, &me);
     }
 
 private:
@@ -1781,6 +1819,14 @@ int main(int argc, char* argv[])
         // to the brush with the sampled colour applied.
         const bool demoEyedropper =
             app.arguments().contains(QStringLiteral("--demo-eyedropper"));
+        // --demo-pen-tool=crop|rectselect|move: drives a drag with the PEN
+        // (synthetic QTabletEvents) instead of the mouse. Every hook above uses
+        // QTest's mouse input, so a tool that only reacts to synthesized mouse
+        // events looks fine here and dead on a tablet.
+        QString demoPenTool;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-pen-tool=")))
+                demoPenTool = a.section(QLatin1Char('='), 1);
         // --demo-stroke-bench=N: drives N real mouse moves across the canvas and
         // reports frame timing and texture-upload volume. Latency work has to be
         // measured, not guessed â€” and this hook works on the old and new
@@ -1827,7 +1873,7 @@ int main(int argc, char* argv[])
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
                                        demoClick, demoActive, demoClickLayer, demoFocusUndo,
                                        demoRightPan, demoCrop, demoMove, demoSliderInput,
-                                       demoSliderTab, demoEyedropper,
+                                       demoSliderTab, demoEyedropper, demoPenTool,
                                        demoStrokeBench, demoDocW, demoDocH,
                                        demoMirror, demoStress, demoStressOps, &engine]() {
             if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
@@ -2422,6 +2468,82 @@ int main(int argc, char* argv[])
                                       << before << "during drag" << during << "after release"
                                       << after << "shift" << (after.topLeft() - before.topLeft())
                                       << "canUndo" << controller->canUndo();
+                }
+            }
+            if (!demoPenTool.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                controller->newDocument(800, 600);
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* canvas = window ? findItemByName(window->contentItem(),
+                                                       QStringLiteral("canvasItem"))
+                                      : nullptr;
+                auto* area = window ? findItemByName(window->contentItem(),
+                                                     QStringLiteral("canvasMouseArea"))
+                                    : nullptr;
+                int tool = AppController::CropTool;
+                if (demoPenTool == QLatin1String("rectselect"))
+                    tool = AppController::RectSelectTool;
+                else if (demoPenTool == QLatin1String("move"))
+                    tool = AppController::MoveTool;
+                controller->setTool(tool);
+                // The Move tool needs something to move, and its effect is a
+                // moved bbox rather than a selection.
+                const auto inkBox = [controller]() {
+                    const QImage img = controller->canvasImage();
+                    int x0 = img.width(), y0 = img.height(), x1 = -1, y1 = -1;
+                    for (int y = 0; y < img.height(); ++y)
+                        for (int x = 0; x < img.width(); ++x)
+                            if (qAlpha(img.pixel(x, y)) > 0) {
+                                x0 = std::min(x0, x);
+                                y0 = std::min(y0, y);
+                                x1 = std::max(x1, x);
+                                y1 = std::max(y1, y);
+                            }
+                    return QRect(QPoint(x0, y0), QPoint(x1, y1));
+                };
+                if (tool == AppController::MoveTool) {
+                    controller->setBrushColor(QColor(0, 0, 0));
+                    controller->beginStroke(150.0F, 100.0F);
+                    controller->extendStroke(320.0F, 100.0F);
+                    controller->endStroke();
+                }
+                const QRect inkBefore = inkBox();
+                static QPointingDevice pen(QStringLiteral("demo-pen"), 1,
+                                           QInputDevice::DeviceType::Stylus,
+                                           QPointingDevice::PointerType::Pen,
+                                           QInputDevice::Capability::Pressure, 1, 1);
+                if (!window || !canvas || !area) {
+                    qWarning() << "demo: canvas not found for the pen check";
+                } else {
+                    const auto send = [window, area, canvas, controller](QEvent::Type type,
+                                                                        qreal cx, qreal cy) {
+                        const QPointF local = canvas->mapToScene(
+                            QPointF(cx * controller->zoom(), cy * controller->zoom()));
+                        QTabletEvent ev(type, &pen, local, local, 0.4, 0.0F, 0.0F, 0.0F, 0.0,
+                                        0.0F, Qt::NoModifier, Qt::LeftButton,
+                                        type == QEvent::TabletRelease ? Qt::NoButton
+                                                                      : Qt::LeftButton);
+                        QCoreApplication::sendEvent(window, &ev);
+                        Q_UNUSED(area);
+                    };
+                    send(QEvent::TabletPress, 200.0, 150.0);
+                    for (int step = 1; step <= 6; ++step)
+                        send(QEvent::TabletMove, 200.0 + step * 40.0, 150.0 + step * 30.0);
+                    const bool reacted =
+                        controller->hasSelection()
+                        || (controller->tool() == AppController::CropTool
+                            && controller->selectionW() > 0)
+                        || (tool == AppController::MoveTool && inkBox() != inkBefore);
+                    qInfo().noquote()
+                        << "demo: pen drag with" << demoPenTool << "-> selection"
+                        << controller->selectionX() << controller->selectionY()
+                        << controller->selectionW() << "x" << controller->selectionH()
+                        << "ink" << inkBefore << "->" << inkBox() << "reacted:" << reacted;
+                    send(QEvent::TabletRelease, 440.0, 330.0);
+                    QTest::keyClick(window, Qt::Key_Return);
+                    qInfo().noquote() << "demo: after Enter -> canvas" << controller->canvasWidth()
+                                      << "x" << controller->canvasHeight() << "tool"
+                                      << controller->tool();
                 }
             }
             if (demoEyedropper && !engine.rootObjects().isEmpty()) {
