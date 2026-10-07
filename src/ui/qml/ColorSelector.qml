@@ -215,9 +215,24 @@ Rectangle {
                 }
                 PSlider {
                     id: sl
+                    objectName: "colorSlider_" + modelData.label
                     width: 118
                     from: 0; to: modelData.max
-                    value: modelData.val(docker.current)
+                    // Synced imperatively, not bound: any write to `value` (a
+                    // drag, the wheel, the arrow keys) destroys the binding, so
+                    // after the first touch the slider showed a stale number
+                    // while the colour moved on.
+                    Component.onCompleted: syncFromColor()
+                    Connections {
+                        target: docker.controller
+                        function onBrushChanged() {
+                            if (!sl.pressed)
+                                sl.syncFromColor()
+                        }
+                    }
+                    function syncFromColor() {
+                        value = modelData.val(docker.current)
+                    }
                     onMoved: {
                         var c = docker.current
                         var h = c.hsvHue, s = c.hsvSaturation, v = c.hsvValue

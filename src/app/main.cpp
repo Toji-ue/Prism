@@ -1771,6 +1771,12 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-slider-input=")))
                 demoSliderInput = a.section(QLatin1Char('='), 1);
+        // --demo-slider-tab=N: which right-hand docker tab to reveal first
+        // (0 layers, 1 brush, 2 colour) - hidden items get no input.
+        int demoSliderTab = -1;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-slider-tab=")))
+                demoSliderTab = a.section(QLatin1Char('='), 1).toInt();
         // --demo-eyedropper: a real click with the picker must return the canvas
         // to the brush with the sampled colour applied.
         const bool demoEyedropper =
@@ -1821,7 +1827,7 @@ int main(int argc, char* argv[])
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
                                        demoClick, demoActive, demoClickLayer, demoFocusUndo,
                                        demoRightPan, demoCrop, demoMove, demoSliderInput,
-                                       demoEyedropper,
+                                       demoSliderTab, demoEyedropper,
                                        demoStrokeBench, demoDocW, demoDocH,
                                        demoMirror, demoStress, demoStressOps, &engine]() {
             if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
@@ -2306,7 +2312,7 @@ int main(int argc, char* argv[])
                     // Paint a known mark so the crop can be checked for content,
                     // not just for the new canvas size.
                     controller->setBrushColor(QColor(0, 0, 0));
-                    controller->beginStroke(cx + 20, cy + 20);
+                    controller->beginStroke(cx + 60, cy + 60);
                     controller->extendStroke(cx + cw - 20, cy + ch - 20);
                     controller->endStroke();
                     controller->setTool(AppController::CropTool);
@@ -2316,25 +2322,42 @@ int main(int argc, char* argv[])
                     for (int step = 1; step <= 6; ++step)
                         QTest::mouseMove(window, (from + (to - from) * (step / 6.0)).toPoint());
                     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+                    // Photoshop behaviour: releasing only leaves the frame on
+                    // screen; it is not a crop yet.
+                    qInfo().noquote()
+                        << "demo: crop frame drawn, canvas still" << controller->canvasWidth() << "x"
+                        << controller->canvasHeight() << "frame at" << controller->selectionX()
+                        << controller->selectionY() << controller->selectionW() << "x"
+                        << controller->selectionH();
+                    // Drag the frame itself to reposition it.
+                    const QPointF grab = canvasPointToWindow(canvas, controller, cx + cw / 2,
+                                                             cy + ch / 2);
+                    const QPointF drop = canvasPointToWindow(canvas, controller, cx + cw / 2 + 40,
+                                                             cy + ch / 2 + 20);
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, grab.toPoint());
+                    for (int step = 1; step <= 4; ++step)
+                        QTest::mouseMove(window, (grab + (drop - grab) * (step / 4.0)).toPoint());
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, drop.toPoint());
+                    qInfo().noquote() << "demo: after dragging the frame -> frame at"
+                                      << controller->selectionX() << controller->selectionY()
+                                      << controller->selectionW() << "x" << controller->selectionH();
+                    QTest::keyClick(window, Qt::Key_Return);
                     const bool undoable = controller->canUndo();
                     const QImage cropped = controller->canvasImage();
-                    const bool inkKept = qAlpha(cropped.pixel(std::min(cropped.width() - 1, 20),
-                                                              std::min(cropped.height() - 1, 20)))
-                                         > 0;
-                    qInfo().noquote() << "demo: crop dragged" << cx << cy << cw << ch
-                                      << "-> canvas" << controller->canvasWidth() << "x"
-                                      << controller->canvasHeight() << "(was" << widthBefore
-                                      << "x" << heightBefore << ") ink kept:" << inkKept
+                    int inkPixels = 0;
+                    for (int y = 0; y < cropped.height(); y += 3)
+                        for (int x = 0; x < cropped.width(); x += 3)
+                            if (qAlpha(cropped.pixel(x, y)) > 0)
+                                ++inkPixels;
+                    qInfo().noquote() << "demo: crop applied with Enter -> canvas"
+                                      << controller->canvasWidth() << "x"
+                                      << controller->canvasHeight() << "(was" << widthBefore << "x"
+                                      << heightBefore << ") ink pixels:" << inkPixels
                                       << "undoable:" << undoable;
                     if (undoable) {
                         controller->undo();
-                        const QImage restored = controller->canvasImage();
-                        qInfo().noquote()
-                            << "demo: after undo canvas" << controller->canvasWidth() << "x"
-                            << controller->canvasHeight() << "ink back at origin:"
-                            << (qAlpha(restored.pixel(static_cast<int>(cx + 20),
-                                                      static_cast<int>(cy + 20)))
-                                > 0);
+                        qInfo().noquote() << "demo: after undo canvas" << controller->canvasWidth()
+                                          << "x" << controller->canvasHeight();
                     }
                 }
             }
@@ -2359,6 +2382,11 @@ int main(int argc, char* argv[])
                     src.save(png);
                     controller->newDocument(400, 300);
                     controller->importImageAsLayer(QUrl::fromLocalFile(png));
+                    // Importing hands over the Move tool, so the first drag
+                    // places the image instead of painting on it.
+                    qInfo().noquote() << "demo: tool right after import is"
+                                      << controller->tool() << "(move tool is"
+                                      << AppController::MoveTool << ")";
                     const auto bbox = [controller]() {
                         const QImage img = controller->canvasImage();
                         int x0 = img.width(), y0 = img.height(), x1 = -1, y1 = -1;
@@ -2424,14 +2452,30 @@ int main(int argc, char* argv[])
             if (!demoSliderInput.isEmpty() && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
                 if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                    if (demoSliderTab >= 0) {
+                        window->setProperty("dockerTab", demoSliderTab);
+                        // The StackLayout shows the new tab on the next layout
+                        // pass; input sent before that lands on a hidden item.
+                        QCoreApplication::processEvents();
+                        QCoreApplication::processEvents();
+                    }
                     if (auto* slider = findItemByName(window->contentItem(), demoSliderInput)) {
                         const auto value = [slider]() {
                             return slider->property("value").toDouble();
                         };
+                        qInfo().noquote() << "demo: slider" << demoSliderInput << "visible"
+                                          << slider->isVisible() << "at"
+                                          << slider->mapToScene(QPointF(0, 0)) << "size"
+                                          << QSizeF(slider->width(), slider->height());
                         const auto centre =
                             slider->mapToScene(QPointF(slider->width() / 2.0,
                                                        slider->height() / 2.0));
                         slider->forceActiveFocus();
+                        // A non-black colour, so a hue/saturation nudge is
+                        // actually visible: on black every HSV nudge is a no-op
+                        // and the sync-back hides whether the input arrived.
+                        controller->setBrushColor(QColor(120, 60, 200));
+                        QCoreApplication::processEvents();
                         const double start = value();
                         QTest::keyClick(window, Qt::Key_Right);
                         const double afterRight = value();
@@ -2447,7 +2491,21 @@ int main(int argc, char* argv[])
                         QCursor::setPos(prev);
                         qInfo().noquote() << "demo:" << demoSliderInput << "value" << start
                                           << "-> right arrow" << afterRight << "-> left arrow"
-                                          << afterLeft << "-> wheel up" << afterWheel;
+                                          << afterLeft << "-> wheel up" << afterWheel
+                                          << "| controller: size" << controller->brushSize()
+                                          << "hardness" << controller->brushHardness()
+                                          << "colour" << controller->brushColor().name();
+                        // The slider must follow a colour set from elsewhere (a
+                        // pick, the hex field): binding `value` to the colour
+                        // broke on the first interaction and left it stale.
+                        controller->setBrushColor(QColor(0, 255, 0));
+                        QCoreApplication::processEvents();
+                        if (demoSliderInput.startsWith(QStringLiteral("colorSlider_"))) {
+                            qInfo().noquote()
+                                << "demo:" << demoSliderInput
+                                << "after an outside colour change -> value" << value()
+                                << "(green: H 120, S 100, V 100)";
+                        }
                     } else {
                         qWarning() << "demo: slider" << demoSliderInput << "not found";
                     }

@@ -99,6 +99,14 @@ ApplicationWindow {
     Shortcut {
         sequence: "Return"
         onActivated: {
+            // A crop frame is a pending edit: Enter applies what is on screen.
+            if (controller.tool === AppController.CropTool && canvasMouse.cropRect) {
+                const r = canvasMouse.cropRect
+                canvasMouse.cropRect = null
+                controller.clearSelection()
+                controller.cropTo(r.x, r.y, r.width, r.height)
+                return
+            }
             const t = controller.tool
             if (t === AppController.PolylineTool) controller.finishPath(0)
             else if (t === AppController.BezierTool) controller.finishPath(1)
@@ -106,10 +114,31 @@ ApplicationWindow {
             else if (t === AppController.MagneticSelectTool) controller.finishPath(3)
         }
     }
-    Shortcut { sequence: "Escape"; onActivated: controller.cancelPath() }
+    Shortcut {
+        sequence: "Escape"
+        onActivated: {
+            if (canvasMouse.cropRect) {
+                canvasMouse.cropRect = null
+                controller.clearSelection()
+            }
+            controller.cancelPath()
+        }
+    }
     Shortcut { sequence: "+"; onActivated: controller.brushSize = Math.min(200, controller.brushSize + 2) }
     Shortcut { sequence: "-"; onActivated: controller.brushSize = Math.max(1, controller.brushSize - 2) }
     Shortcut { sequence: "Delete"; onActivated: controller.clearCanvas() }
+
+    // Leaving the crop tool drops a pending frame: it is a crop marquee, not a
+    // selection, and it must not silently become one.
+    Connections {
+        target: controller
+        function onToolChanged() {
+            if (controller.tool !== AppController.CropTool && canvasMouse.cropRect) {
+                canvasMouse.cropRect = null
+                controller.clearSelection()
+            }
+        }
+    }
 
     // Tool hotkeys are user-configurable (Settings > Configure Tool
     // Shortcuts). The list comes from the controller; the Instantiator
@@ -562,6 +591,15 @@ ApplicationWindow {
                             property real startX: 0
                             property real startY: 0
                             property bool draggingLayer: false
+                            /// Crop marquee in canvas coordinates (Photoshop
+                            /// behaviour): the drag draws the frame, then it can
+                            /// be dragged into place and Enter applies it.
+                            /// Cropping on mouse-up made a misplaced frame
+                            /// final the instant the button came up.
+                            property var cropRect: null
+                            property bool cropMoving: false
+                            property real cropGrabX: 0
+                            property real cropGrabY: 0
                             /// Freehand lasso points collected during a drag.
                             property var lassoPoints: []
 
@@ -649,9 +687,21 @@ ApplicationWindow {
                                 case AppController.FreehandPathTool:
                                     controller.beginFreePath(cx, cy)
                                     break
-                                case AppController.CropTool:
-                                    controller.setSelection(cx, cy, 0, 0)
+                                case AppController.CropTool: {
+                                    // Inside the existing frame: drag it whole.
+                                    const r = canvasMouse.cropRect
+                                    if (r && cx >= r.x && cx <= r.x + r.width
+                                            && cy >= r.y && cy <= r.y + r.height) {
+                                        canvasMouse.cropMoving = true
+                                        canvasMouse.cropGrabX = cx - r.x
+                                        canvasMouse.cropGrabY = cy - r.y
+                                    } else {
+                                        canvasMouse.cropMoving = false
+                                        canvasMouse.cropRect = Qt.rect(cx, cy, 0, 0)
+                                        controller.setSelection(cx, cy, 0, 0)
+                                    }
                                     break
+                                }
                                 case AppController.TextTool:
                                     textPopup.pendingX = cx
                                     textPopup.pendingY = cy
@@ -725,9 +775,26 @@ ApplicationWindow {
                                 case AppController.LassoFillTool:
                                     controller.extendLassoFill(cx, cy)
                                     break
-                                case AppController.CropTool:
-                                    controller.setSelection(startX, startY, cx - startX, cy - startY)
+                                case AppController.CropTool: {
+                                    if (canvasMouse.cropMoving && canvasMouse.cropRect) {
+                                        const r = canvasMouse.cropRect
+                                        const nx = Math.max(0, Math.min(controller.canvasWidth
+                                                                        - r.width,
+                                                                        cx - canvasMouse.cropGrabX))
+                                        const ny = Math.max(0, Math.min(controller.canvasHeight
+                                                                        - r.height,
+                                                                        cy - canvasMouse.cropGrabY))
+                                        canvasMouse.cropRect = Qt.rect(nx, ny, r.width, r.height)
+                                        controller.setSelection(nx, ny, r.width, r.height)
+                                    } else {
+                                        canvasMouse.cropRect =
+                                            Qt.rect(Math.min(startX, cx), Math.min(startY, cy),
+                                                    Math.abs(cx - startX), Math.abs(cy - startY))
+                                        controller.setSelection(startX, startY, cx - startX,
+                                                                cy - startY)
+                                    }
                                     break
+                                }
                                 case AppController.MoveTool:
                                     // Live drag: the layer follows the pointer (it
                                     // used to jump only on release, which reads
@@ -784,8 +851,10 @@ ApplicationWindow {
                                     return
                                 }
                                 if (controller.tool === AppController.CropTool) {
-                                    controller.cropTo(startX, startY, cx - startX, cy - startY)
-                                    controller.clearSelection()
+                                    // The frame stays: putting it in place is part
+                                    // of the gesture, Enter applies it (Photoshop).
+                                    canvasMouse.cropMoving = false
+                                    controller.setStatusMessage(qsTr("Drag the frame to position it, Enter to crop, Esc to cancel."))
                                     return
                                 }
                                 if (controller.tool === AppController.TransformTool && draggingLayer) {

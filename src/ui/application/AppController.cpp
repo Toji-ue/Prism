@@ -2191,10 +2191,15 @@ bool AppController::importImageAsLayer(const QUrl& url)
                              .arg(clippedX)
                              .arg(clippedY));
     else
-        setStatusMessage(tr("Imported \"%1\" as a layer (%2x%3, centered).")
+        setStatusMessage(tr("Imported \"%1\" as a layer (%2x%3, centered). Drag to place it.")
                              .arg(QString::fromStdString(name))
                              .arg(image.width())
                              .arg(image.height()));
+
+    // Placing the image is the obvious next step, so hand over the Move tool:
+    // leaving the brush active meant the first drag painted on top of the import
+    // instead of moving it, which read as "the imported layer cannot be moved".
+    setTool(MoveTool);
     return true;
 }
 
