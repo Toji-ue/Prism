@@ -38,6 +38,12 @@ prism::core::geometry::Rect Compositor::composite(prism::core::geometry::Rect di
                                                   bool overlayErases)
 {
     const auto& size = m_doc.canvasSize();
+    // Undoing a crop resizes the document without anyone calling
+    // canvasResized(): the result buffer then stayed smaller than the canvas and
+    // the next composite wrote past its end. Reallocating here keeps the class
+    // self-consistent and makes canvasResized() a plain hint.
+    if (m_result.width() != size.width || m_result.height() != size.height)
+        canvasResized();
     const prism::core::geometry::Rect canvasRect{ 0, 0, size.width, size.height };
     const auto area = dirty.intersected(canvasRect);
     if (area.isEmpty())

@@ -186,6 +186,9 @@ QColor AppController::brushColor() const { return toQColor(m_brush.color); }
 void AppController::setBrushColor(const QColor& color)
 {
     m_brush.color = toRaster(color);
+    // Keep the current tool's slot in sync so the choice sticks when the artist
+    // switches tools and comes back.
+    m_colorByTool[m_brush.erase ? 1 : 0] = m_brush.color;
     emit brushChanged();
 }
 
@@ -333,11 +336,42 @@ int AppController::tool() const { return m_tool; }
 
 void AppController::setTool(int tool)
 {
+    // Remember where the eyedropper was invoked from, so a pick can hand the
+    // canvas back to the tool the artist was drawing with.
+    if (tool == EyedropperTool && m_tool != EyedropperTool)
+        m_toolBeforeEyedropper = m_tool;
+    // Colour is remembered per tool: the eraser does not paint, so a colour set
+    // while erasing (a pick, the colour docker) must not follow the artist back
+    // to the brush — switching back restores the colour the brush had.
+    const bool eraser = (tool == EraserTool);
+    if (m_tool != tool && m_brush.erase != eraser) {
+        m_colorByTool[m_brush.erase ? 1 : 0] = m_brush.color;
+        m_brush.color = m_colorByTool[eraser ? 1 : 0];
+    }
     m_tool = tool;
     // The eraser is a brush mode, so the tool selection drives it.
-    m_brush.erase = (tool == EraserTool);
+    m_brush.erase = eraser;
     emit toolChanged();
     emit brushChanged();
+}
+
+void AppController::endEyedropper()
+{
+    if (m_tool != EyedropperTool)
+        return;
+    // Back to the drawing tool, not to whatever happened to be active before
+    // (pan, a selection tool): the point of the picker is to keep painting.
+    switch (m_toolBeforeEyedropper) {
+    case BrushTool:
+    case EraserTool:
+    case DynamicBrushTool:
+    case BlendTool:
+        setTool(m_toolBeforeEyedropper);
+        break;
+    default:
+        setTool(BrushTool);
+        break;
+    }
 }
 
 QString AppController::brushName() const
@@ -581,6 +615,103 @@ void AppController::moveActiveLayer(int dx, int dy)
         m_doc, static_cast<std::size_t>(m_activeLayer), dx, dy));
     emit historyChanged();
     rebuildFullComposite();
+}
+
+// ------------------------------------------------------------- layer drag
+
+void AppController::beginLayerMove()
+{
+    m_movingLayer = false;
+    if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    if (layer.isLocked() || layer.pixels().isEmpty())
+        return;
+
+    // Snapshot once per drag. Every preview step re-shifts THIS copy, so the
+    // content cannot accumulate drag error, and the history entry at the end
+    // gets the pre-drag pixels.
+    // ponytail: one full-buffer copy + one bounds scan on mouse-down. Both are
+    // O(canvas) (~30ms on 4000x4000); a persistent per-layer content rect would
+    // remove them if drag-start latency ever shows up.
+    m_moveBefore = layer.pixels();
+    m_moveBbox = contentBounds(m_moveBefore);
+    if (m_moveBbox.isEmpty())
+        return;
+    m_moveDx = 0;
+    m_moveDy = 0;
+    m_movingLayer = true;
+}
+
+core::geometry::Rect AppController::contentBounds(const core::raster::RasterBuffer& buffer)
+{
+    int x0 = buffer.width(), y0 = buffer.height(), x1 = -1, y1 = -1;
+    for (int y = 0; y < buffer.height(); ++y) {
+        for (int x = 0; x < buffer.width(); ++x) {
+            if (buffer.at(x, y).a == 0)
+                continue;
+            x0 = std::min(x0, x);
+            y0 = std::min(y0, y);
+            x1 = std::max(x1, x);
+            y1 = std::max(y1, y);
+        }
+    }
+    if (x1 < 0)
+        return {};
+    return core::geometry::Rect{ x0, y0, x1 - x0 + 1, y1 - y0 + 1 };
+}
+
+void AppController::previewLayerMove(int dx, int dy)
+{
+    if (!m_movingLayer || (dx == m_moveDx && dy == m_moveDy))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
+    auto& pixels = layer.pixels();
+
+    // Only the content's own rectangle is touched: clearing the old one and
+    // re-blitting the snapshot's keeps this O(content), not O(canvas), so a big
+    // image stays draggable.
+    const core::geometry::Rect previous{ m_moveBbox.x + m_moveDx, m_moveBbox.y + m_moveDy,
+                                         m_moveBbox.width, m_moveBbox.height };
+    for (int y = std::max(0, previous.y);
+         y < std::min(pixels.height(), previous.y + previous.height); ++y) {
+        const auto row = static_cast<std::size_t>(y) * pixels.width();
+        for (int x = std::max(0, previous.x);
+             x < std::min(pixels.width(), previous.x + previous.width); ++x)
+            pixels.set(x, y, core::raster::kTransparent);
+    }
+    pixels.blit(m_moveBefore.copyRect(m_moveBbox.x, m_moveBbox.y, m_moveBbox.width,
+                                      m_moveBbox.height),
+                m_moveBbox.x + dx, m_moveBbox.y + dy);
+    m_moveDx = dx;
+    m_moveDy = dy;
+
+    const core::geometry::Rect next{ m_moveBbox.x + dx, m_moveBbox.y + dy, m_moveBbox.width,
+                                     m_moveBbox.height };
+    const int ux = std::min(previous.x, next.x);
+    const int uy = std::min(previous.y, next.y);
+    const int uw = std::max(previous.x + previous.width, next.x + next.width) - ux;
+    const int uh = std::max(previous.y + previous.height, next.y + next.height) - uy;
+    const auto composited = m_compositor.composite(core::geometry::Rect{ ux, uy, uw, uh });
+    ++m_layerRevision;
+    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
+}
+
+void AppController::endLayerMove()
+{
+    if (!m_movingLayer)
+        return;
+    m_movingLayer = false;
+    const int dx = m_moveDx;
+    const int dy = m_moveDy;
+    if (dx != 0 || dy != 0) {
+        // The layer is already showing the moved result; the command carries the
+        // pre-drag pixels so undo restores exactly one push of the stack.
+        m_history.execute(std::make_unique<core::MoveLayerContentCommand>(
+            m_doc, static_cast<std::size_t>(m_activeLayer), dx, dy, std::move(m_moveBefore)));
+        emit historyChanged();
+    }
+    m_moveBefore = {};
 }
 
 // ------------------------------------------------------------------ selection
@@ -1086,21 +1217,22 @@ void AppController::cropTo(float x, float y, float w, float h)
     const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, size.height);
     const int cw = x1 - x0;
     const int ch = y1 - y0;
-    if (cw < 2 || ch < 2)
+    if (cw < 2 || ch < 2) {
+        // A click (or a 1px twitch) must say so instead of silently doing
+        // nothing while the rubber band disappears.
+        setStatusMessage(tr("Crop area is too small - drag a larger rectangle."));
         return;
-
-    // Crop each layer, then resize the document. Destructive by nature, so the
-    // history is cleared rather than pretending it can be undone.
-    for (const auto& layer : m_doc.layers()) {
-        if (layer->pixels().isEmpty())
-            continue;
-        layer->pixels() = layer->pixels().copyRect(x0, y0, cw, ch);
     }
-    m_doc.resizeCanvas(core::CanvasSize{ cw, ch, m_doc.canvasSize().dpi });
-    m_history.clear();
+
+    // Through the history, so a crop can be taken back. This used to mutate
+    // every layer and then clear the undo stack: one misplaced drag destroyed
+    // all the artist's undo steps, and the crop itself was irreversible.
+    m_history.execute(std::make_unique<core::CropCommand>(m_doc, x0, y0, cw, ch));
     m_compositor.canvasResized();
     m_selection.reset(cw, ch);
     m_preview = core::raster::RasterBuffer(cw, ch);
+    m_previewDirty = {};
+    m_strokeDirty = {};
     emit layersChanged();
     emit historyChanged();
     rebuildFullComposite();

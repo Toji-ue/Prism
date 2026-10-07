@@ -173,6 +173,43 @@ void ClearLayerCommand::redo()
     m_doc.layers().at(m_index)->pixels() = m_after;
 }
 
+// ---------------------------------------------------------------- Crop
+
+CropCommand::CropCommand(Document& doc, int x, int y, int width, int height)
+    : m_doc(doc)
+    , m_x(x)
+    , m_y(y)
+    , m_width(width)
+    , m_height(height)
+    , m_beforeSize(doc.canvasSize())
+{
+    for (const auto& layer : doc.layers())
+        if (layer->type() == Layer::Type::Raster)
+            m_before.push_back(layer->pixels());
+}
+
+void CropCommand::redo()
+{
+    std::size_t i = 0;
+    for (const auto& layer : m_doc.layers()) {
+        if (layer->type() != Layer::Type::Raster)
+            continue;
+        layer->pixels() = m_before[i++].copyRect(m_x, m_y, m_width, m_height);
+    }
+    m_doc.resizeCanvas(CanvasSize{ m_width, m_height, m_beforeSize.dpi });
+}
+
+void CropCommand::undo()
+{
+    m_doc.resizeCanvas(m_beforeSize);
+    std::size_t i = 0;
+    for (const auto& layer : m_doc.layers()) {
+        if (layer->type() != Layer::Type::Raster)
+            continue;
+        layer->pixels() = m_before[i++];
+    }
+}
+
 // ------------------------------------------------------- MoveLayerContent
 
 MoveLayerContentCommand::MoveLayerContentCommand(Document& doc, std::size_t index, int dx,
@@ -182,6 +219,16 @@ MoveLayerContentCommand::MoveLayerContentCommand(Document& doc, std::size_t inde
     , m_dx(dx)
     , m_dy(dy)
     , m_before(doc.layers().at(index)->pixels())
+{
+}
+
+MoveLayerContentCommand::MoveLayerContentCommand(Document& doc, std::size_t index, int dx,
+                                                 int dy, raster::RasterBuffer before)
+    : m_doc(doc)
+    , m_index(index)
+    , m_dx(dx)
+    , m_dy(dy)
+    , m_before(std::move(before))
 {
 }
 

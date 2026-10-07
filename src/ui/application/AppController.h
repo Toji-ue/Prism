@@ -191,6 +191,14 @@ public:
     Q_INVOKABLE qreal zoomAt(qreal anchorX, qreal anchorY, qreal factor);
     /// Translates the active layer's content by (dx, dy) canvas pixels.
     Q_INVOKABLE void moveActiveLayer(int dx, int dy);
+    /// Bounding box of a buffer's non-transparent pixels (empty when blank).
+    static prism::core::geometry::Rect contentBounds(
+        const prism::core::raster::RasterBuffer& buffer);
+    /// Drag the active layer with the Move tool: press, per-move preview (so
+    /// the image follows the pointer instead of jumping on release), release.
+    Q_INVOKABLE void beginLayerMove();
+    Q_INVOKABLE void previewLayerMove(int dx, int dy);
+    Q_INVOKABLE void endLayerMove();
 
     // --- shape tools (drag to draw) ---------------------------------------
     /// Press: remembers the anchor and starts a shape preview.
@@ -255,6 +263,8 @@ public:
     Q_INVOKABLE void clearSelection();
     Q_INVOKABLE void selectAll();
     Q_INVOKABLE void invertSelection();
+    /// Colour picker finished: hand the canvas back to the drawing tool.
+    Q_INVOKABLE void endEyedropper();
     /// Selects the active layer's opaque pixels (Krita's "Select Opaque").
     Q_INVOKABLE void selectLayerContent();
     bool hasSelection() const;
@@ -483,6 +493,19 @@ private:
     /// noisy signal (and a dip right at tip contact), which otherwise spikes the
     /// stamp size sample to sample.
     float m_smoothedPressure = 1.0F;
+    /// Brush colour remembered per tool group: [0] the painting tools, [1] the
+    /// eraser. Switching tools restores the incoming tool's colour, so the
+    /// eraser cannot carry a colour change back to the brush.
+    prism::core::raster::Color m_colorByTool[2] = {};
+    /// Tool the eyedropper was picked from, to return there after a pick.
+    int m_toolBeforeEyedropper = BrushTool;
+    /// Live layer drag: the pre-drag pixels, the content rectangle inside them
+    /// and the offset currently previewed.
+    bool m_movingLayer = false;
+    prism::core::raster::RasterBuffer m_moveBefore;
+    prism::core::geometry::Rect m_moveBbox{};
+    int m_moveDx = 0;
+    int m_moveDy = 0;
     /// Live-edit drag state (eraser AND blend): the active layer as it was
     /// before the drag, kept for the undo command. The layer is edited live.
     prism::core::raster::RasterBuffer m_eraseBefore;

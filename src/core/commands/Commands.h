@@ -151,11 +151,41 @@ private:
     std::unique_ptr<Layer> m_upper;
 };
 
+/// Resizes the canvas and crops every raster layer to a sub-rectangle.
+///
+/// Undoable on purpose: crop used to edit every layer's pixels directly and
+/// then clear the whole history, so one stray drag cost the artist the entire
+/// undo stack (and the crop itself could not be taken back).
+class CropCommand final : public Command {
+public:
+    CropCommand(Document& doc, int x, int y, int width, int height);
+
+    const char* description() const override { return "Crop"; }
+
+    void undo() override;
+    void redo() override;
+
+private:
+    Document& m_doc;
+    int m_x;
+    int m_y;
+    int m_width;
+    int m_height;
+    CanvasSize m_beforeSize;
+    /// Raster layers in document order. ponytail: full copies, not just the
+    /// cropped-away strips; strips are the optimization if memory ever bites.
+    std::vector<raster::RasterBuffer> m_before;
+};
+
 /// Moves a raster layer's whole content by (dx, dy) pixels. Undo restores
 /// the pre-move pixels exactly (one full-buffer snapshot).
 class MoveLayerContentCommand final : public Command {
 public:
     MoveLayerContentCommand(Document& doc, std::size_t index, int dx, int dy);
+    /// For a live drag: the layer has already been previewed at (dx, dy), so the
+    /// pre-drag pixels come from the caller (the command is idempotent).
+    MoveLayerContentCommand(Document& doc, std::size_t index, int dx, int dy,
+                            raster::RasterBuffer before);
 
     const char* description() const override { return "Move layer content"; }
 

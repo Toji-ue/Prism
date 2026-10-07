@@ -10,6 +10,34 @@ Slider {
 
     implicitHeight: 18
 
+    // Wheel and arrow keys move the handle. Dragging a 10px handle with a pen
+    // is imprecise, and every slider in the app gets this for free.
+    readonly property real nudgeStep: control.stepSize > 0 ? control.stepSize
+                                                           : Math.max((control.to - control.from) / 100, 1)
+
+    function nudge(direction) {
+        control.value = Math.max(control.from, Math.min(control.to,
+                                                        control.value + direction * control.nudgeStep))
+        // Behave like a drag: the controls that preview live listen to onMoved.
+        control.moved()
+    }
+
+    activeFocusOnTab: true
+    // Clicking the groove must let the arrows work straight afterwards.
+    onPressedChanged: if (pressed) forceActiveFocus()
+
+    Keys.onLeftPressed: control.nudge(-1)
+    Keys.onDownPressed: control.nudge(-1)
+    Keys.onRightPressed: control.nudge(1)
+    Keys.onUpPressed: control.nudge(1)
+
+    WheelHandler {
+        onWheel: wheel => {
+            control.nudge(wheel.angleDelta.y > 0 ? 1 : -1)
+            wheel.accepted = true
+        }
+    }
+
     background: Rectangle {
         x: control.leftPadding
         y: control.topPadding + control.availableHeight / 2 - height / 2

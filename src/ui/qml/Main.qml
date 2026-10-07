@@ -626,6 +626,7 @@ ApplicationWindow {
                                     break
                                 case AppController.MoveTool:
                                     draggingLayer = true
+                                    controller.beginLayerMove()
                                     break
                                 case AppController.RectSelectTool:
                                     controller.setSelection(cx, cy, 0, 0)
@@ -727,6 +728,13 @@ ApplicationWindow {
                                 case AppController.CropTool:
                                     controller.setSelection(startX, startY, cx - startX, cy - startY)
                                     break
+                                case AppController.MoveTool:
+                                    // Live drag: the layer follows the pointer (it
+                                    // used to jump only on release, which reads
+                                    // as "this layer cannot be moved").
+                                    controller.previewLayerMove(Math.round(cx - startX),
+                                                                Math.round(cy - startY))
+                                    break
                                 case AppController.BrushTool:
                                 case AppController.EraserTool:
                                 case AppController.BlendTool:
@@ -747,11 +755,16 @@ ApplicationWindow {
                                     canvasMouse.rightPanning = false
                                     return
                                 }
+                                // The picker is a detour, not a destination:
+                                // releasing hands the canvas back to the brush
+                                // the artist was drawing with (the picked colour
+                                // is already applied).
+                                if (controller.tool === AppController.EyedropperTool) {
+                                    controller.endEyedropper()
+                                    return
+                                }
                                 if (controller.tool === AppController.MoveTool && draggingLayer) {
-                                    const dx = Math.round(cx - startX)
-                                    const dy = Math.round(cy - startY)
-                                    if (dx !== 0 || dy !== 0)
-                                        controller.moveActiveLayer(dx, dy)
+                                    controller.endLayerMove()
                                     draggingLayer = false
                                     return
                                 }

@@ -809,6 +809,59 @@ int runSelfTest()
         check(controller.toolShortcutList().size() > 0, "shortcut list exposes every tool");
     }
 
+    // Tool switching must not lose the artist's colour, and the eyedropper is a
+    // detour rather than a destination.
+    {
+        controller.newDocument(200, 200);
+        controller.setTool(AppController::BrushTool);
+        controller.setBrushColor(QColor(200, 30, 30));
+        controller.setTool(AppController::EraserTool);
+        // A colour set while erasing (the eyedropper, the colour docker) stays
+        // with the eraser: the brush must come back with the colour it had.
+        controller.setBrushColor(QColor(30, 200, 90));
+        controller.setTool(AppController::BrushTool);
+        check(controller.brushColor() == QColor(200, 30, 30),
+              "switching brush -> eraser -> brush keeps the brush colour");
+        controller.setTool(AppController::EraserTool);
+        check(controller.brushColor() == QColor(30, 200, 90),
+              "the eraser keeps its own colour");
+
+        // Eyedropper: picking a colour hands the canvas back to the brush.
+        controller.setTool(AppController::BrushTool);
+        controller.setBrushColor(QColor(10, 10, 10));
+        controller.beginStroke(50.0F, 50.0F);
+        controller.extendStroke(150.0F, 50.0F);
+        controller.endStroke();
+        controller.setTool(AppController::EyedropperTool);
+        controller.pickColorAt(100.0F, 50.0F, true);
+        check(controller.brushColor().red() < 40, "the picker applied the sampled colour");
+        check(controller.tool() == AppController::EyedropperTool,
+              "the picker stays active while the button is held");
+        controller.endEyedropper();
+        check(controller.tool() == AppController::BrushTool,
+              "releasing the picker returns to the brush");
+        controller.undo();
+    }
+
+    // Crop: undoable, and it takes the pixels with it.
+    {
+        controller.newDocument(300, 200);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.beginStroke(60.0F, 60.0F);
+        controller.extendStroke(140.0F, 120.0F);
+        controller.endStroke();
+        const QImage full = controller.canvasImage().copy();
+        controller.cropTo(50, 50, 100, 80);
+        check(controller.canvasWidth() == 100 && controller.canvasHeight() == 80,
+              "crop resizes the canvas");
+        check(qAlpha(controller.canvasImage().pixel(20, 20)) > 0, "crop keeps the pixels inside");
+        check(controller.canUndo(), "crop is undoable");
+        controller.undo();
+        check(controller.canvasWidth() == 300 && controller.canvasHeight() == 200,
+              "undo restores the canvas size");
+        check(controller.canvasImage() == full, "undo restores the cropped pixels exactly");
+    }
+
     // Stroke latency: informational, so a regression is visible in CI logs.
     // The per-move path must not do per-tick full-canvas work.
     {
@@ -1700,6 +1753,28 @@ int main(int argc, char* argv[])
         // --demo-right-pan: holds the right button and drags, which must scroll
         // the canvas and leave no stroke behind.
         const bool demoRightPan = app.arguments().contains(QStringLiteral("--demo-right-pan"));
+        // --demo-crop=X,Y,W,H: drags a crop rectangle in canvas pixels through
+        // the real QML mouse path, then reports the canvas size and whether the
+        // crop can be taken back.
+        QString demoCrop;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-crop=")))
+                demoCrop = a.section(QLatin1Char('='), 1);
+        // --demo-move=DX,DY: imports a PNG as a layer (the case the user
+        // reported as immovable) and drags it with the Move tool.
+        QString demoMove;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-move=")))
+                demoMove = a.section(QLatin1Char('='), 1);
+        // --demo-slider-input=<objectName>: wheel + arrow keys on a slider.
+        QString demoSliderInput;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-slider-input=")))
+                demoSliderInput = a.section(QLatin1Char('='), 1);
+        // --demo-eyedropper: a real click with the picker must return the canvas
+        // to the brush with the sampled colour applied.
+        const bool demoEyedropper =
+            app.arguments().contains(QStringLiteral("--demo-eyedropper"));
         // --demo-stroke-bench=N: drives N real mouse moves across the canvas and
         // reports frame timing and texture-upload volume. Latency work has to be
         // measured, not guessed â€” and this hook works on the old and new
@@ -1745,7 +1820,8 @@ int main(int argc, char* argv[])
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
                                        demoClick, demoActive, demoClickLayer, demoFocusUndo,
-                                       demoRightPan,
+                                       demoRightPan, demoCrop, demoMove, demoSliderInput,
+                                       demoEyedropper,
                                        demoStrokeBench, demoDocW, demoDocH,
                                        demoMirror, demoStress, demoStressOps, &engine]() {
             if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
@@ -2203,6 +2279,178 @@ int main(int argc, char* argv[])
                         << "demo: Ctrl+Z on a canvas-focused window undoes:" << shortcutWorks
                         << "| leaked in the text field:" << leaked
                         << "| works again after clicking the canvas:" << recovered;
+                }
+            }
+            // ---- crop / move / slider input, driven through the QML path ----
+            auto canvasPointToWindow = [](QQuickItem* canvasItem, AppController* c, qreal cx,
+                                          qreal cy) {
+                const qreal zoom = c->zoom();
+                return canvasItem->mapToScene(QPointF(cx * zoom, cy * zoom));
+            };
+            if (!demoCrop.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* canvas = window ? findItemByName(window->contentItem(),
+                                                       QStringLiteral("canvasItem"))
+                                      : nullptr;
+                const QStringList parts = demoCrop.split(QLatin1Char(','));
+                if (!canvas || parts.size() != 4) {
+                    qWarning() << "demo: crop needs --demo-crop=X,Y,W,H and a canvas";
+                } else {
+                    const qreal cx = parts.at(0).toDouble();
+                    const qreal cy = parts.at(1).toDouble();
+                    const qreal cw = parts.at(2).toDouble();
+                    const qreal ch = parts.at(3).toDouble();
+                    const int widthBefore = controller->canvasWidth();
+                    const int heightBefore = controller->canvasHeight();
+                    // Paint a known mark so the crop can be checked for content,
+                    // not just for the new canvas size.
+                    controller->setBrushColor(QColor(0, 0, 0));
+                    controller->beginStroke(cx + 20, cy + 20);
+                    controller->extendStroke(cx + cw - 20, cy + ch - 20);
+                    controller->endStroke();
+                    controller->setTool(AppController::CropTool);
+                    const QPointF from = canvasPointToWindow(canvas, controller, cx, cy);
+                    const QPointF to = canvasPointToWindow(canvas, controller, cx + cw, cy + ch);
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+                    for (int step = 1; step <= 6; ++step)
+                        QTest::mouseMove(window, (from + (to - from) * (step / 6.0)).toPoint());
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+                    const bool undoable = controller->canUndo();
+                    const QImage cropped = controller->canvasImage();
+                    const bool inkKept = qAlpha(cropped.pixel(std::min(cropped.width() - 1, 20),
+                                                              std::min(cropped.height() - 1, 20)))
+                                         > 0;
+                    qInfo().noquote() << "demo: crop dragged" << cx << cy << cw << ch
+                                      << "-> canvas" << controller->canvasWidth() << "x"
+                                      << controller->canvasHeight() << "(was" << widthBefore
+                                      << "x" << heightBefore << ") ink kept:" << inkKept
+                                      << "undoable:" << undoable;
+                    if (undoable) {
+                        controller->undo();
+                        const QImage restored = controller->canvasImage();
+                        qInfo().noquote()
+                            << "demo: after undo canvas" << controller->canvasWidth() << "x"
+                            << controller->canvasHeight() << "ink back at origin:"
+                            << (qAlpha(restored.pixel(static_cast<int>(cx + 20),
+                                                      static_cast<int>(cy + 20)))
+                                > 0);
+                    }
+                }
+            }
+            if (!demoMove.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* canvas = window ? findItemByName(window->contentItem(),
+                                                       QStringLiteral("canvasItem"))
+                                      : nullptr;
+                const QStringList parts = demoMove.split(QLatin1Char(','));
+                if (!canvas || parts.size() != 2) {
+                    qWarning() << "demo: move needs --demo-move=DX,DY and a canvas";
+                } else {
+                    // Exactly the reported case: a layer created by importing a
+                    // PNG, then dragged with the Move tool.
+                    const QString png = QDir::temp().filePath(QStringLiteral("prism-move.png"));
+                    QImage src(120, 90, QImage::Format_RGBA8888);
+                    src.fill(Qt::transparent);
+                    for (int y = 10; y < 80; ++y)
+                        for (int x = 10; x < 110; ++x)
+                            src.setPixelColor(x, y, QColor(220, 40, 40));
+                    src.save(png);
+                    controller->newDocument(400, 300);
+                    controller->importImageAsLayer(QUrl::fromLocalFile(png));
+                    const auto bbox = [controller]() {
+                        const QImage img = controller->canvasImage();
+                        int x0 = img.width(), y0 = img.height(), x1 = -1, y1 = -1;
+                        for (int y = 0; y < img.height(); ++y)
+                            for (int x = 0; x < img.width(); ++x)
+                                if (qAlpha(img.pixel(x, y)) > 0) {
+                                    x0 = std::min(x0, x);
+                                    y0 = std::min(y0, y);
+                                    x1 = std::max(x1, x);
+                                    y1 = std::max(y1, y);
+                                }
+                        return QRect(QPoint(x0, y0), QPoint(x1, y1));
+                    };
+                    const QRect before = bbox();
+                    const qreal dx = parts.at(0).toDouble();
+                    const qreal dy = parts.at(1).toDouble();
+                    // Drag from the middle of the image.
+                    const QPointF centre = before.center();
+                    controller->setTool(AppController::MoveTool);
+                    const QPointF from = canvasPointToWindow(canvas, controller, centre.x(),
+                                                             centre.y());
+                    const QPointF to =
+                        canvasPointToWindow(canvas, controller, centre.x() + dx, centre.y() + dy);
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+                    for (int step = 1; step <= 6; ++step)
+                        QTest::mouseMove(window, (from + (to - from) * (step / 6.0)).toPoint());
+                    // Before the release: the drag must already show the image
+                    // at the new position, not only commit on mouse-up.
+                    const QRect during = bbox();
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+                    const QRect after = bbox();
+                    qInfo().noquote() << "demo: moved imported layer by" << dx << dy << "-> bbox"
+                                      << before << "during drag" << during << "after release"
+                                      << after << "shift" << (after.topLeft() - before.topLeft())
+                                      << "canUndo" << controller->canUndo();
+                }
+            }
+            if (demoEyedropper && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                controller->newDocument(400, 300);
+                controller->setBrushColor(QColor(220, 40, 40));
+                controller->setTool(AppController::BrushTool);
+                controller->beginStroke(80.0F, 120.0F);
+                controller->extendStroke(320.0F, 120.0F);
+                controller->endStroke();
+                controller->setBrushColor(QColor(255, 255, 255));
+                controller->setTool(AppController::EyedropperTool);
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* canvas = window ? findItemByName(window->contentItem(),
+                                                       QStringLiteral("canvasItem"))
+                                      : nullptr;
+                if (!canvas) {
+                    qWarning() << "demo: no canvas for the eyedropper check";
+                } else {
+                    const QPointF at = canvasPointToWindow(canvas, controller, 200.0, 120.0);
+                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, at.toPoint());
+                    const QColor picked = controller->brushColor();
+                    qInfo().noquote() << "demo: eyedropper click -> tool after release"
+                                      << controller->tool() << "(brush is"
+                                      << AppController::BrushTool << ") colour" << picked.name();
+                }
+            }
+            if (!demoSliderInput.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                    if (auto* slider = findItemByName(window->contentItem(), demoSliderInput)) {
+                        const auto value = [slider]() {
+                            return slider->property("value").toDouble();
+                        };
+                        const auto centre =
+                            slider->mapToScene(QPointF(slider->width() / 2.0,
+                                                       slider->height() / 2.0));
+                        slider->forceActiveFocus();
+                        const double start = value();
+                        QTest::keyClick(window, Qt::Key_Right);
+                        const double afterRight = value();
+                        QTest::keyClick(window, Qt::Key_Left);
+                        const double afterLeft = value();
+                        const QPoint prev = QCursor::pos();
+                        QCursor::setPos(window->mapToGlobal(centre.toPoint()));
+                        QWheelEvent wheel(centre, window->mapToGlobal(centre), QPoint(0, 0),
+                                          QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+                                          Qt::NoScrollPhase, false);
+                        QCoreApplication::sendEvent(window, &wheel);
+                        const double afterWheel = value();
+                        QCursor::setPos(prev);
+                        qInfo().noquote() << "demo:" << demoSliderInput << "value" << start
+                                          << "-> right arrow" << afterRight << "-> left arrow"
+                                          << afterLeft << "-> wheel up" << afterWheel;
+                    } else {
+                        qWarning() << "demo: slider" << demoSliderInput << "not found";
+                    }
                 }
             }
             if (!demoDragSlider.isEmpty() && !engine.rootObjects().isEmpty()) {
