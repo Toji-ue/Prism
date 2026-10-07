@@ -209,25 +209,6 @@ ApplicationWindow {
             Action { text: qsTr("Canvas Information"); enabled: false }
         }
         PMenu {
-            title: qsTr("&Layer")
-            enabled: !controller.startPageVisible
-            Action { text: qsTr("&New Layer\tCtrl+Shift+N"); onTriggered: controller.addLayer() }
-            Action { text: qsTr("&Duplicate Layer"); onTriggered: controller.duplicateLayer() }
-            Action { text: qsTr("&Delete Layer"); onTriggered: controller.deleteLayer() }
-            MenuSeparator {}
-            Action { text: qsTr("&Raise Layer"); onTriggered: controller.moveLayerUp() }
-            Action { text: qsTr("&Lower Layer"); onTriggered: controller.moveLayerDown() }
-            MenuSeparator {}
-            // Krita keeps this under Layer > Import/Export > Import Layer.
-            Action {
-                text: qsTr("&Import Image as Layer...")
-                onTriggered: {
-                    console.info("menu: Import Image as Layer clicked (Layer menu)")
-                    importLayerDialog.open()
-                }
-            }
-        }
-        PMenu {
             title: qsTr("&Select")
             enabled: !controller.startPageVisible
             Action { text: qsTr("Select &All\tCtrl+A"); onTriggered: controller.selectAll() }
@@ -1298,17 +1279,6 @@ ApplicationWindow {
                       .concat([qsTr("All files (*)")])
         fileMode: FileDialog.OpenFile
         onAccepted: if (!controller.openFile(selectedFile)) console.warn("open failed")
-    }
-    FileDialog {
-        id: importLayerDialog
-        title: qsTr("Import Image as Layer")
-        nameFilters: controller.imageOpenFilters().concat([qsTr("All files (*)")])
-        fileMode: FileDialog.OpenFile
-        onAccepted: {
-            console.info("dialog: import image accepted: " + selectedFile)
-            if (!controller.importImageAsLayer(selectedFile))
-                console.warn("import as layer failed: " + controller.lastError)
-        }
     }
     FileDialog {
         id: exportDialog
