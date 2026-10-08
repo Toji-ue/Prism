@@ -153,6 +153,58 @@ AppController::AppController(QObject* parent)
     });
     m_snapshotTimer->start();
     refreshSnapshots();
+
+    // The drawing record: every canvas change is a candidate frame, throttled
+    // inside the recorder, so the artist has a proof-of-process timelapse for
+    // the session without thinking about it while drawing.
+    m_recorder = new SessionRecorder(this);
+    connect(m_recorder, &SessionRecorder::full, this, [this]() {
+        emit recordingChanged();
+        setStatusMessage(tr("Recording buffer is full (%1 frames) - export it from File > "
+                            "Export Drawing Record...")
+                             .arg(m_recorder->frameCount()));
+    });
+    connect(this, &AppController::canvasChanged, this,
+            [this](int, int, int, int) { m_recorder->capture(canvasImage(), undoLabel()); });
+}
+
+bool AppController::recording() const { return m_recorder && m_recorder->isActive(); }
+
+void AppController::setRecording(bool on)
+{
+    if (!m_recorder || m_recorder->isActive() == on)
+        return;
+    m_recorder->setActive(on);
+    if (on)
+        m_recorder->capture(canvasImage(), tr("Resumed"), true);
+    emit recordingChanged();
+}
+
+int AppController::recordedFrames() const { return m_recorder ? m_recorder->frameCount() : 0; }
+
+bool AppController::exportRecording(const QUrl& url)
+{
+    const QString path = localPathFrom(url);
+    if (path.isEmpty()) {
+        setLastError(tr("No file name specified."));
+        return false;
+    }
+    // The current state is the last frame, whatever the throttle says: a client
+    // checking the record must see the finished picture.
+    m_recorder->capture(canvasImage(), tr("Final"), true);
+
+    QString error;
+    if (!m_recorder->save(path, QSize(canvasWidth(), canvasHeight()), &error)) {
+        setLastError(error);
+        emit recordingChanged();
+        return false;
+    }
+    setLastError(QString());
+    setStatusMessage(tr("Drawing record exported: %1 frames (%2).")
+                         .arg(m_recorder->frameCount())
+                         .arg(QFileInfo(path).fileName()));
+    emit recordingChanged();
+    return true;
 }
 
 // ------------------------------------------------------------------ properties

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/LayerListModel.h"
+#include "application/SessionRecorder.h"
 #include "brush/BrushPresets.h"
 #include "brush/BrushStroke.h"
 #include "compositor/Compositor.h"
@@ -412,6 +413,16 @@ public:
     Q_INVOKABLE QStringList imageOpenFilters() const;
     Q_INVOKABLE QStringList imageSaveFilters() const;
 
+    // --- drawing record -----------------------------------------------------
+    /// Records the session while drawing (see SessionRecorder) so the artist can
+    /// hand a proof of process to whoever asks whether the artwork is drawn.
+    Q_PROPERTY(bool recording READ recording WRITE setRecording NOTIFY recordingChanged)
+    Q_PROPERTY(int recordedFrames READ recordedFrames NOTIFY recordingChanged)
+    [[nodiscard]] bool recording() const;
+    void setRecording(bool on);
+    [[nodiscard]] int recordedFrames() const;
+    /// Writes the session as a `.prismrec` the artist can send to a client.
+    Q_INVOKABLE bool exportRecording(const QUrl& url);
     // --- tool shortcuts -----------------------------------------------------
     /// Per-tool hotkey, user-configurable and persisted (QSettings). Tools are
     /// single-key shortcuts like Krita's; an empty key disables the shortcut.
@@ -459,6 +470,7 @@ public:
 signals:
     void layersChanged();
     void historyChanged();
+    void recordingChanged();
     void brushChanged();
     void viewChanged();
     void toolChanged();
@@ -512,6 +524,8 @@ private:
     int m_snapshotRevision = -1;
     QTimer* m_snapshotTimer = nullptr;
     void refreshSnapshots();
+    /// Drawing-session recorder (frames + hash chain).
+    SessionRecorder* m_recorder = nullptr;
     /// Active selection in canvas pixels; empty means "no selection".
     /// Active selection. Mask-based so lasso and magic wand work too.
     prism::canvas::Selection m_selection;

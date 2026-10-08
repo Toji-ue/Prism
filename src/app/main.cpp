@@ -14,6 +14,7 @@
 #include <QVariant>
 #include <QFile>
 #include <QDir>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
@@ -962,6 +963,62 @@ int runSelfTest()
               "the cropped-away content survives a save/load");
     }
 
+    // The drawing record: a timelapse of the session plus a hash chain, exported
+    // as a .prismrec for whoever asks whether the artwork is hand-drawn.
+    {
+        controller.newDocument(200, 200);
+        controller.setRecording(true);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.beginStroke(40.0F, 40.0F);
+        controller.extendStroke(160.0F, 60.0F);
+        controller.endStroke();
+        controller.beginStroke(40.0F, 120.0F);
+        controller.extendStroke(160.0F, 140.0F);
+        controller.endStroke();
+
+        const QString recordPath =
+            QDir::temp().filePath(QStringLiteral("prism-selftest.prismrec"));
+        QFile::remove(recordPath);
+        check(controller.recordedFrames() >= 2, "the session recorded frames");
+        check(controller.exportRecording(QUrl::fromLocalFile(recordPath)),
+              "the record exports");
+        check(QFile::exists(recordPath), "the record file is on disk");
+
+        int frames = 0;
+        QString error;
+        check(SessionRecorder::verify(recordPath, &error, &frames), "the record verifies");
+        check(frames >= 2, "and holds the recorded frames");
+
+        // Tamper with one frame: a proof that cannot fail is not a proof.
+        QFile file(recordPath);
+        file.open(QIODevice::ReadOnly);
+        const QByteArray original = file.readAll();
+        file.close();
+        QJsonDocument doc = QJsonDocument::fromJson(original);
+        QJsonObject root = doc.object();
+        QJsonArray frameArray = root["frames"].toArray();
+        // Swap the first frame's image data: that is what a faker would do.
+        QJsonObject first = frameArray[0].toObject();
+        QImage fake(4, 4, QImage::Format_RGBA8888);
+        fake.fill(QColor(255, 0, 0));
+        QByteArray fakeBytes;
+        QBuffer fakeBuffer(&fakeBytes);
+        fakeBuffer.open(QIODevice::WriteOnly);
+        fake.save(&fakeBuffer, "PNG");
+        first["png"] = QString::fromLatin1(fakeBytes.toBase64());
+        frameArray[0] = first;
+        root["frames"] = frameArray;
+        QFile out(recordPath);
+        out.open(QIODevice::WriteOnly);
+        out.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+        out.close();
+
+        QString tamperError;
+        check(!SessionRecorder::verify(recordPath, &tamperError),
+              "an edited record fails verification");
+        check(tamperError.contains(QStringLiteral("0")), "and names the edited frame");
+        QFile::remove(recordPath);
+    }
     // The Crop tool's cut-and-drag: the framed region leaves the layer and lands
     // on its own layer, where the Move tool can place it. The canvas keeps its
     // size (unlike cropTo, which shrinks the canvas and keeps every pixel).
@@ -1502,6 +1559,7 @@ int runSelfTest()
         controller.forgetRecentFilesUnder(tempDir);
         for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
                                       "prism-selftest-crop.prism",
+                                      "prism-selftest.prismrec",
                                       "prism-selftest.png", "prism-selftest.jpg",
                                       "prism-selftest.webp",
                                       "prism-blend.prism", "prism-selftest.prismbrush",
@@ -1818,6 +1876,23 @@ int main(int argc, char* argv[])
         return 0;
     }
 
+    // --check-record=<file>: a third party checks a .prismrec without Prism.
+    // "Proof" is worthless if only the app that wrote it can verify it, so this
+    // is the tool a client runs: it recomputes the hash chain and prints where it
+    // breaks.
+    for (const QString& a : app.arguments()) {
+        if (!a.startsWith(QStringLiteral("--check-record=")))
+            continue;
+        const QString path = a.section(QLatin1Char('='), 1);
+        QString error;
+        int frames = 0;
+        const bool ok = SessionRecorder::verify(path, &error, &frames);
+        qInfo().noquote() << "record check:" << (ok ? "PASS" : "FAIL") << path
+                          << (ok ? QStringLiteral("%1 frames, hash chain intact").arg(frames)
+                                 : error);
+        return ok ? 0 : 1;
+    }
+
     // Manual registration until each type moves into its own qml module.
     qmlRegisterType<AppController>("Prism.Ui", 1, 0, "AppController");
     qmlRegisterType<CanvasView>("Prism.Ui", 1, 0, "CanvasView");
@@ -1964,8 +2039,13 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-slider-tab=")))
                 demoSliderTab = a.section(QLatin1Char('='), 1).toInt();
-        // --demo-eyedropper: a real click with the picker must return the canvas
-        // to the brush with the sampled colour applied.
+        // --demo-record=<path>: draws a few strokes and exports the session
+        // record, so the file can be handed to --check-record (the verifier a
+        // client would run).
+        QString demoRecord;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-record=")))
+                demoRecord = a.section(QLatin1Char('='), 1);
         const bool demoEyedropper =
             app.arguments().contains(QStringLiteral("--demo-eyedropper"));
         // --demo-pen-tool=crop|rectselect|move: drives a drag with the PEN
@@ -2021,7 +2101,7 @@ int main(int argc, char* argv[])
         QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
                                        demoMenu, demoImport, demoDragSlider, demoDragLayer,
                                        demoClick, demoActive, demoClickLayer, demoFocusUndo,
-                                       demoRightPan, demoCrop, demoMove, demoSliderInput,
+                                       demoRightPan, demoCrop, demoMove, demoSliderInput, demoRecord,
                                        demoSliderTab, demoEyedropper, demoPenTool,
                                        demoStrokeBench, demoDocW, demoDocH,
                                        demoMirror, demoStress, demoStressOps, &engine]() {
@@ -2742,6 +2822,29 @@ int main(int argc, char* argv[])
                                       << controller->tool() << "layers"
                                       << controller->layers()->rowCount();
                 }
+            }
+            if (!demoRecord.isEmpty() && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                controller->newDocument(600, 400);
+                controller->setRecording(true);
+                controller->setBrushColor(QColor(0, 0, 0));
+                // Three strokes, spaced past the recorder's interval so they land
+                // as three frames (the final state is appended on export).
+                controller->beginStroke(60.0F, 80.0F);
+                controller->extendStroke(520.0F, 120.0F);
+                controller->endStroke();
+                QThread::msleep(1600);
+                controller->beginStroke(80.0F, 200.0F);
+                controller->extendStroke(500.0F, 260.0F);
+                controller->endStroke();
+                QThread::msleep(1600);
+                controller->beginStroke(120.0F, 320.0F);
+                controller->extendStroke(480.0F, 360.0F);
+                controller->endStroke();
+                const bool ok = controller->exportRecording(QUrl::fromLocalFile(demoRecord));
+                qInfo().noquote() << "demo: exported record to" << demoRecord << "frames"
+                                  << controller->recordedFrames() << "ok:" << ok
+                                  << "error:" << controller->lastError();
             }
             if (demoEyedropper && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);

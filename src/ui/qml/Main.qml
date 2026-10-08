@@ -170,6 +170,13 @@ ApplicationWindow {
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
             Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
             Action { text: qsTr("&Export PNG...\tCtrl+E"); onTriggered: exportDialog.open() }
+            Action {
+                // Proof of process: the session's timelapse + hash chain, for
+                // whoever asks whether the artwork is hand-drawn.
+                text: qsTr("Export Drawing &Record...")
+                enabled: controller.recordedFrames > 0
+                onTriggered: recordDialog.open()
+            }
             MenuSeparator {}
             Action {
                 text: qsTr("&Start Page")
@@ -237,6 +244,12 @@ ApplicationWindow {
         PMenu {
             title: qsTr("&Settings")
             enabled: !controller.startPageVisible
+            Action {
+                text: qsTr("Record Drawing Session")
+                checkable: true
+                checked: controller.recording
+                onTriggered: controller.recording = checked
+            }
             Action {
                 text: qsTr("Configure Tool Shortcuts...")
                 onTriggered: shortcutDialog.open()
@@ -1155,6 +1168,14 @@ ApplicationWindow {
                 font.pixelSize: 11
             }
             Item { Layout.fillWidth: true }
+            // The record is on by default, so say so: otherwise the artist finds
+            // out a proof existed only when someone asks for it.
+            Text {
+                visible: controller.recording
+                text: qsTr("REC %1").arg(controller.recordedFrames)
+                color: T.highlight
+                font.pixelSize: 11
+            }
             Text {
                 text: controller.statusInfo
                 color: T.textDim
@@ -1279,6 +1300,15 @@ ApplicationWindow {
                       .concat([qsTr("All files (*)")])
         fileMode: FileDialog.OpenFile
         onAccepted: if (!controller.openFile(selectedFile)) console.warn("open failed")
+    }
+    FileDialog {
+        id: recordDialog
+        title: qsTr("Export Drawing Record")
+        nameFilters: [qsTr("Prism drawing record (*.prismrec)")]
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "prismrec"
+        onAccepted: if (!controller.exportRecording(selectedFile))
+                        console.warn("export record failed: " + controller.lastError)
     }
     FileDialog {
         id: exportDialog
