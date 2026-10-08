@@ -345,7 +345,11 @@ bool writeMp4(const QString& path, const RecordedFrames& frames, QString* error)
         }
         if (frame.width() != width || frame.height() != height)
             frame = frame.scaled(width, height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-        frame = frame.convertToFormat(QImage::Format_RGB32);
+        // Media Foundation reads a positive-stride RGB32 buffer bottom-up (the
+        // DIB convention), so hand it the rows reversed. Without this the video
+        // plays upside down; the selftest now decodes the written MP4 and
+        // compares it against the recorder's own frames, which is what caught it.
+        frame = frame.convertToFormat(QImage::Format_RGB32).flipped(Qt::Vertical);
 
         IMFMediaBuffer* buffer = nullptr;
         IMFSample* sample = nullptr;

@@ -1042,6 +1042,64 @@ int runSelfTest()
             qInfo() << "SKIP mp4 export: no platform encoder in this build";
         }
         QFile::remove(gifPath);
+
+        // The GIF encoder is hand-written, and its risky branch is the LZW
+        // table reset at 4096 codes. A drawing of a few strokes never reaches
+        // it; high-entropy pixels reach it many times over, so noise is the
+        // image that tells the encoder's tail from its head.
+        {
+            const QString lzwPath = QDir::temp().filePath(QStringLiteral("prism-selftest-lzw.gif"));
+            QFile::remove(lzwPath);
+            QImage noise(256, 256, QImage::Format_RGB32);
+            for (int y = 0; y < noise.height(); ++y) {
+                QRgb* row = reinterpret_cast<QRgb*>(noise.scanLine(y));
+                for (int x = 0; x < noise.width(); ++x)
+                    row[x] = qRgb((x * 7 + y * 13) & 0xFF, (x * 29 + y * 3) & 0xFF,
+                                  (x * 11 + y * 41) & 0xFF);
+            }
+            RecordedFrames noiseFrames;
+            noiseFrames.count = 1;
+            noiseFrames.fetch = [&noise](int, QImage& out, qint64& ms) {
+                out = noise;
+                ms = 0;
+                return true;
+            };
+            QString lzwError;
+            check(RecordExport::writeGif(lzwPath, noiseFrames, &lzwError),
+                  "the GIF encoder packs an image that fills the LZW table");
+            QImageReader lzwReader(lzwPath);
+            // Qt hands a GIF back as an 8-bit paletted image: convert before
+            // reading channels out of it, or the indices are read as colours.
+            const QImage packed = lzwReader.read().convertToFormat(QImage::Format_RGB32);
+            check(!packed.isNull() && packed.size() == noise.size(),
+                  "and the packed GIF reads back at the same size");
+            // 3-3-2 quantisation is lossy by design, so compare against what
+            // the palette itself promises: any pixel that is not exactly its
+            // quantised colour is a packing bug, not a lossy one.
+            int wrong = 0;
+            if (!packed.isNull() && packed.size() == noise.size()) {
+                for (int y = 0; y < packed.height(); ++y) {
+                    const QRgb* want = reinterpret_cast<const QRgb*>(noise.constScanLine(y));
+                    const QRgb* got = reinterpret_cast<const QRgb*>(packed.constScanLine(y));
+                    for (int x = 0; x < packed.width(); ++x) {
+                        const int qr = (qRed(want[x]) >> 5) * 255 / 7;
+                        const int qg = (qGreen(want[x]) >> 5) * 255 / 7;
+                        const int qb = (qBlue(want[x]) >> 6) * 255 / 3;
+                        if (qr != qRed(got[x]) || qg != qGreen(got[x]) || qb != qBlue(got[x])) {
+                            if (wrong == 0)
+                                qInfo() << "  first wrong pixel" << x << y << "want" << qr << qg << qb
+                                        << "got" << qRed(got[x]) << qGreen(got[x]) << qBlue(got[x]);
+                            ++wrong;
+                        }
+                    }
+                }
+            }
+            check(wrong == 0, "and every pixel survives the table reset");
+            if (wrong != 0)
+                qInfo() << "  pixels off:" << wrong << "- packed GIF kept at" << lzwPath;
+            else
+                QFile::remove(lzwPath);
+        }
     }
     // The Crop tool's cut-and-drag: the framed region leaves the layer and lands
     // on its own layer, where the Move tool can place it. The canvas keeps its
@@ -2849,7 +2907,10 @@ int main(int argc, char* argv[])
             }
             if (!demoRecord.isEmpty() && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
-                controller->newDocument(600, 400);
+                // --demo-doc-size lets this run at the size a tester's drawing
+                // actually was, which is where the frame downscale kicks in.
+                controller->newDocument(demoDocW > 0 ? demoDocW : 600,
+                                        demoDocH > 0 ? demoDocH : 400);
                 controller->setRecording(true);
                 controller->setBrushColor(QColor(0, 0, 0));
                 // Three strokes, spaced past the recorder's interval so they land
