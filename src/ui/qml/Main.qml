@@ -283,81 +283,58 @@ ApplicationWindow {
             anchors.rightMargin: 6
             spacing: 6
 
-            // small file action buttons
-            Repeater {
-                model: [
-                    { icon: "file-new",  tip: qsTr("New (Ctrl+N)"),  act: "new" },
-                    { icon: "file-open", tip: qsTr("Open (Ctrl+O)"), act: "open" },
-                    { icon: "file-save", tip: qsTr("Save (Ctrl+S)"), act: "save" },
-                    // The drawing record is the answer to "did you really draw
-                    // this?", so it sits in the toolbar, not three menus deep.
-                    { icon: "record",
-                      tip: controller.recordedFrames > 0
-                           ? qsTr("Export the drawing record - MP4, GIF or .prismrec (%1 frames)")
-                                 .arg(controller.recordedFrames)
-                           : qsTr("Drawing record: nothing recorded yet"),
-                      act: "record" }
-                ]
-                delegate: Rectangle {
-                    width: 24; height: 24
-                    objectName: "toolbarButton_" + modelData.act
-                    color: fh.hovered ? T.buttonHover : "transparent"
-                    opacity: modelData.act === "record" && controller.recordedFrames === 0
-                             ? 0.4 : 1.0
-                    Icon {
-                        anchors.centerIn: parent
-                        width: 15; height: 15
-                        name: modelData.icon
-                        color: modelData.act === "record" && controller.recording
-                               ? T.highlight : T.text
-                    }
-                    HoverHandler { id: fh }
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: modelData.act !== "record" || controller.recordedFrames > 0
-                        onClicked: {
-                            if (modelData.act === "new") newDocDialog.open()
-                            else if (modelData.act === "open") openDialog.open()
-                            else if (modelData.act === "save") saveDialog.open()
-                            else recordDialog.open()
-                        }
-                    }
-                    ToolTip.visible: fh.hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: modelData.tip
+            // Small action buttons. Not a Repeater: a Canvas icon created by a
+            // Repeater inside this ToolBar never gets a texture, so those buttons
+            // laid out correctly and drew nothing (see ToolbarButton.qml).
+            Row {
+                spacing: 6
+                ToolbarButton {
+                    iconName: "file-new"
+                    tip: qsTr("New (Ctrl+N)")
+                    onClicked: newDocDialog.open()
+                }
+                ToolbarButton {
+                    iconName: "file-open"
+                    tip: qsTr("Open (Ctrl+O)")
+                    onClicked: openDialog.open()
+                }
+                ToolbarButton {
+                    iconName: "file-save"
+                    tip: qsTr("Save (Ctrl+S)")
+                    onClicked: saveDialog.open()
+                }
+                // The drawing record is the answer to "did you really draw this?",
+                // so it sits in the toolbar, not three menus deep.
+                ToolbarButton {
+                    iconName: "record"
+                    usable: controller.recordedFrames > 0
+                    active: controller.recording
+                    tip: controller.recordedFrames > 0
+                         ? qsTr("Export the drawing record - MP4, GIF or .prismrec (%1 frames)")
+                               .arg(controller.recordedFrames)
+                         : qsTr("Drawing record: nothing recorded yet")
+                    onClicked: recordDialog.open()
                 }
             }
 
             Rectangle { width: 1; height: 20; color: T.border }
 
-            Repeater {
-                model: [
-                    { icon: "undo", tip: qsTr("Undo (Ctrl+Z)"),    act: "undo", on: controller.canUndo },
-                    { icon: "redo", tip: qsTr("Redo (Ctrl+Shift+Z or Ctrl+Y)"), act: "redo", on: controller.canRedo }
-                ]
-                delegate: Rectangle {
-                    width: 24; height: 24
-                    opacity: modelData.on ? 1.0 : 0.4
-                    color: uh.hovered && modelData.on ? T.buttonHover : "transparent"
-                    Icon {
-                        anchors.centerIn: parent
-                        width: 15; height: 15
-                        name: modelData.icon
-                        color: T.text
-                    }
-                    HoverHandler { id: uh }
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: modelData.on
-                        onClicked: modelData.act === "undo" ? controller.undo() : controller.redo()
-                    }
-                    ToolTip.visible: uh.hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: modelData.tip
+            Row {
+                spacing: 6
+                ToolbarButton {
+                    iconName: "undo"
+                    tip: qsTr("Undo (Ctrl+Z)")
+                    usable: controller.canUndo
+                    onClicked: controller.undo()
+                }
+                ToolbarButton {
+                    iconName: "redo"
+                    tip: qsTr("Redo (Ctrl+Shift+Z or Ctrl+Y)")
+                    usable: controller.canRedo
+                    onClicked: controller.redo()
                 }
             }
 
-            Rectangle { width: 1; height: 20; color: T.border }
 
             // current brush preset button (opens the preset grid)
             Rectangle {

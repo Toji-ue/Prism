@@ -2938,9 +2938,19 @@ int main(int argc, char* argv[])
                                                     QStringLiteral("toolbarButton_record"))
                                    : nullptr;
                 if (button) {
-                    qInfo().noquote() << "demo: record button opacity"
+                    // A button nobody can find is not a button: it has to have a
+                    // size and sit inside the window, not just exist in the tree.
+                    const QPointF at = button->mapToScene(QPointF(0, 0));
+                    const bool onScreen = button->isVisible() && button->width() > 1
+                                          && button->height() > 1 && at.x() >= 0 && at.y() >= 0
+                                          && at.x() < rootWindow->width()
+                                          && at.y() < rootWindow->height();
+                    qInfo().noquote() << "demo: record button" << button->width() << "x"
+                                      << button->height() << "at" << at.x() << at.y() << "opacity"
                                       << button->property("opacity").toDouble()
-                                      << "(1.0 = usable, 0.4 = greyed out)";
+                                      << "window" << rootWindow->width() << "x"
+                                      << rootWindow->height() << "-> on screen:" << onScreen
+                                      << "(1.0 opacity = drawable, 0.4 = greyed out)";
                 } else {
                     qWarning() << "demo: record toolbar button not found";
                 }
