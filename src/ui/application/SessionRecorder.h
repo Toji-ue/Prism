@@ -60,6 +60,9 @@ public:
                                      int* frames = nullptr);
 
 signals:
+    /// A frame was stored. The UI reads `recordedFrames` from this: without it
+    /// the export menu stayed disabled for the whole session.
+    void frameStored();
     /// Emitted once when the frame budget is reached, so the UI can say so.
     void full();
 

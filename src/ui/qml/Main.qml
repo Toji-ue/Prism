@@ -173,7 +173,7 @@ ApplicationWindow {
             Action {
                 // Proof of process: the session's timelapse + hash chain, for
                 // whoever asks whether the artwork is hand-drawn.
-                text: qsTr("Export Drawing &Record...")
+                text: qsTr("Export Drawing &Record (MP4 / GIF)...")
                 enabled: controller.recordedFrames > 0
                 onTriggered: recordDialog.open()
             }
@@ -288,24 +288,38 @@ ApplicationWindow {
                 model: [
                     { icon: "file-new",  tip: qsTr("New (Ctrl+N)"),  act: "new" },
                     { icon: "file-open", tip: qsTr("Open (Ctrl+O)"), act: "open" },
-                    { icon: "file-save", tip: qsTr("Save (Ctrl+S)"), act: "save" }
+                    { icon: "file-save", tip: qsTr("Save (Ctrl+S)"), act: "save" },
+                    // The drawing record is the answer to "did you really draw
+                    // this?", so it sits in the toolbar, not three menus deep.
+                    { icon: "record",
+                      tip: controller.recordedFrames > 0
+                           ? qsTr("Export the drawing record - MP4, GIF or .prismrec (%1 frames)")
+                                 .arg(controller.recordedFrames)
+                           : qsTr("Drawing record: nothing recorded yet"),
+                      act: "record" }
                 ]
                 delegate: Rectangle {
                     width: 24; height: 24
+                    objectName: "toolbarButton_" + modelData.act
                     color: fh.hovered ? T.buttonHover : "transparent"
+                    opacity: modelData.act === "record" && controller.recordedFrames === 0
+                             ? 0.4 : 1.0
                     Icon {
                         anchors.centerIn: parent
                         width: 15; height: 15
                         name: modelData.icon
-                        color: T.text
+                        color: modelData.act === "record" && controller.recording
+                               ? T.highlight : T.text
                     }
                     HoverHandler { id: fh }
                     MouseArea {
                         anchors.fill: parent
+                        enabled: modelData.act !== "record" || controller.recordedFrames > 0
                         onClicked: {
                             if (modelData.act === "new") newDocDialog.open()
                             else if (modelData.act === "open") openDialog.open()
-                            else saveDialog.open()
+                            else if (modelData.act === "save") saveDialog.open()
+                            else recordDialog.open()
                         }
                     }
                     ToolTip.visible: fh.hovered

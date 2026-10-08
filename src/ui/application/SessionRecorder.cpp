@@ -94,6 +94,7 @@ void SessionRecorder::capture(const QImage& canvas, const QString& label, bool f
     stored.hash = hashFrame(stored);
     m_frames.append(stored);
     m_lastCaptureMs = now;
+    emit frameStored();
 }
 
 bool SessionRecorder::frameAt(int index, QImage& out, qint64& ms) const

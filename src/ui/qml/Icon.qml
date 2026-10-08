@@ -255,6 +255,16 @@ Canvas {
             ctx.stroke()
             break
 
+        case "record":
+            // REC dot inside a ring: the drawing-session record.
+            ctx.beginPath()
+            ctx.arc(8, 8, 5.5, 0, Math.PI * 2)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.arc(8, 8, 2.8, 0, Math.PI * 2)
+            ctx.fill()
+            break
+
         case "export":
             ctx.beginPath()
             ctx.moveTo(8, 10.5)

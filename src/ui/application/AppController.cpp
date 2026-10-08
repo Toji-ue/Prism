@@ -158,6 +158,8 @@ AppController::AppController(QObject* parent)
     // inside the recorder, so the artist has a proof-of-process timelapse for
     // the session without thinking about it while drawing.
     m_recorder = new SessionRecorder(this);
+    // The UI's frame counter and the export entries follow every stored frame.
+    connect(m_recorder, &SessionRecorder::frameStored, this, &AppController::recordingChanged);
     connect(m_recorder, &SessionRecorder::full, this, [this]() {
         emit recordingChanged();
         setStatusMessage(tr("Recording buffer is full (%1 frames) - export it from File > "

@@ -2869,6 +2869,20 @@ int main(int argc, char* argv[])
                 qInfo().noquote() << "demo: exported record to" << demoRecord << "frames"
                                   << controller->recordedFrames() << "ok:" << ok
                                   << "error:" << controller->lastError();
+                // The export control has to be reachable: it used to stay greyed
+                // out for the whole session because the frame count never notified.
+                auto* rootWindow = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* button = rootWindow
+                                   ? findItemByName(rootWindow->contentItem(),
+                                                    QStringLiteral("toolbarButton_record"))
+                                   : nullptr;
+                if (button) {
+                    qInfo().noquote() << "demo: record button opacity"
+                                      << button->property("opacity").toDouble()
+                                      << "(1.0 = usable, 0.4 = greyed out)";
+                } else {
+                    qWarning() << "demo: record toolbar button not found";
+                }
             }
             if (demoEyedropper && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
