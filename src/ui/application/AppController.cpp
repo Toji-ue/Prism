@@ -172,6 +172,14 @@ AppController::AppController(QObject* parent)
 
 bool AppController::recording() const { return m_recorder && m_recorder->isActive(); }
 
+void AppController::forgetRecordedFrames()
+{
+    if (!m_recorder)
+        return;
+    m_recorder->restart();
+    emit recordingChanged();
+}
+
 void AppController::setRecording(bool on)
 {
     if (!m_recorder || m_recorder->isActive() == on)
@@ -2339,6 +2347,7 @@ bool AppController::openProject(const QUrl& url)
     setLastError(QString());
     m_doc = std::move(*doc);
     m_history.clear();
+    forgetRecordedFrames();
     m_compositor.canvasResized();
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
@@ -2369,6 +2378,7 @@ bool AppController::importImage(const QUrl& url)
     setLastError(QString());
     m_doc = std::move(*doc);
     m_history.clear();
+    forgetRecordedFrames();
     m_compositor.canvasResized();
     m_activeLayer = 0;
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
@@ -2520,6 +2530,7 @@ void AppController::createDocument(int width, int height, const QString& name, i
 
     m_documentName = name.isEmpty() ? tr("Untitled") : name;
     m_history.clear();
+    forgetRecordedFrames();
     m_compositor.canvasResized();
     // Select the topmost paint layer so drawing can start immediately.
     m_activeLayer = layers - 1;

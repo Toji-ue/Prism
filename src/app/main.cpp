@@ -972,6 +972,11 @@ int runSelfTest()
         controller.beginStroke(40.0F, 40.0F);
         controller.extendStroke(160.0F, 60.0F);
         controller.endStroke();
+        // Frames are throttled to one every 1.5s on purpose, so a second stroke
+        // in the same breath is not a second frame - wait like a real artist
+        // does, or the count below is 1 and the video checks have nothing to
+        // compare (the stale frames of a previous test used to hide that).
+        QThread::msleep(1600);
         controller.beginStroke(40.0F, 120.0F);
         controller.extendStroke(160.0F, 140.0F);
         controller.endStroke();
@@ -1100,6 +1105,62 @@ int runSelfTest()
             else
                 QFile::remove(lzwPath);
         }
+
+        // A record is the process of ONE drawing. Opening or creating another
+        // document used to keep the old frames, so the export glued the previous
+        // drawing (of another canvas size) in front of the current one.
+        controller.newDocument(120, 90);
+        controller.beginStroke(20.0F, 20.0F);
+        controller.endStroke();
+        const QString freshPath = QDir::temp().filePath(QStringLiteral("prism-selftest-fresh.prismrec"));
+        QFile::remove(freshPath);
+        check(controller.exportRecording(QUrl::fromLocalFile(freshPath)),
+              "the new document's record exports");
+        {
+            QFile fresh(freshPath);
+            fresh.open(QIODevice::ReadOnly);
+            const QJsonObject root = QJsonDocument::fromJson(fresh.readAll()).object();
+            QImage firstFrame;
+            firstFrame.loadFromData(
+                QByteArray::fromBase64(root["frames"].toArray().first().toObject()["png"]
+                                           .toString()
+                                           .toLatin1()));
+            check(firstFrame.size() == QSize(120, 90), "the record holds this document's frames");
+            // The old document was full of black ink; the new one starts blank.
+            int ink = 0;
+            for (int y = 0; y < firstFrame.height(); ++y)
+                for (int x = 0; x < firstFrame.width(); ++x)
+                    if (qAlpha(firstFrame.pixel(x, y)) > 0)
+                        ++ink;
+            check(ink == 0, "and none of the previous drawing's ink");
+            check(root["canvasWidth"].toInt() == 120, "and the canvas size of the document it is");
+        }
+        QFile::remove(freshPath);
+
+        // Whatever the artist has drawn must be in the file when they export,
+        // even if the recording buffer is full: the export used to stop at the
+        // last stored frame, so the video ended mid-drawing.
+        controller.newDocument(120, 90);
+        controller.setRecording(true);
+        for (int i = 0; i < 500; ++i) // resume forces a frame: fills the 400 cap
+            controller.setRecording(i % 2 != 0);
+        controller.beginStroke(10.0F, 80.0F);
+        controller.endStroke();
+        const QString fullPath = QDir::temp().filePath(QStringLiteral("prism-selftest-full.prismrec"));
+        QFile::remove(fullPath);
+        check(controller.exportRecording(QUrl::fromLocalFile(fullPath)),
+              "a record exports with a full buffer");
+        {
+            QFile full(fullPath);
+            full.open(QIODevice::ReadOnly);
+            const QJsonArray frames = QJsonDocument::fromJson(full.readAll()).object()["frames"].toArray();
+            QImage last;
+            last.loadFromData(QByteArray::fromBase64(
+                frames.last().toObject()["png"].toString().toLatin1()));
+            check(last.pixelColor(10, 80).alpha() > 0,
+                  "and its last frame is the stroke on the canvas now");
+        }
+        QFile::remove(fullPath);
     }
     // The Crop tool's cut-and-drag: the framed region leaves the layer and lands
     // on its own layer, where the Move tool can place it. The canvas keeps its

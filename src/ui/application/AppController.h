@@ -526,6 +526,10 @@ private:
     void refreshSnapshots();
     /// Drawing-session recorder (frames + hash chain).
     SessionRecorder* m_recorder = nullptr;
+    /// Drops the collected frames when the document is replaced: a record is the
+    /// process of ONE drawing, and exporting after opening another one used to
+    /// glue the two together (frames of a different canvas size included).
+    void forgetRecordedFrames();
     /// Active selection in canvas pixels; empty means "no selection".
     /// Active selection. Mask-based so lasso and magic wand work too.
     prism::canvas::Selection m_selection;

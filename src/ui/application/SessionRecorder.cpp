@@ -71,9 +71,17 @@ void SessionRecorder::capture(const QImage& canvas, const QString& label, bool f
     if (!m_active || canvas.isNull())
         return;
     if (isFull()) {
-        m_active = false;
-        emit full();
-        return;
+        if (!force) {
+            m_active = false;
+            emit full();
+            return;
+        }
+        // Full buffer, but the artist is exporting right now: the file has to
+        // end with what is on the canvas at this moment, so the newest stored
+        // frame gives way to it instead of the export stopping mid-drawing.
+        // Dropping the last frame keeps the hash chain intact - each frame only
+        // hashes the one before it.
+        m_frames.removeLast();
     }
     const qint64 now = m_clock.isValid() ? m_clock.elapsed() : 0;
     if (!force && now - m_lastCaptureMs < kMinIntervalMs)
