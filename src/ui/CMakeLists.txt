@@ -8,8 +8,10 @@ add_library(prism_ui STATIC
     application/LayerListModel.cpp
     application/LayerListModel.h
     application/PresetImageProvider.cpp
+    application/RecordExport.cpp
     application/SessionRecorder.cpp
     application/PresetImageProvider.h
+    application/RecordExport.h
     application/SessionRecorder.h
     panels/CanvasView.cpp
     panels/CanvasView.h)
@@ -23,3 +25,10 @@ target_link_libraries(prism_ui PUBLIC
     Qt6::Quick)
 
 target_include_directories(prism_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# MP4 export goes through the platform encoder (Media Foundation), so no codec
+# ships with the app: bundling FFmpeg would mean either a 70 MB download or a
+# GPL build, neither of which is acceptable here.
+if(WIN32)
+    target_link_libraries(prism_ui PRIVATE mfplat mfreadwrite mfuuid ole32)
+endif()

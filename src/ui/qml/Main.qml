@@ -1304,7 +1304,13 @@ ApplicationWindow {
     FileDialog {
         id: recordDialog
         title: qsTr("Export Drawing Record")
-        nameFilters: [qsTr("Prism drawing record (*.prismrec)")]
+        // The suffix picks the format: .prismrec is the verifiable one (hash
+        // chain, checked by --check-record), mp4/gif are the shareable timelapse.
+        nameFilters: [
+            qsTr("Prism drawing record - verifiable (*.prismrec)"),
+            qsTr("Video (*.mp4)"),
+            qsTr("Animated GIF (*.gif)")
+        ]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "prismrec"
         onAccepted: if (!controller.exportRecording(selectedFile))

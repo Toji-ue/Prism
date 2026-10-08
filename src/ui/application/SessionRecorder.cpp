@@ -96,6 +96,27 @@ void SessionRecorder::capture(const QImage& canvas, const QString& label, bool f
     m_lastCaptureMs = now;
 }
 
+bool SessionRecorder::frameAt(int index, QImage& out, qint64& ms) const
+{
+    if (index < 0 || index >= m_frames.size())
+        return false;
+    const Frame& frame = m_frames.at(index);
+    if (!out.loadFromData(frame.png, "PNG"))
+        return false;
+    ms = frame.ms;
+    return true;
+}
+
+RecordedFrames SessionRecorder::recordedFrames() const
+{
+    RecordedFrames source;
+    source.count = m_frames.size();
+    source.fetch = [this](int index, QImage& out, qint64& ms) {
+        return frameAt(index, out, ms);
+    };
+    return source;
+}
+
 bool SessionRecorder::save(const QString& path, const QSize& canvasSize, QString* error) const
 {
     if (m_frames.isEmpty()) {

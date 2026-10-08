@@ -1,5 +1,7 @@
 #pragma once
 
+#include "application/RecordExport.h"
+
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QImage>
@@ -48,6 +50,10 @@ public:
     /// Writes a `.prismrec` (JSON with base64 PNG frames and the hash chain).
     [[nodiscard]] bool save(const QString& path, const QSize& canvasSize,
                             QString* error = nullptr) const;
+    /// Decodes frame \p index for the video/GIF writers; false when out of range.
+    [[nodiscard]] bool frameAt(int index, QImage& out, qint64& ms) const;
+    /// The frames as a source the writers pull from, one at a time.
+    [[nodiscard]] RecordedFrames recordedFrames() const;
     /// Recomputes the chain of a `.prismrec`. Returns false and fills \p error
     /// with the first broken frame when the file was edited.
     [[nodiscard]] static bool verify(const QString& path, QString* error = nullptr,

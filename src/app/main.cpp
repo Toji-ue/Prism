@@ -1018,6 +1018,30 @@ int runSelfTest()
               "an edited record fails verification");
         check(tamperError.contains(QStringLiteral("0")), "and names the edited frame");
         QFile::remove(recordPath);
+
+        // Video styles: written, then read back. A writer nobody can verify is a
+        // writer that silently produces empty files.
+        const QString gifPath = QDir::temp().filePath(QStringLiteral("prism-selftest.gif"));
+        QFile::remove(gifPath);
+        check(controller.exportRecording(QUrl::fromLocalFile(gifPath)), "a GIF exports");
+        int gifFrames = 0;
+        QString gifError;
+        check(RecordExport::verifyVideo(gifPath, &gifFrames, &gifError), "the GIF reads back");
+        check(gifFrames >= 2, "and holds the recorded frames");
+
+        if (RecordExport::mp4Supported()) {
+            const QString mp4Path = QDir::temp().filePath(QStringLiteral("prism-selftest.mp4"));
+            QFile::remove(mp4Path);
+            check(controller.exportRecording(QUrl::fromLocalFile(mp4Path)), "an MP4 exports");
+            int mp4Frames = 0;
+            QString mp4Error;
+            check(RecordExport::verifyVideo(mp4Path, &mp4Frames, &mp4Error), "the MP4 reads back");
+            check(mp4Frames >= 2, "and holds the recorded frames");
+            QFile::remove(mp4Path);
+        } else {
+            qInfo() << "SKIP mp4 export: no platform encoder in this build";
+        }
+        QFile::remove(gifPath);
     }
     // The Crop tool's cut-and-drag: the framed region leaves the layer and lands
     // on its own layer, where the Move tool can place it. The canvas keeps its
@@ -1559,7 +1583,7 @@ int runSelfTest()
         controller.forgetRecentFilesUnder(tempDir);
         for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
                                       "prism-selftest-crop.prism",
-                                      "prism-selftest.prismrec",
+                                      "prism-selftest.prismrec", "prism-selftest.gif", "prism-selftest.mp4",
                                       "prism-selftest.png", "prism-selftest.jpg",
                                       "prism-selftest.webp",
                                       "prism-blend.prism", "prism-selftest.prismbrush",

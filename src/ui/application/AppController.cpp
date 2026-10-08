@@ -194,7 +194,28 @@ bool AppController::exportRecording(const QUrl& url)
     m_recorder->capture(canvasImage(), tr("Final"), true);
 
     QString error;
-    if (!m_recorder->save(path, QSize(canvasWidth(), canvasHeight()), &error)) {
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    bool ok = false;
+    if (suffix == QLatin1String("gif") || suffix == QLatin1String("mp4")) {
+        // A timelapse: the frames are flattened onto paper for the codec.
+        const RecordedFrames frames = m_recorder->recordedFrames();
+        ok = suffix == QLatin1String("gif") ? RecordExport::writeGif(path, frames, &error)
+                                            : RecordExport::writeMp4(path, frames, &error);
+        if (ok) {
+            // Prove the file is readable before telling the artist it worked.
+            int written = 0;
+            QString readError;
+            if (!RecordExport::verifyVideo(path, &written, &readError)) {
+                setLastError(readError);
+                emit recordingChanged();
+                return false;
+            }
+        }
+    } else {
+        ok = m_recorder->save(path, QSize(canvasWidth(), canvasHeight()), &error);
+    }
+
+    if (!ok) {
         setLastError(error);
         emit recordingChanged();
         return false;
