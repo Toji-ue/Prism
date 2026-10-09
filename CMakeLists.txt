@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Quick Test)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Quick Test Network)
 qt_standard_project_setup()
 
 # --------------------------------------------------------------------------- #
@@ -50,6 +50,7 @@ qt_add_qml_module(prism
         src/ui/qml/StartPage.qml
         src/ui/qml/ToolBox.qml
         src/ui/qml/ToolbarButton.qml
+        src/ui/qml/CollabDialog.qml
         src/ui/qml/ColorSelector.qml
         src/ui/qml/LayersDocker.qml
         src/ui/qml/BrushPresetsDocker.qml

@@ -11,8 +11,10 @@
 #include "selection/Selection.h"
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QColor>
+#include <QJsonObject>
 #include <QMutex>
 #include <QTimer>
 #include <QUrl>
@@ -423,6 +425,24 @@ public:
     [[nodiscard]] int recordedFrames() const;
     /// Writes the session as a `.prismrec` the artist can send to a client.
     Q_INVOKABLE bool exportRecording(const QUrl& url);
+    // --- LAN collab ----------------------------------------------------------
+    /// True while hosting or joined to a room: brush/eraser strokes are shared
+    /// with everyone in it (see CollabSession).
+    Q_PROPERTY(bool collabActive READ collabActive NOTIFY collabChanged)
+    /// What the other people type to join, e.g. "192.168.1.5:48291".
+    Q_PROPERTY(QString collabAddress READ collabAddress NOTIFY collabChanged)
+    Q_PROPERTY(int collabPeers READ collabPeers NOTIFY collabChanged)
+    /// Other people's pointers, canvas coordinates: [{name, color, x, y}].
+    Q_PROPERTY(QVariantList remoteCursors READ remoteCursors NOTIFY remoteCursorsChanged)
+    [[nodiscard]] bool collabActive() const;
+    [[nodiscard]] QString collabAddress() const;
+    [[nodiscard]] int collabPeers() const;
+    [[nodiscard]] QVariantList remoteCursors() const;
+    /// Hosts a room; the document currently open becomes the shared one.
+    Q_INVOKABLE bool hostCollab(const QString& name = {});
+    /// Joins "host:port". The local document is replaced by the host's.
+    Q_INVOKABLE bool joinCollab(const QString& address, const QString& name = {});
+    Q_INVOKABLE void leaveCollab();
     // --- tool shortcuts -----------------------------------------------------
     /// Per-tool hotkey, user-configurable and persisted (QSettings). Tools are
     /// single-key shortcuts like Krita's; an empty key disables the shortcut.
@@ -483,8 +503,21 @@ signals:
     void statusMessageChanged();
     void toolShortcutsChanged();
     void canvasChanged(int x, int y, int w, int h);
+    void collabChanged();
+    void remoteCursorsChanged();
 
 private:
+    class CollabSession* m_collab = nullptr;
+    /// Last pointer map from the room: "userId" -> {x, y, name, color}.
+    QJsonObject m_remoteCursors;
+    QElapsedTimer m_cursorThrottle;
+    CollabSession* ensureCollab();
+    /// Ships the stroke in m_currentStroke to the room (host relays).
+    void sendCollabStroke();
+    /// Paints a room member's stroke into the shared layer, one history entry,
+    /// same commit path as a local stroke.
+    void applyRemoteStroke(const QJsonObject& op);
+
     void rebuildFullComposite();
     void rebuildStrokePreview();
     void addRecentFile(const QString& path);

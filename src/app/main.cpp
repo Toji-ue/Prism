@@ -2158,6 +2158,15 @@ int main(int argc, char* argv[])
         // --demo-right-pan: holds the right button and drags, which must scroll
         // the canvas and leave no stroke behind.
         const bool demoRightPan = app.arguments().contains(QStringLiteral("--demo-right-pan"));
+        // --collab-test: two controllers in one process (the app's hosts, a
+        // second one joins over loopback), each draws, and both canvases have to
+        // end up with both strokes. The only way to check a network feature
+        // without a second machine.
+        const bool demoCollab = app.arguments().contains(QStringLiteral("--collab-test"));
+        // --demo-collab-dialog: opens the collab dialog so the -screenshot hook
+        // can prove the UI is reachable.
+        const bool demoCollabDialog =
+            app.arguments().contains(QStringLiteral("--demo-collab-dialog"));
         // --demo-crop=X,Y,W,H: drags a crop rectangle in canvas pixels through
         // the real QML mouse path, then reports the canvas size and whether the
         // crop can be taken back.
@@ -2247,7 +2256,8 @@ int main(int argc, char* argv[])
                                        demoRightPan, demoCrop, demoMove, demoSliderInput, demoRecord,
                                        demoSliderTab, demoEyedropper, demoPenTool,
                                        demoStrokeBench, demoDocW, demoDocH,
-                                       demoMirror, demoStress, demoStressOps, &engine]() {
+                                       demoMirror, demoStress, demoStressOps, demoCollab,
+                                       demoCollabDialog, &engine]() {
             if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
                 auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
@@ -3015,6 +3025,84 @@ int main(int argc, char* argv[])
                 } else {
                     qWarning() << "demo: record toolbar button not found";
                 }
+            }
+            if (demoCollabDialog && !engine.rootObjects().isEmpty()) {
+                controller->setStartPageVisible(false);
+                controller->newDocument(400, 300);
+                QMetaObject::invokeMethod(engine.rootObjects().first(), "openCollabDialog");
+                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                auto* hostButton = window ? findItemByName(window->contentItem(),
+                                                           QStringLiteral("collabHostButton"))
+                                          : nullptr;
+                qInfo().noquote() << "demo: collab dialog host button"
+                                  << (hostButton ? "present" : "MISSING")
+                                  << (hostButton ? QString::number(hostButton->width()) : QString());
+            }
+            if (demoCollab && !engine.rootObjects().isEmpty()) {
+                // Two Prism controllers in one process, one hosting and one
+                // joining over loopback: the same code path two machines use.
+                int failures = 0;
+                const auto check = [&failures](bool ok, const char* what) {
+                    qInfo().noquote() << "collab:" << (ok ? "PASS" : "FAIL") << what;
+                    if (!ok)
+                        ++failures;
+                };
+                controller->setStartPageVisible(false);
+                controller->newDocument(200, 200);
+                controller->setBrushSize(10.0F);
+                AppController guest;
+                guest.setBrushSize(10.0F);
+
+                check(controller->hostCollab(QStringLiteral("Host")), "the host opens a room");
+                const QString room = controller->collabAddress();
+                qInfo().noquote() << "collab: room address" << room;
+                check(guest.joinCollab(room, QStringLiteral("Guest")), "a guest joins");
+                QTest::qWait(500); // connect + snapshot travel the socket
+
+                check(guest.collabActive(), "the guest is in the room");
+                check(guest.layers()->rowCount() == controller->layers()->rowCount(),
+                      "the guest got the host's document");
+                check(guest.canvasWidth() == controller->canvasWidth(),
+                      "with the host's canvas size");
+
+                const auto inked = [](const QImage& image, int x, int y) {
+                    return qAlpha(image.pixel(x, y)) > 0;
+                };
+
+                // Guest draws one stroke, host draws another. Guest first, so a
+                // screenshot taken mid-test shows the guest's pointer on the
+                // host's canvas.
+                guest.setBrushColor(QColor(0, 0, 0));
+                guest.beginStroke(30.0F, 150.0F);
+                guest.extendStroke(170.0F, 150.0F);
+                guest.endStroke();
+                QTest::qWait(300);
+                controller->setBrushColor(QColor(0, 0, 0));
+                controller->beginStroke(30.0F, 40.0F);
+                controller->extendStroke(170.0F, 40.0F);
+                controller->endStroke();
+                QTest::qWait(300);
+
+                const QImage hostCanvas = controller->canvasImage();
+                const QImage guestCanvas = guest.canvasImage();
+                qInfo().noquote() << "collab: host has host stroke"
+                                  << inked(hostCanvas, 100, 40) << "guest stroke"
+                                  << inked(hostCanvas, 100, 150);
+                qInfo().noquote() << "collab: guest has host stroke"
+                                  << inked(guestCanvas, 100, 40) << "guest stroke"
+                                  << inked(guestCanvas, 100, 150);
+                check(inked(hostCanvas, 100, 40) && inked(hostCanvas, 100, 150),
+                      "the host sees both strokes");
+                check(inked(guestCanvas, 100, 40) && inked(guestCanvas, 100, 150),
+                      "the guest sees both strokes");
+                check(!guest.remoteCursors().isEmpty(), "the guest sees the host's pointer");
+                qInfo().noquote() << "collab: peers host" << controller->collabPeers() << "guest"
+                                  << guest.collabPeers();
+
+                guest.leaveCollab();
+                controller->leaveCollab();
+                check(!controller->collabActive() && !guest.collabActive(), "both leave cleanly");
+                qInfo().noquote() << "collab: test finished with" << failures << "failure(s)";
             }
             if (demoEyedropper && !engine.rootObjects().isEmpty()) {
                 controller->setStartPageVisible(false);
