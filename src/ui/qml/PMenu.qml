@@ -1,6 +1,6 @@
-import QtQuick
-import QtQuick.Controls.Basic
-import "Theme.js" as T
+﻿import QtQuick
+import QtQuick.Controls.Basic
+import Prism
 
 // Dark dropdown menu. Controls Basic draws menu popups with a light frame and
 // unthemed item text, which broke the two-colour look (this is separate from
@@ -21,16 +21,16 @@ Menu {
         implicitWidth: control.width
 
         background: Rectangle {
-            color: !isSeparator && item.highlighted && item.enabled ? T.highlight
+            color: !isSeparator && item.highlighted && item.enabled ? ThemeManager.themeColor("highlight")
                                                                     : "transparent"
-            radius: T.radiusSmall
+            radius: ThemeManager.themeColor("radiusSmall")
             Rectangle {
                 visible: item.isSeparator
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - 12
                 height: 1
-                color: T.popupBorder
+                color: ThemeManager.themeColor("popupBorder")
             }
         }
 
@@ -43,8 +43,8 @@ Menu {
             // show up in the menu, and the toolbar/menu labels stay clean.
             text: item.text.replace(/&/g, "")
             font.pixelSize: 11
-            color: !item.enabled ? T.disabledText
-                                 : (item.highlighted ? T.highlightText : T.text)
+            color: !item.enabled ? ThemeManager.themeColor("disabledText")
+                                 : (item.highlighted ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text"))
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
@@ -52,9 +52,10 @@ Menu {
 
     background: Rectangle {
         implicitWidth: control.implicitWidth
-        color: T.popup
-        border.color: T.popupBorder
+        color: ThemeManager.themeColor("popup")
+        border.color: ThemeManager.themeColor("popupBorder")
         border.width: 1
-        radius: T.radiusSmall
+        radius: ThemeManager.themeColor("radiusSmall")
     }
 }
+

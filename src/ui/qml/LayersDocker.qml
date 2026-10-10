@@ -1,8 +1,8 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
-import Prism.Ui 1.0
-import "Theme.js" as T
+import Prism.Ui 1.0
+import Prism
 
 // Krita-style Layers docker: title bar with action buttons, blend-mode
 // combo, opacity slider, then the layer rows (eye / lock / thumbnail / name).
@@ -13,8 +13,8 @@ Rectangle {
     /// panel, so only its action buttons are kept.
     property bool embedded: false
 
-    color: T.panel
-    radius: T.radius
+    color: ThemeManager.themeColor("panel")
+    radius: ThemeManager.themeColor("radius")
 
     // Opacity is edited live (no history per pixel of drag); the history
     // entry is created once on release, seeded with the drag-start value.
@@ -24,9 +24,9 @@ Rectangle {
     Rectangle {
         id: header
         width: parent.width
-        height: T.dockerHeaderHeight
-        color: T.windowAlt
-        radius: T.radius
+        height: ThemeManager.themeColor("dockerHeaderHeight")
+        color: ThemeManager.themeColor("windowAlt")
+        radius: ThemeManager.themeColor("radius")
 
         Text {
             anchors.left: parent.left
@@ -34,7 +34,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             text: qsTr("Layers")
             visible: !docker.embedded
-            color: T.text
+            color: ThemeManager.themeColor("text")
             font.pixelSize: 11
         }
 
@@ -57,12 +57,12 @@ Rectangle {
                     // Names the button for the --demo-click verification hook
                     // (e.g. "layerButton_up" is Raise layer).
                     objectName: "layerButton_" + modelData.act
-                    color: mh.hovered ? T.buttonHover : "transparent"
+                    color: mh.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
                     Icon {
                         anchors.centerIn: parent
                         width: 14; height: 14
                         name: modelData.icon
-                        color: T.text
+                        color: ThemeManager.themeColor("text")
                     }
                     HoverHandler { id: mh }
                     MouseArea {
@@ -83,7 +83,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: T.border }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
     }
 
     // ---- blend mode + opacity ----
@@ -123,7 +123,7 @@ Rectangle {
             spacing: 6
             Text {
                 text: qsTr("Opacity:")
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 11
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -164,7 +164,7 @@ Rectangle {
             }
             Text {
                 text: Math.round(opacitySlider.value) + "%"
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 11
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -333,7 +333,7 @@ Rectangle {
             x: 0
             width: list.width
             height: 2
-            color: T.highlight
+            color: ThemeManager.themeColor("highlight")
             z: 10
             // Drawn on the edge the layer is moving TOWARDS, in list terms.
             y: list.dropToIndex > list.dragFromIndex ? list.viewportYOfRow(list.dropToIndex) + 27
@@ -344,7 +344,7 @@ Rectangle {
             id: layerRow
             width: ListView.view ? ListView.view.width : 0
             height: 28
-            color: controller.activeLayerIndex === index ? T.highlight : "transparent"
+            color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlight") : "transparent"
             // The row being dragged fades so the gap it will leave is visible.
             opacity: ListView.view && ListView.view.dragFromIndex === index ? 0.45 : 1.0
             // Renaming is entered by double-clicking the row, which keeps the
@@ -443,7 +443,7 @@ Rectangle {
                         width: 13; height: 13
                         name: model.visible ? "eye" : "eye-off"
                         color: controller.activeLayerIndex === index
-                               ? T.highlightText : (model.visible ? T.text : T.textDim)
+                               ? ThemeManager.themeColor("highlightText") : (model.visible ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim"))
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -459,7 +459,7 @@ Rectangle {
                         width: 13; height: 13
                         name: model.locked ? "lock" : "unlock"
                         color: controller.activeLayerIndex === index
-                               ? T.highlightText : (model.locked ? T.text : T.textDim)
+                               ? ThemeManager.themeColor("highlightText") : (model.locked ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim"))
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -470,8 +470,8 @@ Rectangle {
                 // real thumbnail of this layer's pixels
                 Rectangle {
                     width: 24; height: 20
-                    color: T.panelSunken
-                    border.color: T.border
+                    color: ThemeManager.themeColor("panelSunken")
+                    border.color: ThemeManager.themeColor("border")
                     border.width: 1
                     Image {
                         anchors.fill: parent
@@ -491,7 +491,7 @@ Rectangle {
                     visible: !layerRow.editingName
                     width: Math.max(50, parent.width - 150)
                     text: model.name
-                    color: controller.activeLayerIndex === index ? T.highlightText : T.text
+                    color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                     font.pixelSize: 11
                     anchors.verticalCenter: parent.verticalCenter
                     elide: Text.ElideRight
@@ -502,7 +502,7 @@ Rectangle {
                     visible: layerRow.editingName
                     width: nameText.width
                     text: model.name
-                    color: controller.activeLayerIndex === index ? T.highlightText : T.text
+                    color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                     font.pixelSize: 11
                     anchors.verticalCenter: parent.verticalCenter
                     selectByMouse: true
@@ -520,7 +520,7 @@ Rectangle {
                 Text {
                     text: model.opacity + "%"
                     color: controller.activeLayerIndex === index
-                           ? T.highlightText : T.textDim
+                           ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("textDim")
                     font.pixelSize: 10
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -528,3 +528,4 @@ Rectangle {
         }
     }
 }
+

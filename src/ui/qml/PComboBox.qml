@@ -1,6 +1,6 @@
-import QtQuick
-import QtQuick.Controls.Basic
-import "Theme.js" as T
+﻿import QtQuick
+import QtQuick.Controls.Basic
+import Prism
 
 // ComboBox with the app's dark dropdown. Controls Basic's default popup is a
 // light list on a light frame, which broke the two-colour look, so every
@@ -20,15 +20,15 @@ ComboBox {
         highlighted: control.highlightedIndex === index
         contentItem: Text {
             text: control.textRole ? model[control.textRole] : model[control.textRole]
-            color: highlighted ? T.highlightText : T.text
+            color: highlighted ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
             font.pixelSize: 11
             verticalAlignment: Text.AlignVCenter
             leftPadding: 6
             elide: Text.ElideRight
         }
         background: Rectangle {
-            radius: T.radiusSmall
-            color: highlighted ? T.highlight : "transparent"
+            radius: ThemeManager.themeColor("radiusSmall")
+            color: highlighted ? ThemeManager.themeColor("highlight") : "transparent"
         }
     }
 
@@ -38,7 +38,7 @@ ComboBox {
         width: 12
         height: 12
         name: "chevron-down"
-        color: control.enabled ? T.text : T.disabledText
+        color: control.enabled ? ThemeManager.themeColor("text") : ThemeManager.themeColor("disabledText")
     }
 
     contentItem: Text {
@@ -46,16 +46,16 @@ ComboBox {
         rightPadding: control.indicator.width + 4
         text: control.displayText
         font.pixelSize: 11
-        color: control.enabled ? T.text : T.disabledText
+        color: control.enabled ? ThemeManager.themeColor("text") : ThemeManager.themeColor("disabledText")
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
 
     background: Rectangle {
-        color: T.panelRaised
-        border.color: T.border
+        color: ThemeManager.themeColor("panelRaised")
+        border.color: ThemeManager.themeColor("border")
         border.width: 1
-        radius: T.radiusSmall
+        radius: ThemeManager.themeColor("radiusSmall")
     }
 
     popup: Popup {
@@ -65,10 +65,10 @@ ComboBox {
         padding: 1
 
         background: Rectangle {
-            color: T.popup
-            border.color: T.popupBorder
+            color: ThemeManager.themeColor("popup")
+            border.color: ThemeManager.themeColor("popupBorder")
             border.width: 1
-            radius: T.radiusSmall
+            radius: ThemeManager.themeColor("radiusSmall")
         }
 
         contentItem: ListView {
@@ -80,3 +80,4 @@ ComboBox {
         }
     }
 }
+

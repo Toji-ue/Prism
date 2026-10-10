@@ -1,9 +1,9 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import Prism.Ui 1.0
-import "Theme.js" as T
+import Prism.Ui 1.0
+import Prism
 
 ApplicationWindow {
     id: root
@@ -14,7 +14,7 @@ ApplicationWindow {
     minimumHeight: 620
     title: controller.windowTitle
     visible: true
-    color: T.window
+    color: ThemeManager.themeColor("window")
 
     // Injected from C++ so the image providers share this instance.
     required property AppController controller
@@ -273,8 +273,8 @@ ApplicationWindow {
         visible: !controller.startPageVisible
         height: 34
         background: Rectangle {
-            color: T.window
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: T.border }
+            color: ThemeManager.themeColor("window")
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
         }
 
         RowLayout {
@@ -317,7 +317,7 @@ ApplicationWindow {
                 }
             }
 
-            Rectangle { width: 1; height: 20; color: T.border }
+            Rectangle { width: 1; height: 20; color: ThemeManager.themeColor("border") }
 
             Row {
                 spacing: 6
@@ -339,8 +339,8 @@ ApplicationWindow {
             // current brush preset button (opens the preset grid)
             Rectangle {
                 width: 168; height: 24
-                color: T.windowAlt
-                border.color: T.border
+                color: ThemeManager.themeColor("windowAlt")
+                border.color: ThemeManager.themeColor("border")
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 6
@@ -355,7 +355,7 @@ ApplicationWindow {
                     Text {
                         Layout.fillWidth: true
                         text: controller.brushName
-                        color: T.text
+                        color: ThemeManager.themeColor("text")
                         font.pixelSize: 11
                         elide: Text.ElideRight
                         verticalAlignment: Text.AlignVCenter
@@ -364,7 +364,7 @@ ApplicationWindow {
                         Layout.preferredWidth: 12
                         Layout.preferredHeight: 12
                         name: "chevron-down"
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                     }
                 }
                 MouseArea {
@@ -380,7 +380,7 @@ ApplicationWindow {
             Rectangle {
                 width: 30; height: 24
                 color: controller.brushColor
-                border.color: T.border
+                border.color: ThemeManager.themeColor("border")
                 MouseArea {
                     anchors.fill: parent
                     onClicked: colorPopup.open()
@@ -405,7 +405,7 @@ ApplicationWindow {
             id: canvasArea
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: T.canvasBackdrop
+            color: ThemeManager.themeColor("canvasBackdrop")
 
             // Fit the canvas into the viewport once the layout is known.
             Component.onCompleted: controller.fitToViewport(width - 60, height - 60)
@@ -429,14 +429,14 @@ ApplicationWindow {
                 anchors.margins: 8
                 width: zoomLabel.implicitWidth + 12
                 height: 20
-                color: T.popup
-                border.color: T.popupBorder
+                color: ThemeManager.themeColor("popup")
+                border.color: ThemeManager.themeColor("popupBorder")
                 border.width: 1
                 Text {
                     id: zoomLabel
                     anchors.centerIn: parent
                     text: Math.round(controller.zoom * 100) + "%"
-                    color: T.text
+                    color: ThemeManager.themeColor("text")
                     font.pixelSize: 11
                 }
             }
@@ -469,8 +469,8 @@ ApplicationWindow {
 
                         Rectangle {
                             anchors.fill: parent
-                            color: T.light
-                            border.color: T.dark
+                            color: "#ffffff"
+                            border.color: "#000000"
                             border.width: 1
                         }
 
@@ -498,14 +498,14 @@ ApplicationWindow {
                             visible: root.controller.mirrorHorizontal
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: 1; height: parent.height
-                            color: T.tint(0.8)
+                            color: ThemeManager.themeColor("textDim")
                             opacity: 0.6
                         }
                         Rectangle {
                             visible: root.controller.mirrorVertical
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width; height: 1
-                            color: T.tint(0.8)
+                            color: ThemeManager.themeColor("textDim")
                             opacity: 0.6
                         }
 
@@ -516,8 +516,8 @@ ApplicationWindow {
                             acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                             // Clicking the canvas takes focus back from whatever
                             // text field was last used. Window shortcuts (Ctrl+Z,
-                            // Ctrl+S...) are swallowed by a focused TextInput —
-                            // Qt sends it a ShortcutOverride that it accepts — so
+                            // Ctrl+S...) are swallowed by a focused TextInput â€”
+                            // Qt sends it a ShortcutOverride that it accepts â€” so
                             // without this, undo kept editing the last text field
                             // instead of the document, "working sometimes".
                             focus: true
@@ -554,7 +554,7 @@ ApplicationWindow {
                                 height: width
                                 radius: width / 2
                                 color: "transparent"
-                                border.color: T.cursorRing
+                                border.color: ThemeManager.themeColor("cursorRing")
                                 border.width: 1
                                 readonly property real pointerX: root.demoPointer !== null
                                                                  ? root.demoPointer.x
@@ -572,7 +572,7 @@ ApplicationWindow {
                                     height: width
                                     radius: width / 2
                                     color: "transparent"
-                                    border.color: T.cursorRingInner
+                                    border.color: ThemeManager.themeColor("cursorRingInner")
                                     border.width: 1
                                 }
                             }
@@ -895,7 +895,7 @@ ApplicationWindow {
                             width: controller.selectionW * controller.zoom
                             height: controller.selectionH * controller.zoom
                             color: "transparent"
-                            border.color: T.light
+                            border.color: "#ffffff"
                             border.width: 1
 
                             // dark inner line keeps the selection readable on
@@ -904,7 +904,7 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 1
                                 color: "transparent"
-                                border.color: T.dark
+                                border.color: "#000000"
                                 border.width: 1
                             }
                         }
@@ -917,9 +917,9 @@ ApplicationWindow {
         // the available column - each docker scrolls its own content.
         Rectangle {
             id: dockerArea
-            Layout.preferredWidth: T.dockerWidth
+            Layout.preferredWidth: ThemeManager.themeColor("dockerWidth")
             Layout.fillHeight: true
-            color: T.window
+            color: ThemeManager.themeColor("window")
 
             Column {
                 anchors.fill: parent
@@ -933,8 +933,8 @@ ApplicationWindow {
                 Rectangle {
                     width: parent.width
                     height: 26
-                    color: T.panel
-                    radius: T.radius
+                    color: ThemeManager.themeColor("panel")
+                    radius: ThemeManager.themeColor("radius")
 
                     Row {
                         anchors.fill: parent
@@ -947,14 +947,14 @@ ApplicationWindow {
                             delegate: Rectangle {
                                 width: (parent.width - 4) / 3
                                 height: parent.height
-                                radius: T.radiusSmall
-                                color: root.dockerTab === index ? T.highlight
+                                radius: ThemeManager.themeColor("radiusSmall")
+                                color: root.dockerTab === index ? ThemeManager.themeColor("highlight")
                                                                 : (tabHover.hovered
-                                                                   ? T.buttonHover : "transparent")
+                                                                   ? ThemeManager.themeColor("buttonHover") : "transparent")
                                 Text {
                                     anchors.centerIn: parent
                                     text: modelData
-                                    color: root.dockerTab === index ? T.highlightText : T.text
+                                    color: root.dockerTab === index ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                                     font.pixelSize: 11
                                 }
                                 HoverHandler { id: tabHover }
@@ -999,23 +999,23 @@ ApplicationWindow {
         Rectangle {
             width: parent.width
             height: 30
-            color: T.windowAlt
+            color: ThemeManager.themeColor("windowAlt")
             objectName: "toolOptionsBar"
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: T.border }
+            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 spacing: 8
 
-            Rectangle { width: 1; height: 20; color: T.border }
+            Rectangle { width: 1; height: 20; color: ThemeManager.themeColor("border") }
 
             // Opacity (brush flow) as a slider, with the value beside it.
             // The value is NOT bound to the controller: a binding plus a write
             // from onMoved fights the drag, and whichever side loses makes the
             // slider look dead. Sync explicitly instead, and never while the
             // user is holding the handle.
-            Text { text: qsTr("Opacity:"); color: T.text; font.pixelSize: 11 }
+            Text { text: qsTr("Opacity:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
             PSlider {
                 id: flowSlider
                 objectName: "flowSlider"
@@ -1034,11 +1034,11 @@ ApplicationWindow {
             Text {
                 Layout.preferredWidth: 34
                 text: Math.round(controller.brushFlow * 100) + "%"
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 11
             }
 
-            Text { text: qsTr("Size:"); color: T.text; font.pixelSize: 11 }
+            Text { text: qsTr("Size:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
             PSpinBox {
                 id: sizeBox
                 objectName: "sizeBox"
@@ -1071,7 +1071,7 @@ ApplicationWindow {
                 onMoved: controller.brushSize = Math.round(value)
             }
 
-            Text { text: qsTr("Hardness:"); color: T.text; font.pixelSize: 11 }
+            Text { text: qsTr("Hardness:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
             PSlider {
                 id: hardnessSlider
                 objectName: "hardnessSlider"
@@ -1088,7 +1088,7 @@ ApplicationWindow {
                 onMoved: controller.brushHardness = value
             }
 
-            Rectangle { width: 1; height: 20; color: T.border }
+            Rectangle { width: 1; height: 20; color: ThemeManager.themeColor("border") }
 
             // Mirror canvas (Krita's mirror tools)
             Repeater {
@@ -1101,12 +1101,12 @@ ApplicationWindow {
                     width: 24; height: 24
                     readonly property bool on: (modelData.act === "h" && root.controller.mirrorHorizontal)
                                                || (modelData.act === "v" && root.controller.mirrorVertical)
-                    color: on ? T.highlight : (mh.hovered ? T.buttonHover : "transparent")
+                    color: on ? ThemeManager.themeColor("highlight") : (mh.hovered ? ThemeManager.themeColor("buttonHover") : "transparent")
                     Icon {
                         anchors.centerIn: parent
                         width: 15; height: 15
                         name: modelData.icon
-                        color: on ? T.highlightText : T.text
+                        color: on ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                     }
                     HoverHandler { id: mh }
                     MouseArea {
@@ -1129,8 +1129,8 @@ ApplicationWindow {
         Rectangle {
             width: parent.width
             height: 24
-            color: T.windowAlt
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: T.border }
+            color: ThemeManager.themeColor("windowAlt")
+            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
 
         RowLayout {
             anchors.fill: parent
@@ -1140,14 +1140,14 @@ ApplicationWindow {
 
             Text {
                 text: root.toolHint + "  -  " + controller.brushName
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 11
             }
             // A failed open/save must be visible, never silent.
             Text {
                 visible: controller.lastError.length > 0
                 text: controller.lastError
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 11
             }
             // Informational outcome of the last action (e.g. how much of an
@@ -1155,7 +1155,7 @@ ApplicationWindow {
             Text {
                 visible: controller.statusMessage.length > 0
                 text: controller.statusMessage
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 11
             }
             Item { Layout.fillWidth: true }
@@ -1164,29 +1164,29 @@ ApplicationWindow {
             Text {
                 visible: controller.recording
                 text: qsTr("REC %1").arg(controller.recordedFrames)
-                color: T.highlight
+                color: ThemeManager.themeColor("highlight")
                 font.pixelSize: 11
             }
             Text {
                 text: controller.statusInfo
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 11
             }
             Item { Layout.fillWidth: true }
             Text {
                 text: qsTr("%1 ?- %2 px").arg(controller.canvasWidth).arg(controller.canvasHeight)
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 11
             }
             Text {
                 text: qsTr("Selection: %1 ?- %2").arg(controller.selectionW).arg(controller.selectionH)
                 visible: controller.hasSelection
-                color: T.highlight
+                color: ThemeManager.themeColor("highlight")
                 font.pixelSize: 11
             }
             Text {
                 text: qsTr("0.00deg")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 11
             }
             PComboBox {
@@ -1229,22 +1229,22 @@ ApplicationWindow {
         anchors.centerIn: parent
         width: 300; height: 96
         padding: 10
-        background: Rectangle { color: T.popup; border.color: T.popupBorder; border.width: 1 }
+        background: Rectangle { color: ThemeManager.themeColor("popup"); border.color: ThemeManager.themeColor("popupBorder"); border.width: 1 }
         Column {
             anchors.fill: parent
             spacing: 6
-            Text { text: qsTr("Text"); color: T.text; font.pixelSize: 11 }
+            Text { text: qsTr("Text"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
             Rectangle {
                 width: parent.width; height: 24
-                color: T.panelRaised
-                border.color: T.border
+                color: ThemeManager.themeColor("panelRaised")
+                border.color: ThemeManager.themeColor("border")
                 TextInput {
                     id: textField
                     anchors.fill: parent
                     anchors.leftMargin: 6
                     anchors.rightMargin: 6
                     verticalAlignment: TextInput.AlignVCenter
-                    color: T.text
+                    color: ThemeManager.themeColor("text")
                     font.pixelSize: 12
                     clip: true
                     onAccepted: {
@@ -1256,7 +1256,7 @@ ApplicationWindow {
             }
             Text {
                 text: qsTr("Enter to place it on the active layer")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
             }
         }
@@ -1277,7 +1277,7 @@ ApplicationWindow {
         id: saveDialog
         title: qsTr("Save As")
         // Formats come from the controller, filtered to what this Qt build can
-        // actually write — offering an unsupported format made Save fail with
+        // actually write â€” offering an unsupported format made Save fail with
         // no explanation.
         nameFilters: controller.imageSaveFilters().concat([qsTr("All files (*)")])
         fileMode: FileDialog.SaveFile
@@ -1328,7 +1328,7 @@ ApplicationWindow {
         width: 420; height: 520
         padding: 0
 
-        background: Rectangle { color: T.window; border.color: T.border; border.width: 1 }
+        background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border"); border.width: 1 }
 
         ColumnLayout {
             anchors.fill: parent
@@ -1339,7 +1339,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Text {
                     text: qsTr("Configure Tool Shortcuts")
-                    color: T.text
+                    color: ThemeManager.themeColor("text")
                     font.pixelSize: 14
                 }
                 Item { Layout.fillWidth: true }
@@ -1354,7 +1354,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: qsTr("Type one character per tool, or leave it empty to disable its shortcut. Assigning a key that another tool uses takes the key from that tool.")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
             }
 
@@ -1391,29 +1391,29 @@ ApplicationWindow {
                         Text {
                             Layout.fillWidth: true
                             text: modelData.name
-                            color: T.text
+                            color: ThemeManager.themeColor("text")
                             font.pixelSize: 11
                             elide: Text.ElideRight
                         }
                         Text {
                             text: modelData.key.length > 0 ? modelData.key : qsTr("(none)")
-                            color: T.textDim
+                            color: ThemeManager.themeColor("textDim")
                             font.pixelSize: 10
                             Layout.preferredWidth: 40
                         }
                         Rectangle {
                             width: 56; height: 22
                             // The key box flags a conflict while typing.
-                            color: T.panelRaised
+                            color: ThemeManager.themeColor("panelRaised")
                             border.color: shortcutRow.conflictWith.length > 0
-                                          ? T.text : T.border
+                                          ? ThemeManager.themeColor("text") : ThemeManager.themeColor("border")
                             border.width: 1
                             TextInput {
                                 id: keyField
                                 anchors.fill: parent
                                 anchors.leftMargin: 6
                                 verticalAlignment: TextInput.AlignVCenter
-                                color: T.text
+                                color: ThemeManager.themeColor("text")
                                 font.pixelSize: 11
                                 maximumLength: 1
                                 clip: true
@@ -1423,7 +1423,7 @@ ApplicationWindow {
                                     anchors.leftMargin: 6
                                     verticalAlignment: Text.AlignVCenter
                                     text: qsTr("set...")
-                                    color: T.textDim
+                                    color: ThemeManager.themeColor("textDim")
                                     font.pixelSize: 10
                                 }
                                 onEditingFinished:
@@ -1441,7 +1441,7 @@ ApplicationWindow {
                         text: qsTr("! '%1' is already used by %2 - assigning it here will clear it there")
                               .arg(keyField.text.trim().toUpperCase())
                               .arg(conflictWith)
-                        color: T.text
+                        color: ThemeManager.themeColor("text")
                         font.pixelSize: 10
                         elide: Text.ElideMiddle
                     }
@@ -1456,7 +1456,7 @@ ApplicationWindow {
         x: 200; y: 40
         width: 260; height: 300
         padding: 4
-        background: Rectangle { color: T.windowAlt; border.color: T.border }
+        background: Rectangle { color: ThemeManager.themeColor("windowAlt"); border.color: ThemeManager.themeColor("border") }
 
         GridView {
             anchors.fill: parent
@@ -1466,8 +1466,8 @@ ApplicationWindow {
             currentIndex: controller.activePresetIndex
             delegate: Rectangle {
                 width: 48; height: 48
-                color: parent.currentIndex === index ? T.highlight : T.panelSunken
-                border.color: T.border
+                color: parent.currentIndex === index ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("panelSunken")
+                border.color: ThemeManager.themeColor("border")
                 Image {
                     anchors.fill: parent
                     anchors.margins: 3
@@ -1494,7 +1494,8 @@ ApplicationWindow {
         x: root.width - 330; y: 40
         width: 300; height: 420
         padding: 0
-        background: Rectangle { color: T.window; border.color: T.border }
+        background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border") }
         ColorSelector { controller: root.controller; anchors.fill: parent }
     }
 }
+

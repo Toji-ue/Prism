@@ -1,12 +1,12 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Prism.Ui 1.0
-import "Theme.js" as T
+import Prism.Ui 1.0
+import Prism
 
 // Krita-style "Create new document" dialog: preset categories on the left,
 // Dimensions / Content tabs, Image Size and Color groups, a live summary, and
-// Create / Cancel. Icons are vector (Icon.qml) — no emoji.
+// Create / Cancel. Icons are vector (Icon.qml) â€” no emoji.
 Dialog {
     id: dialog
     required property AppController controller
@@ -38,8 +38,8 @@ Dialog {
     ]
 
     background: Rectangle {
-        color: T.window
-        border.color: T.border
+        color: ThemeManager.themeColor("window")
+        border.color: ThemeManager.themeColor("border")
         border.width: 1
     }
 
@@ -55,7 +55,7 @@ Dialog {
             Rectangle {
                 Layout.preferredWidth: 200
                 Layout.fillHeight: true
-                color: T.window
+                color: ThemeManager.themeColor("window")
 
                 ListView {
                     id: catList
@@ -67,7 +67,7 @@ Dialog {
                     delegate: Rectangle {
                         width: catList.width
                         height: 36
-                        color: catList.currentIndex === index ? T.highlight : "transparent"
+                        color: catList.currentIndex === index ? ThemeManager.themeColor("highlight") : "transparent"
                         MouseArea {
                             anchors.fill: parent
                             onClicked: {
@@ -93,7 +93,7 @@ Dialog {
                                 Layout.preferredHeight: 18
                                 name: modelData.icon
                                 color: catList.currentIndex === index
-                                       ? T.highlightText : T.text
+                                       ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -101,7 +101,7 @@ Dialog {
                                 elide: Text.ElideRight
                                 font.pixelSize: 12
                                 color: catList.currentIndex === index
-                                       ? T.highlightText : T.text
+                                       ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                             }
                         }
                         MouseArea {
@@ -112,13 +112,13 @@ Dialog {
                 }
             }
 
-            Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: T.border }
+            Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: ThemeManager.themeColor("border") }
 
             // ---- right: settings ----
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: T.windowAlt
+                color: ThemeManager.themeColor("windowAlt")
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -132,14 +132,14 @@ Dialog {
                             model: [qsTr("Dimensions"), qsTr("Content")]
                             delegate: Rectangle {
                                 width: 100; height: 26
-                                color: tabIndex === index ? T.windowAlt : T.panel
-                                border.color: T.border
+                                color: tabIndex === index ? ThemeManager.themeColor("windowAlt") : ThemeManager.themeColor("panel")
+                                border.color: ThemeManager.themeColor("border")
                                 border.width: 1
                                 Text {
                                     anchors.centerIn: parent
                                     text: modelData
                                     font.pixelSize: 12
-                                    color: tabIndex === index ? T.text : T.textDim
+                                    color: tabIndex === index ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim")
                                 }
                                 MouseArea {
                                     anchors.fill: parent
@@ -162,18 +162,18 @@ Dialog {
                             Layout.fillWidth: true
                             Layout.preferredHeight: sizeGrid.implicitHeight + 34
                             color: "transparent"
-                            border.color: T.border
+                            border.color: ThemeManager.themeColor("border")
                             border.width: 1
 
                             Text {
                                 x: 10; y: -8
                                 text: qsTr("Image Size")
-                                color: T.text
+                                color: ThemeManager.themeColor("text")
                                 font.pixelSize: 11
                                 Rectangle {
                                     anchors.fill: parent
                                     anchors.margins: -2
-                                    color: T.windowAlt
+                                    color: ThemeManager.themeColor("windowAlt")
                                     z: -1
                                 }
                             }
@@ -186,7 +186,7 @@ Dialog {
                                 columnSpacing: 8
                                 rowSpacing: 8
 
-                                Text { text: qsTr("Predefined:"); color: T.text; font.pixelSize: 11 }
+                                Text { text: qsTr("Predefined:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
                                 PComboBox {
                                     Layout.columnSpan: 2
                                     Layout.fillWidth: true
@@ -202,14 +202,14 @@ Dialog {
                                         delegate: Rectangle {
                                             width: 24; height: 24
                                             color: index === dialog.orientationMode
-                                                   ? T.highlight : T.panel
-                                            border.color: T.border
+                                                   ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("panel")
+                                            border.color: ThemeManager.themeColor("border")
                                             Icon {
                                                 anchors.centerIn: parent
                                                 width: 14; height: 14
                                                 name: "select-rect"
                                                 color: index === dialog.orientationMode
-                                                       ? T.highlightText : T.text
+                                                       ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                                                 rotation: index === 0 ? 0 : 90
                                             }
                                             MouseArea {
@@ -232,7 +232,7 @@ Dialog {
                                     }
                                 }
 
-                                Text { text: qsTr("Width:"); color: T.text; font.pixelSize: 11 }
+                                Text { text: qsTr("Width:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
                                 PSpinBox {
                                     id: wField
                                     Layout.fillWidth: true
@@ -247,7 +247,7 @@ Dialog {
                                 }
                                 Item {}
 
-                                Text { text: qsTr("Height:"); color: T.text; font.pixelSize: 11 }
+                                Text { text: qsTr("Height:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
                                 PSpinBox {
                                     id: hField
                                     Layout.fillWidth: true
@@ -262,7 +262,7 @@ Dialog {
                                 }
                                 Item {}
 
-                                Text { text: qsTr("Resolution:"); color: T.text; font.pixelSize: 11 }
+                                Text { text: qsTr("Resolution:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
                                 PSpinBox {
                                     id: resField
                                     Layout.fillWidth: true
@@ -285,21 +285,21 @@ Dialog {
                             spacing: 8
                             Text {
                                 text: qsTr("Save Image Size as:")
-                                color: T.text
+                                color: ThemeManager.themeColor("text")
                                 font.pixelSize: 11
                             }
                             Rectangle {
                                 Layout.fillWidth: true
                                 height: 24
-                                color: T.base
-                                border.color: T.border
+                                color: ThemeManager.themeColor("base")
+                                border.color: ThemeManager.themeColor("border")
                                 TextInput {
                                     id: sizeNameField
                                     anchors.fill: parent
                                     anchors.leftMargin: 6
                                     anchors.rightMargin: 6
                                     verticalAlignment: TextInput.AlignVCenter
-                                    color: T.text
+                                    color: ThemeManager.themeColor("text")
                                     font.pixelSize: 11
                                     clip: true
                                 }
@@ -325,18 +325,18 @@ Dialog {
                             Layout.preferredHeight: colorColumn.implicitHeight + 34
                             Layout.topMargin: 12
                             color: "transparent"
-                            border.color: T.border
+                            border.color: ThemeManager.themeColor("border")
                             border.width: 1
 
                             Text {
                                 x: 10; y: -8
                                 text: qsTr("Color")
-                                color: T.text
+                                color: ThemeManager.themeColor("text")
                                 font.pixelSize: 11
                                 Rectangle {
                                     anchors.fill: parent
                                     anchors.margins: -2
-                                    color: T.windowAlt
+                                    color: ThemeManager.themeColor("windowAlt")
                                     z: -1
                                 }
                             }
@@ -358,7 +358,7 @@ Dialog {
                                         spacing: 8
                                         Text {
                                             text: modelData.label
-                                            color: T.text
+                                            color: ThemeManager.themeColor("text")
                                             font.pixelSize: 11
                                             Layout.preferredWidth: 60
                                         }
@@ -393,12 +393,12 @@ Dialog {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
-                            Text { text: qsTr("Name:"); color: T.text; font.pixelSize: 11; Layout.preferredWidth: 110 }
+                            Text { text: qsTr("Name:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
                             Rectangle {
                                 Layout.fillWidth: true
                                 height: 24
-                                color: T.base
-                                border.color: T.border
+                                color: ThemeManager.themeColor("base")
+                                border.color: ThemeManager.themeColor("border")
                                 TextInput {
                                     id: nameField
                                     anchors.fill: parent
@@ -406,7 +406,7 @@ Dialog {
                                     anchors.rightMargin: 6
                                     verticalAlignment: TextInput.AlignVCenter
                                     text: qsTr("Unnamed")
-                                    color: T.text
+                                    color: ThemeManager.themeColor("text")
                                     font.pixelSize: 11
                                     clip: true
                                 }
@@ -416,7 +416,7 @@ Dialog {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
-                            Text { text: qsTr("Layers:"); color: T.text; font.pixelSize: 11; Layout.preferredWidth: 110 }
+                            Text { text: qsTr("Layers:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
                             PSpinBox {
                                 id: layersField
                                 Layout.fillWidth: true
@@ -428,12 +428,12 @@ Dialog {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
-                            Text { text: qsTr("Background Color:"); color: T.text; font.pixelSize: 11; Layout.preferredWidth: 110 }
+                            Text { text: qsTr("Background Color:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
                             Rectangle {
                                 Layout.fillWidth: true
                                 height: 24
                                 color: bgColor
-                                border.color: T.border
+                                border.color: ThemeManager.themeColor("border")
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: dialog.pickBackground = !dialog.pickBackground
@@ -455,7 +455,7 @@ Dialog {
                                     delegate: Rectangle {
                                         width: 22; height: 22
                                         color: modelData
-                                        border.color: T.border
+                                        border.color: ThemeManager.themeColor("border")
                                         MouseArea {
                                             anchors.fill: parent
                                             onClicked: bgColor = modelData
@@ -468,7 +468,7 @@ Dialog {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
-                            Text { text: qsTr("Background Opacity:"); color: T.text; font.pixelSize: 11; Layout.preferredWidth: 110 }
+                            Text { text: qsTr("Background Opacity:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
                             PSlider {
                                 id: bgOpacity
                                 Layout.fillWidth: true
@@ -477,13 +477,13 @@ Dialog {
                             }
                             Text {
                                 text: Math.round(bgOpacity.value) + "%"
-                                color: T.text
+                                color: ThemeManager.themeColor("text")
                                 font.pixelSize: 11
                                 Layout.preferredWidth: 36
                             }
                         }
 
-                        Text { text: qsTr("Background:"); color: T.text; font.pixelSize: 11 }
+                        Text { text: qsTr("Background:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
 
                         ColumnLayout {
                             spacing: 2
@@ -497,13 +497,13 @@ Dialog {
                                         width: 13; height: 13
                                         radius: 7
                                         color: "transparent"
-                                        border.color: T.textDim
+                                        border.color: ThemeManager.themeColor("textDim")
                                         Rectangle {
                                             anchors.centerIn: parent
                                             width: 7; height: 7
                                             radius: 4
                                             visible: dialog.backgroundMode === index
-                                            color: T.highlight
+                                            color: ThemeManager.themeColor("highlight")
                                         }
                                         MouseArea {
                                             anchors.fill: parent
@@ -512,25 +512,25 @@ Dialog {
                                     }
                                     Text {
                                         text: modelData
-                                        color: T.text
+                                        color: ThemeManager.themeColor("text")
                                         font.pixelSize: 11
                                     }
                                 }
                             }
                         }
 
-                        Text { text: qsTr("Description:"); color: T.text; font.pixelSize: 11 }
+                        Text { text: qsTr("Description:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
 
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             Layout.minimumHeight: 60
-                            color: T.base
-                            border.color: T.border
+                            color: ThemeManager.themeColor("base")
+                            border.color: ThemeManager.themeColor("border")
                             TextEdit {
                                 anchors.fill: parent
                                 anchors.margins: 6
-                                color: T.text
+                                color: ThemeManager.themeColor("text")
                                 font.pixelSize: 11
                                 wrapMode: TextEdit.Wrap
                                 clip: true
@@ -542,7 +542,7 @@ Dialog {
                     Text {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                        color: T.text
+                        color: ThemeManager.themeColor("text")
                         font.pixelSize: 11
                         text: {
                             const px = wField.value * hField.value
@@ -559,8 +559,8 @@ Dialog {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 46
-            color: T.window
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: T.border }
+            color: ThemeManager.themeColor("window")
+            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
 
             RowLayout {
                 anchors.fill: parent
@@ -599,8 +599,8 @@ Dialog {
     property var savedSizes: []
 
     readonly property var presetNames: [
-        qsTr("Custom"), "A4 300dpi", "A4 72dpi", "HD 1920×1080",
-        "Full page 2480×3508", "Square 2048", "Social 1080×1080", "QHD 2560×1440"
+        qsTr("Custom"), "A4 300dpi", "A4 72dpi", "HD 1920Ã—1080",
+        "Full page 2480Ã—3508", "Square 2048", "Social 1080Ã—1080", "QHD 2560Ã—1440"
     ]
     readonly property var presetModel: presetNames.concat(
         savedSizes.map(function (s) { return s.name }))
@@ -620,3 +620,4 @@ Dialog {
         }
     }
 }
+

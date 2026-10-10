@@ -36,11 +36,15 @@ qt_add_executable(prism
 # WIN32 GUI subsystem: no console window attaches when launched from Explorer.
 set_target_properties(prism PROPERTIES WIN32_EXECUTABLE TRUE)
 
+# Runtime theme switching: one shared QML singleton instance.
+set_source_files_properties(src/ui/qml/ThemeManager.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(prism
     URI Prism
     VERSION 1.0
     QML_FILES
-        src/ui/qml/Theme.js
+        src/ui/qml/ThemeManager.qml
         src/ui/qml/Icon.qml
         src/ui/qml/PSlider.qml
         src/ui/qml/PSpinBox.qml

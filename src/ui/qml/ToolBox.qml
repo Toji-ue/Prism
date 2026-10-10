@@ -1,7 +1,7 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls.Basic
-import Prism.Ui 1.0
-import "Theme.js" as T
+import Prism.Ui 1.0
+import Prism
 
 // Krita-style left toolbox: two columns of square tool buttons grouped the way
 // Krita groups them (paint / shapes / view / selection / edit). Tools that are
@@ -11,11 +11,11 @@ Rectangle {
     id: toolbox
     required property AppController controller
 
-    implicitWidth: T.toolboxWidth
-    color: T.panel
-    border.color: T.border
+    implicitWidth: ThemeManager.themeColor("toolboxWidth")
+    color: ThemeManager.themeColor("panel")
+    border.color: ThemeManager.themeColor("border")
     border.width: 1
-    radius: T.radius
+    radius: ThemeManager.themeColor("radius")
 
     // ready: true  -> working tool
     // ready: false -> shown disabled with an explanatory tooltip
@@ -59,7 +59,7 @@ Rectangle {
         id: currentToolBar
         width: parent.width
         height: 30
-        color: T.windowAlt
+        color: ThemeManager.themeColor("windowAlt")
         Text {
             anchors.centerIn: parent
             width: parent.width - 8
@@ -68,10 +68,10 @@ Rectangle {
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             text: toolbox.currentToolName
-            color: T.text
+            color: ThemeManager.themeColor("text")
             font.pixelSize: 9
         }
-        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: T.border }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
     }
 
     // Name of the active tool, derived from the same table the buttons use.
@@ -105,11 +105,11 @@ Rectangle {
                 delegate: Rectangle {
                     width: 26; height: 26
                     color: toolbox.controller.tool === modelData.tool
-                           ? T.highlight
-                           : (hover.hovered && modelData.ready ? T.buttonHover : T.windowAlt)
-                    border.color: T.border
+                           ? ThemeManager.themeColor("highlight")
+                           : (hover.hovered && modelData.ready ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("windowAlt"))
+                    border.color: ThemeManager.themeColor("border")
                     border.width: 1
-                    radius: T.radiusSmall
+                    radius: ThemeManager.themeColor("radiusSmall")
                     // Unimplemented tools are visibly inert, never silently dead.
                     opacity: modelData.ready ? 1.0 : 0.35
 
@@ -118,7 +118,7 @@ Rectangle {
                         width: 16; height: 16
                         name: modelData.icon
                         color: toolbox.controller.tool === modelData.tool
-                               ? T.highlightText : T.text
+                               ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                     }
 
                     HoverHandler { id: hover }
@@ -151,7 +151,7 @@ Rectangle {
                 width: 24; height: 24
                 x: 14; y: 14
                 color: toolbox.controller.brushColor
-                border.color: T.border
+                border.color: ThemeManager.themeColor("border")
                 border.width: 1
                 MouseArea {
                     anchors.fill: parent
@@ -163,7 +163,7 @@ Rectangle {
                     x: toolbox.width
                     y: -200
                     padding: 0
-                    background: Rectangle { color: T.window; border.color: T.border }
+                    background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border") }
                     ColorSelector {
                         anchors.fill: parent
                         controller: toolbox.controller
@@ -173,8 +173,8 @@ Rectangle {
             Rectangle {
                 width: 24; height: 24
                 x: 0; y: 0
-                color: T.tint(0.9)
-                border.color: T.border
+                color: ThemeManager.themeColor("textDim")
+                border.color: ThemeManager.themeColor("border")
                 border.width: 1
                 MouseArea {
                     anchors.fill: parent
@@ -184,3 +184,4 @@ Rectangle {
         }
     }
 }
+

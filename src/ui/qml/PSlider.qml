@@ -1,6 +1,6 @@
-import QtQuick
-import QtQuick.Controls.Basic
-import "Theme.js" as T
+﻿import QtQuick
+import QtQuick.Controls.Basic
+import Prism
 
 // Compact Krita-style slider: thin groove, small square handle. The default
 // Controls Basic slider renders a large round knob that looks wrong in a
@@ -43,15 +43,15 @@ Slider {
         y: control.topPadding + control.availableHeight / 2 - height / 2
         width: control.availableWidth
         height: 4
-        radius: T.radiusSmall
-        color: T.sliderGroove
-        border.color: T.border
+        radius: ThemeManager.themeColor("radiusSmall")
+        color: ThemeManager.themeColor("sliderGroove")
+        border.color: ThemeManager.themeColor("border")
 
         Rectangle {
             width: control.visualPosition * parent.width
             height: parent.height
-            radius: T.radiusSmall
-            color: T.highlight
+            radius: ThemeManager.themeColor("radiusSmall")
+            color: ThemeManager.themeColor("highlight")
         }
     }
 
@@ -61,7 +61,8 @@ Slider {
         width: 10
         height: 14
         radius: 2
-        color: control.pressed ? T.highlight : T.text
-        border.color: T.border
+        color: control.pressed ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("text")
+        border.color: ThemeManager.themeColor("border")
     }
 }
+

@@ -1,8 +1,8 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Prism.Ui 1.0
-import "Theme.js" as T
+import Prism.Ui 1.0
+import Prism
 
 // Krita-style start page: Start actions on the left, Recent Images in the
 // middle, News/links on the right, and a community/about footer.
@@ -10,7 +10,7 @@ Rectangle {
     id: page
     required property AppController controller
 
-    color: T.window
+    color: ThemeManager.themeColor("window")
 
     signal requestNew()
     signal requestOpen()
@@ -39,13 +39,13 @@ Rectangle {
 
             Text {
                 text: qsTr("Prism")
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 46
                 font.letterSpacing: -1.5
             }
             Text {
                 text: qsTr("Layered painting for digital artists")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 13
             }
 
@@ -56,8 +56,8 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 height: 46
-                radius: T.radius
-                color: se.hovered ? Qt.lighter(T.highlight, 1.08) : T.highlight
+                radius: ThemeManager.themeColor("radius")
+                color: se.hovered ? Qt.lighter(ThemeManager.themeColor("highlight"), 1.08) : ThemeManager.themeColor("highlight")
 
                 RowLayout {
                     anchors.fill: parent
@@ -68,17 +68,17 @@ Rectangle {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
                         name: "file-new"
-                        color: T.highlightText
+                        color: ThemeManager.themeColor("highlightText")
                     }
                     Text {
                         text: qsTr("New Document")
-                        color: T.highlightText
+                        color: ThemeManager.themeColor("highlightText")
                         font.pixelSize: 15
                     }
                     Item { Layout.fillWidth: true }
                     Text {
                         text: "Ctrl+N"
-                        color: T.highlightText
+                        color: ThemeManager.themeColor("highlightText")
                         opacity: 0.65
                         font.pixelSize: 11
                     }
@@ -94,9 +94,9 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 height: 46
-                radius: T.radius
-                color: so.hovered ? T.buttonHover : "transparent"
-                border.color: T.border
+                radius: ThemeManager.themeColor("radius")
+                color: so.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
+                border.color: ThemeManager.themeColor("border")
 
                 RowLayout {
                     anchors.fill: parent
@@ -107,17 +107,17 @@ Rectangle {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
                         name: "file-open"
-                        color: T.text
+                        color: ThemeManager.themeColor("text")
                     }
                     Text {
                         text: qsTr("Open Image")
-                        color: T.text
+                        color: ThemeManager.themeColor("text")
                         font.pixelSize: 15
                     }
                     Item { Layout.fillWidth: true }
                     Text {
                         text: "Ctrl+O"
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 11
                     }
                 }
@@ -133,7 +133,7 @@ Rectangle {
             // ---------------- Community / about ----------------
             Text {
                 text: qsTr("Community")
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 21
             }
             Repeater {
@@ -148,11 +148,11 @@ Rectangle {
                         Layout.preferredWidth: 14
                         Layout.preferredHeight: 14
                         name: modelData.icon
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                     }
                     Text {
                         text: modelData.label
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 12
                     }
                 }
@@ -169,19 +169,19 @@ Rectangle {
                 Layout.fillWidth: true
                 Text {
                     text: qsTr("Recent Images")
-                    color: T.text
+                    color: ThemeManager.themeColor("text")
                     font.pixelSize: 21
                 }
                 Item { Layout.fillWidth: true }
                 Rectangle {
                     visible: page.controller.recentFiles.length > 0
                     width: 90; height: 24
-                    color: ch.hovered ? T.buttonHover : "transparent"
-                    border.color: T.border
+                    color: ch.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
+                    border.color: ThemeManager.themeColor("border")
                     Text {
                         anchors.centerIn: parent
                         text: qsTr("Clear list")
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 11
                     }
                     HoverHandler { id: ch }
@@ -195,8 +195,8 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: T.windowAlt
-                border.color: T.border
+                color: ThemeManager.themeColor("windowAlt")
+                border.color: ThemeManager.themeColor("border")
 
                 // empty state, like Krita's
                 Text {
@@ -206,7 +206,7 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     visible: page.controller.recentFiles.length === 0
                     text: qsTr("You don't seem to have any recently opened documents")
-                    color: T.textDim
+                    color: ThemeManager.themeColor("textDim")
                     font.pixelSize: 12
                 }
 
@@ -221,9 +221,9 @@ Rectangle {
 
                     delegate: Rectangle {
                         width: 112; height: 102
-                        color: T.panelRaised
-                        radius: T.radiusSmall
-                        border.color: rh.hovered ? T.highlight : T.border
+                        color: ThemeManager.themeColor("panelRaised")
+                        radius: ThemeManager.themeColor("radiusSmall")
+                        border.color: rh.hovered ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
                         border.width: 1
 
                         Column {
@@ -234,8 +234,8 @@ Rectangle {
                             Rectangle {
                                 width: parent.width
                                 height: 62
-                                radius: T.radiusSmall
-                                color: T.panelSunken
+                                radius: ThemeManager.themeColor("radiusSmall")
+                                color: ThemeManager.themeColor("panelSunken")
                                 // Show the file's own picture. Qt decodes any
                                 // raster format itself, so no provider is
                                 // needed; .prism projects (and anything that
@@ -257,13 +257,13 @@ Rectangle {
                                     visible: recentThumb.status !== Image.Ready
                                     name: modelData.name.endsWith(".prism")
                                           ? "file-save" : "file-open"
-                                    color: rh.hovered ? T.highlight : T.textDim
+                                    color: rh.hovered ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("textDim")
                                 }
                             }
                             Text {
                                 width: parent.width
                                 text: modelData.name
-                                color: T.text
+                                color: ThemeManager.themeColor("text")
                                 font.pixelSize: 11
                                 elide: Text.ElideMiddle
                                 wrapMode: Text.NoWrap
@@ -300,15 +300,16 @@ Rectangle {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: qsTr("Prism is an open drawing application for digital artists.")
-            color: T.textDim
+            color: ThemeManager.themeColor("textDim")
             font.pixelSize: 11
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: qsTr("Prism %1 · canvas painting, brush engine, layered documents")
+            text: qsTr("Prism %1 Â· canvas painting, brush engine, layered documents")
                   .arg(page.controller.versionString())
-            color: T.textDim
+            color: ThemeManager.themeColor("textDim")
             font.pixelSize: 10
         }
     }
 }
+

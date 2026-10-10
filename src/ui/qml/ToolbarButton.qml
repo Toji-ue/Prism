@@ -1,6 +1,6 @@
-import QtQuick
-import QtQuick.Controls.Basic
-import "Theme.js" as T
+﻿import QtQuick
+import QtQuick.Controls.Basic
+import Prism
 
 // A toolbar icon button.
 //
@@ -24,7 +24,7 @@ Rectangle {
     width: 24
     height: 24
     objectName: "toolbarButton_" + iconName
-    color: hover.hovered && usable ? T.buttonHover : "transparent"
+    color: hover.hovered && usable ? ThemeManager.themeColor("buttonHover") : "transparent"
     opacity: usable ? 1.0 : 0.4
 
     Icon {
@@ -32,7 +32,7 @@ Rectangle {
         width: 15
         height: 15
         name: button.iconName
-        color: button.active ? T.highlight : T.text
+        color: button.active ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("text")
     }
 
     HoverHandler { id: hover }
@@ -47,3 +47,4 @@ Rectangle {
     ToolTip.delay: 500
     ToolTip.text: button.tip
 }
+

@@ -1,16 +1,16 @@
-import QtQuick
-import "Theme.js" as T
+﻿import QtQuick
+import Prism
 
-// Monochrome vector icon set drawn with Canvas — no emoji, no image assets.
+// Monochrome vector icon set drawn with Canvas â€” no emoji, no image assets.
 // Every glyph is stroked in a single colour so icons match the theme and stay
 // crisp at any size, the way a real drawing app's toolbar looks.
 Canvas {
     id: icon
 
     property string name: "brush"
-    property color color: T.text
+    property color color: ThemeManager.themeColor("text")
     // 1.7 on the 16px grid: line icons this small need weight to stay legible
-    // inside 26px chips — 1.4 read as thin grey hair at arm's length.
+    // inside 26px chips â€” 1.4 read as thin grey hair at arm's length.
     property real strokeWidth: 1.7
 
     implicitWidth: 18
@@ -762,3 +762,4 @@ Canvas {
         ctx.restore()
     }
 }
+

@@ -1,9 +1,9 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import Prism.Ui 1.0
-import "Theme.js" as T
+import Prism.Ui 1.0
+import Prism
 
 // Krita-style Brush Presets docker: header actions, filter row, thumbnail
 // grid, search field. Thumbnails come from the real brush engine in C++
@@ -14,10 +14,10 @@ Rectangle {
     /// True when hosted in the tabbed docker column (see LayersDocker).
     property bool embedded: false
 
-    color: T.panel
-    radius: T.radius
+    color: ThemeManager.themeColor("panel")
+    radius: ThemeManager.themeColor("radius")
 
-    // Filter state — the grid shows preset indices that survive the filter.
+    // Filter state â€” the grid shows preset indices that survive the filter.
     property string query: ""
     property var visibleIndices: []
 
@@ -44,8 +44,8 @@ Rectangle {
     Rectangle {
         id: header
         width: parent.width
-        height: T.dockerHeaderHeight
-        color: T.windowAlt
+        height: ThemeManager.themeColor("dockerHeaderHeight")
+        color: ThemeManager.themeColor("windowAlt")
 
         Text {
             anchors.left: parent.left
@@ -53,7 +53,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             text: qsTr("Brush Presets")
             visible: !docker.embedded
-            color: T.text
+            color: ThemeManager.themeColor("text")
             font.pixelSize: 11
         }
         Row {
@@ -72,12 +72,12 @@ Rectangle {
                 ]
                 delegate: Rectangle {
                     width: 20; height: 20
-                    color: bh.hovered ? T.buttonHover : "transparent"
+                    color: bh.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
                     Icon {
                         anchors.centerIn: parent
                         width: 14; height: 14
                         name: modelData.icon
-                        color: T.text
+                        color: ThemeManager.themeColor("text")
                     }
                     HoverHandler { id: bh }
                     MouseArea {
@@ -100,7 +100,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: T.border }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
     }
 
     // ---- filter row ----
@@ -114,34 +114,34 @@ Rectangle {
 
         Rectangle {
             width: 58; height: 20
-            color: T.windowAlt
-            border.color: T.border
+            color: ThemeManager.themeColor("windowAlt")
+            border.color: ThemeManager.themeColor("border")
             Text {
                 anchors.centerIn: parent
                 text: qsTr("All")
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 10
             }
         }
         Rectangle {
             width: 58; height: 20
-            color: T.windowAlt
-            border.color: T.border
+            color: ThemeManager.themeColor("windowAlt")
+            border.color: ThemeManager.themeColor("border")
             Text {
                 anchors.centerIn: parent
                 text: qsTr("Tag")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
             }
         }
         Rectangle {
             width: 58; height: 20
-            color: T.windowAlt
-            border.color: T.border
+            color: ThemeManager.themeColor("windowAlt")
+            border.color: ThemeManager.themeColor("border")
             Text {
                 anchors.centerIn: parent
                 text: qsTr("All")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
             }
         }
@@ -169,9 +169,9 @@ Rectangle {
 
             width: 48; height: 48
             color: docker.controller.activePresetIndex === presetIndex
-                   ? T.highlight : (hh.hovered ? T.buttonHover : T.panelSunken)
+                   ? ThemeManager.themeColor("highlight") : (hh.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelSunken"))
             border.color: docker.controller.activePresetIndex === presetIndex
-                          ? T.highlight : T.border
+                          ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
             border.width: 1
 
             Image {
@@ -211,13 +211,13 @@ Rectangle {
         anchors.rightMargin: 4
         spacing: 3
 
-        Rectangle { width: parent.width; height: 1; color: T.border }
+        Rectangle { width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
 
         Row {
             spacing: 4
             Text {
                 text: qsTr("Tip:")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -233,12 +233,12 @@ Rectangle {
                     readonly property bool on:
                         modelData.act === "image" ? docker.controller.tipIsImage
                         : !docker.controller.tipIsImage && docker.controller.brushTipSquare === (modelData.act === "square")
-                    color: on ? T.highlight : T.windowAlt
-                    border.color: on ? T.highlight : T.border
+                    color: on ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("windowAlt")
+                    border.color: on ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
                     Text {
                         anchors.centerIn: parent
                         text: modelData.label
-                        color: on ? T.highlightText : T.text
+                        color: on ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                         font.pixelSize: 9
                     }
                     MouseArea {
@@ -256,8 +256,8 @@ Rectangle {
             Rectangle {
                 visible: docker.controller.tipIsImage
                 width: 18; height: 18
-                color: clearTipHover.hovered ? T.buttonHover : "transparent"
-                Icon { anchors.centerIn: parent; width: 12; height: 12; name: "close"; color: T.textDim }
+                color: clearTipHover.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
+                Icon { anchors.centerIn: parent; width: 12; height: 12; name: "close"; color: ThemeManager.themeColor("textDim") }
                 HoverHandler { id: clearTipHover }
                 MouseArea { anchors.fill: parent; onClicked: docker.controller.clearTipImage() }
                 ToolTip.visible: clearTipHover.hovered
@@ -269,7 +269,7 @@ Rectangle {
             spacing: 4
             Text {
                 text: qsTr("Round:")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -290,7 +290,7 @@ Rectangle {
             }
             Text {
                 text: Math.round(docker.controller.brushTipRoundness * 100) + "%"
-                color: T.text
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -300,7 +300,7 @@ Rectangle {
             spacing: 4
             Text {
                 text: qsTr("Angle:")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -321,8 +321,8 @@ Rectangle {
                 }
             }
             Text {
-                text: Math.round(docker.controller.brushTipAngle) + "°"
-                color: T.text
+                text: Math.round(docker.controller.brushTipAngle) + "Â°"
+                color: ThemeManager.themeColor("text")
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -333,7 +333,7 @@ Rectangle {
             CheckBox {
                 id: pressureOpacityBox
                 objectName: "pressureOpacityBox"
-                text: qsTr("P→Opacity")
+                text: qsTr("Pâ†’Opacity")
                 checked: docker.controller.pressureOpacity
                 onToggled: docker.controller.pressureOpacity = checked
                 font.pixelSize: 10
@@ -346,7 +346,7 @@ Rectangle {
             }
             Text {
                 text: qsTr("Curve:")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -397,8 +397,8 @@ Rectangle {
         Rectangle {
             width: parent.width - 22
             height: 20
-            color: T.windowAlt
-            border.color: T.border
+            color: ThemeManager.themeColor("windowAlt")
+            border.color: ThemeManager.themeColor("border")
 
             Row {
                 anchors.fill: parent
@@ -407,22 +407,22 @@ Rectangle {
                 Icon {
                     width: 12; height: 12
                     name: "search"
-                    color: T.textDim
+                    color: ThemeManager.themeColor("textDim")
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 TextInput {
                     id: searchField
                     width: parent.width - 20
                     anchors.verticalCenter: parent.verticalCenter
-                    color: T.text
+                    color: ThemeManager.themeColor("text")
                     font.pixelSize: 10
                     clip: true
                     onTextChanged: docker.query = text
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: searchField.text.length === 0
-                        text: qsTr("Search…")
-                        color: T.textDim
+                        text: qsTr("Searchâ€¦")
+                        color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 10
                     }
                 }
@@ -430,12 +430,12 @@ Rectangle {
         }
         Rectangle {
             width: 18; height: 20
-            color: clearHover.hovered ? T.buttonHover : "transparent"
+            color: clearHover.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
             Icon {
                 anchors.centerIn: parent
                 width: 12; height: 12
                 name: "close"
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
             }
             HoverHandler { id: clearHover }
             MouseArea {
@@ -447,3 +447,4 @@ Rectangle {
         }
     }
 }
+

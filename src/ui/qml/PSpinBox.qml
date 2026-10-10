@@ -1,13 +1,13 @@
-import QtQuick
-import QtQuick.Controls.Basic
-import "Theme.js" as T
+﻿import QtQuick
+import QtQuick.Controls.Basic
+import Prism
 
 // Compact Krita-style spin box: bordered field with two small stepper
-// buttons. Controls Basic's SpinBox draws oversized +/− buttons that break
+// buttons. Controls Basic's SpinBox draws oversized +/âˆ’ buttons that break
 // the dense toolbar layout, so the app uses this instead.
 //
 // IMPORTANT: value is treated as an in-bound property. The control never
-// writes to it — it only emits valueModified(). Writing would destroy the
+// writes to it â€” it only emits valueModified(). Writing would destroy the
 // caller's binding (that bug made the toolbar size control drift out of sync
 // with the brush).
 Item {
@@ -29,10 +29,10 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: T.windowAlt
-        border.color: T.border
+        color: ThemeManager.themeColor("windowAlt")
+        border.color: ThemeManager.themeColor("border")
         border.width: 1
-        radius: T.radiusSmall
+        radius: ThemeManager.themeColor("radiusSmall")
     }
 
     TextInput {
@@ -42,7 +42,7 @@ Item {
         anchors.right: steppers.left
         anchors.verticalCenter: parent.verticalCenter
         text: root.display()
-        color: T.text
+        color: ThemeManager.themeColor("text")
         font.pixelSize: 11
         selectByMouse: true
         onEditingFinished: {
@@ -68,12 +68,12 @@ Item {
             model: ["stepper-up", "stepper-down"]
             delegate: Rectangle {
                 width: 16; height: 11
-                color: sh.hovered ? T.buttonHover : T.panelRaised
+                color: sh.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelRaised")
                 Icon {
                     anchors.centerIn: parent
                     width: 10; height: 10
                     name: modelData
-                    color: T.text
+                    color: ThemeManager.themeColor("text")
                     strokeWidth: 1
                 }
                 HoverHandler { id: sh }
@@ -90,3 +90,4 @@ Item {
         }
     }
 }
+

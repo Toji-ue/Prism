@@ -1,7 +1,7 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls.Basic
-import Prism.Ui 1.0
-import "Theme.js" as T
+import Prism.Ui 1.0
+import Prism
 
 // Krita-style "Advanced Color Selector": HSV wheel + value strip + HSV
 // sliders + hex entry. All reads/writes go through AppController.brushColor.
@@ -9,8 +9,8 @@ Rectangle {
     id: docker
     required property AppController controller
 
-    color: T.panel
-    radius: T.radius
+    color: ThemeManager.themeColor("panel")
+    radius: ThemeManager.themeColor("radius")
 
     readonly property color current: controller.brushColor
     /// 0 = Advanced Color Selector, 1 = Tool Options (Krita's docker tabs).
@@ -20,8 +20,8 @@ Rectangle {
     Rectangle {
         id: header
         width: parent.width
-        height: T.dockerHeaderHeight
-        color: T.windowAlt
+        height: ThemeManager.themeColor("dockerHeaderHeight")
+        color: ThemeManager.themeColor("windowAlt")
 
         Row {
             anchors.left: parent.left
@@ -33,7 +33,7 @@ Rectangle {
                 model: [qsTr("Advanced Color Selector"), qsTr("Tool Options")]
                 delegate: Text {
                     text: modelData
-                    color: docker.tab === index ? T.highlight : T.textDim
+                    color: docker.tab === index ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("textDim")
                     font.pixelSize: 11
                     anchors.verticalCenter: parent.verticalCenter
                     bottomPadding: 2
@@ -44,7 +44,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: T.border }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
     }
 
     // Content scrolls: the docker is height-constrained by the docker
@@ -208,7 +208,7 @@ Rectangle {
                 spacing: 6
                 Text {
                     text: modelData.label
-                    color: T.textDim
+                    color: ThemeManager.themeColor("textDim")
                     font.pixelSize: 11
                     width: 12
                     anchors.verticalCenter: parent.verticalCenter
@@ -265,7 +265,7 @@ Rectangle {
             spacing: 6
             Text {
                 text: qsTr("Hex")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 11
                 width: 28
                 anchors.verticalCenter: parent.verticalCenter
@@ -284,7 +284,7 @@ Rectangle {
             Rectangle {
                 width: 46; height: 22
                 color: docker.current
-                border.color: T.border
+                border.color: ThemeManager.themeColor("border")
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -300,7 +300,7 @@ Rectangle {
                 delegate: Rectangle {
                     width: 20; height: 20
                     color: modelData
-                    border.color: T.border
+                    border.color: ThemeManager.themeColor("border")
                     MouseArea {
                         anchors.fill: parent
                         onClicked: docker.controller.brushColor = modelData
@@ -334,7 +334,7 @@ Rectangle {
 
             Text {
                 text: qsTr("BRUSH")
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
                 font.bold: true
             }
@@ -345,11 +345,11 @@ Rectangle {
                 spacing: 2
                 Row {
                     width: parent.width
-                    Text { text: qsTr("Size"); color: T.text; font.pixelSize: 11 }
+                    Text { text: qsTr("Size"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
                     Item { width: parent.width - 80; height: 1 }
                     Text {
                         text: Math.round(controller.brushSize) + " px"
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 11
                     }
                 }
@@ -367,11 +367,11 @@ Rectangle {
                 spacing: 2
                 Row {
                     width: parent.width
-                    Text { text: qsTr("Opacity"); color: T.text; font.pixelSize: 11 }
+                    Text { text: qsTr("Opacity"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
                     Item { width: parent.width - 80; height: 1 }
                     Text {
                         text: Math.round(controller.brushFlow * 100) + "%"
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 11
                     }
                 }
@@ -389,11 +389,11 @@ Rectangle {
                 spacing: 2
                 Row {
                     width: parent.width
-                    Text { text: qsTr("Hardness"); color: T.text; font.pixelSize: 11 }
+                    Text { text: qsTr("Hardness"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
                     Item { width: parent.width - 80; height: 1 }
                     Text {
                         text: Math.round(controller.brushHardness * 100) + "%"
-                        color: T.textDim
+                        color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 11
                     }
                 }
@@ -409,20 +409,20 @@ Rectangle {
             Rectangle {
                 width: parent.width
                 height: 26
-                color: controller.eraser ? T.highlight : T.panelRaised
-                border.color: T.border
+                color: controller.eraser ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("panelRaised")
+                border.color: ThemeManager.themeColor("border")
                 Row {
                     anchors.centerIn: parent
                     spacing: 6
                     Icon {
                         width: 14; height: 14
                         name: "eraser"
-                        color: controller.eraser ? T.highlightText : T.text
+                        color: controller.eraser ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     Text {
                         text: qsTr("Eraser mode")
-                        color: controller.eraser ? T.highlightText : T.text
+                        color: controller.eraser ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                         font.pixelSize: 11
                         anchors.verticalCenter: parent.verticalCenter
                     }
@@ -438,7 +438,7 @@ Rectangle {
                 width: parent.width
                 wrapMode: Text.WordWrap
                 text: qsTr("Preset: %1").arg(controller.brushName)
-                color: T.textDim
+                color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 10
             }
         }
