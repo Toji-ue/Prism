@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Dialogs
@@ -22,11 +22,50 @@ ApplicationWindow {
     /// Which docker the right-hand column shows: 0 Layers, 1 Brush, 2 Colour.
     property int dockerTab: 0
 
-    Component.onCompleted: showMaximized()
+    Component.onCompleted: {
+        showMaximized()
+        ThemeManager.setTheme(controller.theme)
+    }
+
+    /// Switches the palette and persists the choice. A short fade overlay
+    /// (below) covers the switch so the whole window reads as one crossfade.
+    function toggleTheme() {
+        ThemeManager.toggleTheme()
+        controller.theme = ThemeManager.activeThemeName
+    }
 
     // Opens the New Document dialog. Also used by the UI verification hook
     // (prism --demo-new-dialog --screenshot=...).
     function openNewDocumentDialog() { newDocDialog.open() }
+
+    /// Theme crossfade: a full-window veil in the NEW theme's window colour
+    /// fades out over 180 ms, covering the instant palette swap underneath.
+    /// One mechanism for every widget - per-binding colour animations would
+    /// need property-per-colour tokens (rejected).
+    /// ponytail: fixed 180 ms; respect a system reduce-motion setting when Qt
+    /// exposes one to QML.
+    Rectangle {
+        id: themeFade
+        anchors.fill: parent
+        z: 9999
+        color: ThemeManager.themeColor("window")
+        opacity: 0
+        visible: opacity > 0
+        Behavior on opacity {
+            id: themeFadeBehavior
+            NumberAnimation { duration: 180; easing.type: Easing.OutQuad }
+        }
+        Connections {
+            target: ThemeManager
+            function onThemeSwitched() {
+                // Snap opaque (behaviour off), then let the Behaviour fade out.
+                themeFadeBehavior.enabled = false
+                themeFade.opacity = 1
+                themeFadeBehavior.enabled = true
+                themeFade.opacity = 0
+            }
+        }
+    }
 
     // Start page is shown until a document exists (or File ? Start Page).
     StartPage {
@@ -320,6 +359,14 @@ ApplicationWindow {
                                    .arg(controller.recordedFrames)
                              : qsTr("Drawing record: nothing recorded yet")
                         onClicked: recordDialog.open()
+                    }
+                    // Light/dark toggle, persisted via controller.theme.
+                    ToolbarButton {
+                        iconName: "invert"
+                        tip: ThemeManager.activeThemeName === "dark"
+                             ? qsTr("Switch to light theme")
+                             : qsTr("Switch to dark theme")
+                        onClicked: root.toggleTheme()
                     }
                 }
             }

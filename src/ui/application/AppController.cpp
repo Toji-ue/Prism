@@ -135,6 +135,8 @@ AppController::AppController(QObject* parent)
     m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
     loadRecentFiles();
     loadUserPresets();
+    // Restore the persisted theme; the QML ThemeManager applies it on startup.
+    m_theme = QSettings().value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
     // Start on the first preset so the toolbar/status bar read like a real app.
     selectPreset(0);
     rebuildFullComposite();
@@ -2953,4 +2955,17 @@ void AppController::rebuildStrokePreview()
     const auto rect = m_compositor.composite(m_strokeDirty, &m_preview);
     ++m_layerRevision;
     emit canvasChanged(rect.x, rect.y, rect.width, rect.height);
+}
+
+// ---------------------------------------------------------------------- theme
+
+void AppController::setTheme(const QString& theme)
+{
+    if (theme != QLatin1String("light") && theme != QLatin1String("dark"))
+        return;
+    if (m_theme == theme)
+        return;
+    m_theme = theme;
+    QSettings().setValue(QStringLiteral("theme"), theme);
+    emit themeChanged();
 }

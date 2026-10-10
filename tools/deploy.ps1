@@ -50,6 +50,16 @@ if ($built -ne $deployed) {
     throw "Deploy mismatch: build=$built deploy=$deployed"
 }
 
+# The Prism QML module must sit on the disk import path (qt.conf sets
+# Qml2Imports=qml): with an import path configured, the QML files' `import
+# Prism` resolves through it, and without this copy the ThemeManager singleton
+# is not registered - every themeColor() call fails and the UI renders broken.
+# The module's qmldir says "prefer :/Prism/", so the types still load from the
+# qrc compiled into the exe.
+$moduleDir = Join-Path $target '..\qml\Prism'
+New-Item -ItemType Directory -Force -Path $moduleDir | Out-Null
+Copy-Item (Join-Path $root 'build-release\Prism\*') $moduleDir -Recurse -Force
+
 # Image format plugins. Qt keeps PNG in QtGui and ships everything else as a
 # plugin, so a deploy without plugins\imageformats cannot read a .jpg at all.
 # Copy EVERY plugin the Qt install has (WebP, TIFF, TGA, ICNS, JP2, ...) rather

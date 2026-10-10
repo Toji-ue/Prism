@@ -425,6 +425,12 @@ public:
     [[nodiscard]] int recordedFrames() const;
     /// Writes the session as a `.prismrec` the artist can send to a client.
     Q_INVOKABLE bool exportRecording(const QUrl& url);
+    // --- theme ---------------------------------------------------------------
+    /// "dark" or "light". Persisted in QSettings; QML's ThemeManager picks it
+    /// up at startup and writes changes back through here.
+    Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
+    [[nodiscard]] QString theme() const { return m_theme; }
+    void setTheme(const QString& theme);
     // --- tool shortcuts -----------------------------------------------------
     /// Per-tool hotkey, user-configurable and persisted (QSettings). Tools are
     /// single-key shortcuts like Krita's; an empty key disables the shortcut.
@@ -484,6 +490,7 @@ signals:
     void lastErrorChanged();
     void statusMessageChanged();
     void toolShortcutsChanged();
+    void themeChanged();
     void canvasChanged(int x, int y, int w, int h);
 
 private:
@@ -593,6 +600,7 @@ private:
     /// Selftest runs must not touch the user's persisted state (see addRecentFile).
     bool m_selfTestMode = false;
     QStringList m_recentFiles;
+    QString m_theme = "dark";
     QString m_documentName = tr("Untitled");
     QString m_lastError;
     QString m_statusMessage;
