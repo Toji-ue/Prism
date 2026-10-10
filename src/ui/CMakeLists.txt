@@ -5,8 +5,6 @@
 add_library(prism_ui STATIC
     application/AppController.cpp
     application/AppController.h
-    application/CollabSession.cpp
-    application/CollabSession.h
     application/LayerListModel.cpp
     application/LayerListModel.h
     application/PresetImageProvider.cpp
@@ -24,10 +22,7 @@ target_link_libraries(prism_ui PUBLIC
     Prism::core
     Prism::canvas
     Prism::io
-    Qt6::Quick
-    # LAN collab: a QTcpServer/QTcpSocket pair, no extra dependency beyond the
-    # Qt Network module the deployment already ships.
-    Qt6::Network)
+    Qt6::Quick)
 
 target_include_directories(prism_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

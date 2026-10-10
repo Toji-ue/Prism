@@ -28,11 +28,6 @@ ApplicationWindow {
     // (prism --demo-new-dialog --screenshot=...).
     function openNewDocumentDialog() { newDocDialog.open() }
 
-    // Opens the LAN collab dialog. Also used by the UI check hook
-    // (prism --demo-collab-dialog --screenshot=...), because "the UI is not
-    // there" is always the expensive kind of wrong.
-    function openCollabDialog() { collabDialog.open() }
-
     // Start page is shown until a document exists (or File ? Start Page).
     StartPage {
         id: startPage
@@ -181,12 +176,6 @@ ApplicationWindow {
                 text: qsTr("Export Drawing &Record (MP4 / GIF)...")
                 enabled: controller.recordedFrames > 0
                 onTriggered: recordDialog.open()
-            }
-            MenuSeparator {}
-            Action {
-                // Same-canvas drawing with other people on the Wi-Fi.
-                text: qsTr("&Collaborate over LAN...")
-                onTriggered: collabDialog.open()
             }
             MenuSeparator {}
             Action {
@@ -502,39 +491,6 @@ ApplicationWindow {
                             source: root.controller.hasSelection
                                     ? "image://selection/" + root.controller.selectionRevision
                                     : ""
-                        }
-
-                        // Other people's pointers: a dot and a name chip, both in
-                        // that person's colour. Plain Rectangles on purpose - a
-                        // Canvas inside a Repeater has bitten this file before.
-                        Repeater {
-                            model: root.controller.collabActive
-                                   ? root.controller.remoteCursors : []
-                            delegate: Item {
-                                x: modelData.x * root.controller.zoom
-                                y: modelData.y * root.controller.zoom
-                                Rectangle {
-                                    x: -5; y: -5
-                                    width: 10; height: 10; radius: 5
-                                    color: modelData.color
-                                    border.color: T.dark
-                                    border.width: 1
-                                }
-                                Rectangle {
-                                    x: 7; y: 7
-                                    width: nameLabel.implicitWidth + 8
-                                    height: 15
-                                    radius: 2
-                                    color: modelData.color
-                                    Text {
-                                        id: nameLabel
-                                        anchors.centerIn: parent
-                                        text: modelData.name
-                                        color: "#ffffff"
-                                        font.pixelSize: 10
-                                    }
-                                }
-                            }
                         }
 
                         // Mirror indicators, like Krita's mirror lines.
@@ -1211,13 +1167,6 @@ ApplicationWindow {
                 color: T.highlight
                 font.pixelSize: 11
             }
-            // Who else is painting on this canvas right now.
-            Text {
-                visible: controller.collabActive
-                text: qsTr("COLLAB %1").arg(controller.collabPeers)
-                color: T.highlight
-                font.pixelSize: 11
-            }
             Text {
                 text: controller.statusInfo
                 color: T.textDim
@@ -1369,11 +1318,6 @@ ApplicationWindow {
         ]
         fileMode: FileDialog.SaveFile
         onAccepted: if (!controller.saveFile(selectedFile)) console.warn("export failed")
-    }
-
-    CollabDialog {
-        id: collabDialog
-        controller: root.controller
     }
 
     // Tool-shortcut editor. Single-key shortcuts (like Krita's tool keys):

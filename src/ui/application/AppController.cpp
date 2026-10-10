@@ -1,6 +1,5 @@
 #include "application/AppController.h"
 
-#include "application/CollabSession.h"
 #include "application/LayerListModel.h"
 #include "commands/Commands.h"
 #include "fill/FloodFill.h"
@@ -50,8 +49,8 @@ QColor toQColor(prism::core::raster::Color c)
 
 /// QML passes file arguments either as a `url` (FileDialog.selectedFile) or as
 /// a plain string (scripts, drag-and-drop, QMetaObject::invokeMethod). A
-/// Windows path string converted to QUrl is NOT a local file URL —
-/// QUrl("C:\\x.png") parses "c" as a scheme — so toLocalFile() returns empty
+/// Windows path string converted to QUrl is NOT a local file URL â€”
+/// QUrl("C:\\x.png") parses "c" as a scheme â€” so toLocalFile() returns empty
 /// and the operation silently fails with an empty file name. Accept both.
 QString localPathFrom(const QUrl& url)
 {
@@ -237,214 +236,6 @@ bool AppController::exportRecording(const QUrl& url)
                          .arg(QFileInfo(path).fileName()));
     emit recordingChanged();
     return true;
-}
-
-// ---------------------------------------------------------------- LAN collab
-
-bool AppController::collabActive() const { return m_collab && m_collab->active(); }
-
-QString AppController::collabAddress() const
-{
-    return m_collab ? m_collab->roomAddress() : QString();
-}
-
-int AppController::collabPeers() const { return m_collab ? m_collab->peerCount() : 0; }
-
-QVariantList AppController::remoteCursors() const
-{
-    QVariantList out;
-    if (!m_collab)
-        return out;
-    for (auto it = m_remoteCursors.constBegin(); it != m_remoteCursors.constEnd(); ++it) {
-        const QJsonObject cursor = it.value().toObject();
-        // Not placed yet (peer known, pointer not moved) or our own pointer.
-        if (!cursor.contains("x") || it.key().toInt() == m_collab->userId())
-            continue;
-        out.append(QVariantMap{ { "name", cursor.value("name").toString() },
-                                { "color", cursor.value("color").toString() },
-                                { "x", cursor.value("x").toDouble() },
-                                { "y", cursor.value("y").toDouble() } });
-    }
-    return out;
-}
-
-CollabSession* AppController::ensureCollab()
-{
-    if (m_collab)
-        return m_collab;
-    m_collab = new CollabSession(this);
-    m_collab->provideSnapshot = [this]() {
-        // Reuse the project format: it round-trips layers and is already
-        // covered by tests, so the snapshot is just "the saved file".
-        const QString temp = QDir::temp().filePath(QStringLiteral("prism-collab-snapshot.prism"));
-        QFile::remove(temp);
-        if (!io::ProjectIO::save(m_doc, temp))
-            return QByteArray();
-        QFile file(temp);
-        if (!file.open(QIODevice::ReadOnly))
-            return QByteArray();
-        const QByteArray bytes = file.readAll();
-        file.close();
-        QFile::remove(temp);
-        return bytes;
-    };
-    connect(m_collab, &CollabSession::stateChanged, this, &AppController::collabChanged);
-    connect(m_collab, &CollabSession::failed, this, [this](const QString& message) {
-        setLastError(message);
-        setStatusMessage(message);
-        m_remoteCursors = {};
-        emit remoteCursorsChanged();
-    });
-    connect(m_collab, &CollabSession::strokeReceived, this, &AppController::applyRemoteStroke);
-    connect(m_collab, &CollabSession::cursorsUpdated, this, [this](const QJsonObject& cursors) {
-        m_remoteCursors = cursors;
-        emit remoteCursorsChanged();
-    });
-    connect(m_collab, &CollabSession::snapshotReceived, this,
-            [this](const QByteArray& projectBytes, const QJsonObject&) {
-                const QString temp =
-                    QDir::temp().filePath(QStringLiteral("prism-collab-join.prism"));
-                QFile file(temp);
-                if (!file.open(QIODevice::WriteOnly)
-                    || file.write(projectBytes) != projectBytes.size()) {
-                    setLastError(tr("The collab snapshot could not be read."));
-                    leaveCollab();
-                    return;
-                }
-                file.close();
-                if (!openProject(QUrl::fromLocalFile(temp))) {
-                    setLastError(tr("The collab snapshot is not a valid project."));
-                    leaveCollab();
-                    return;
-                }
-                QFile::remove(temp);
-                m_collab->snapshotLoaded();
-                setStatusMessage(tr("Joined the collab room."));
-            });
-    return m_collab;
-}
-
-bool AppController::hostCollab(const QString& name)
-{
-    auto* session = ensureCollab();
-    // Port 0 = let the OS pick a free one; the address to share (including the
-    // port) lands in collabAddress, so nothing has to be configured.
-    if (!session->host(0, name.isEmpty() ? QStringLiteral("Host") : name)) {
-        setLastError(tr("Could not open a collab port on this machine."));
-        return false;
-    }
-    setStatusMessage(tr("Collab room: %1 - share this address on your LAN.")
-                         .arg(session->roomAddress()));
-    emit collabChanged();
-    return true;
-}
-
-bool AppController::joinCollab(const QString& address, const QString& name)
-{
-    if (address.trimmed().isEmpty()) {
-        setLastError(tr("Enter the room address, e.g. 192.168.1.5:48291."));
-        return false;
-    }
-    auto* session = ensureCollab();
-    return session->connectToHost(address.trimmed(),
-                                  name.isEmpty() ? QStringLiteral("Guest") : name);
-}
-
-void AppController::leaveCollab()
-{
-    if (!m_collab)
-        return;
-    m_collab->leave();
-    m_remoteCursors = {};
-    emit remoteCursorsChanged();
-    setStatusMessage(tr("Left the collab room."));
-    emit collabChanged();
-}
-
-void AppController::sendCollabStroke()
-{
-    QJsonArray points;
-    for (const auto& point : m_currentStroke) {
-        points.append(double(point.x));
-        points.append(double(point.y));
-        points.append(double(point.pressure));
-    }
-    const QColor color(m_brush.color.r, m_brush.color.g, m_brush.color.b, m_brush.color.a);
-    const QJsonObject brush = {
-        { "radius", double(m_brush.radius) },
-        { "hardness", double(m_brush.hardness) },
-        { "flow", double(m_brush.flow) },
-        { "erase", m_brush.erase },
-        { "pressureOpacity", m_brush.pressureOpacity },
-        { "square", m_brush.tip.shape == canvas::BrushTip::Shape::Square },
-        { "roundness", double(m_brush.tip.roundness) },
-        { "angle", double(m_brush.tip.angle) },
-        { "color", color.name(QColor::HexArgb) }
-        // ponytail: an image-tip brush travels as its procedural round
-        // fallback; sync the PNG mask when remote tips need to be pixel-exact.
-    };
-    m_collab->sendStroke({ { "t", "stroke" },
-                           { "layer", m_activeLayer },
-                           { "brush", brush },
-                           { "pts", points } });
-}
-
-void AppController::applyRemoteStroke(const QJsonObject& op)
-{
-    const int layerIndex = op.value(QLatin1String("layer")).toInt(-1);
-    if (layerIndex < 0 || layerIndex >= static_cast<int>(m_doc.layers().size()))
-        return;
-    const QJsonObject b = op.value(QLatin1String("brush")).toObject();
-    canvas::BrushSettings brush;
-    brush.radius = static_cast<float>(b.value(QLatin1String("radius")).toDouble());
-    brush.hardness = static_cast<float>(b.value(QLatin1String("hardness")).toDouble());
-    brush.flow = static_cast<float>(b.value(QLatin1String("flow")).toDouble());
-    brush.erase = b.value(QLatin1String("erase")).toBool();
-    brush.pressureOpacity = b.value(QLatin1String("pressureOpacity")).toBool();
-    brush.tip.shape = b.value(QLatin1String("square")).toBool()
-                          ? canvas::BrushTip::Shape::Square
-                          : canvas::BrushTip::Shape::Round;
-    brush.tip.roundness = static_cast<float>(b.value(QLatin1String("roundness")).toDouble());
-    brush.tip.angle = static_cast<float>(b.value(QLatin1String("angle")).toDouble());
-    const QColor color(b.value(QLatin1String("color")).toString());
-    if (color.isValid())
-        brush.color = core::raster::Color{ static_cast<std::uint8_t>(color.red()),
-                                           static_cast<std::uint8_t>(color.green()),
-                                           static_cast<std::uint8_t>(color.blue()),
-                                           static_cast<std::uint8_t>(color.alpha()) };
-
-    std::vector<canvas::StrokePoint> points;
-    const QJsonArray raw = op.value(QLatin1String("pts")).toArray();
-    for (int i = 0; i + 2 < raw.size(); i += 3)
-        points.push_back({ static_cast<float>(raw.at(i).toDouble()),
-                           static_cast<float>(raw.at(i + 1).toDouble()),
-                           static_cast<float>(raw.at(i + 2).toDouble()) });
-    if (points.empty())
-        return;
-    auto& layer = *m_doc.layers()[static_cast<std::size_t>(layerIndex)];
-    if (layer.isLocked())
-        return;
-
-    // Same commit path as a local stroke: paint a copy, patch the layer, one
-    // history entry. Remote strokes do not touch the live preview state, so a
-    // local stroke in progress is never clobbered by an arriving one.
-    const core::raster::RasterBuffer original = layer.pixels();
-    core::raster::RasterBuffer work = original;
-    offsetToBuffer(points);
-    const auto rect = canvas::BrushStroke::paint(work, brush, points);
-    if (rect.isEmpty())
-        return;
-    restoreOutsideCanvas(rect, work, original);
-    auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
-    auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
-    layer.pixels().blit(after, rect.x, rect.y);
-    m_history.execute(std::make_unique<core::StrokeCommand>(
-        m_doc, static_cast<std::size_t>(layerIndex), std::move(before), std::move(after), rect.x,
-        rect.y, "Collab"));
-    emit historyChanged();
-    ++m_layerRevision;
-    const auto composited = m_compositor.composite(toCanvas(rect));
-    emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
 // ------------------------------------------------------------------ properties
@@ -634,7 +425,7 @@ void AppController::setTool(int tool)
         m_toolBeforeEyedropper = m_tool;
     // Colour is remembered per tool: the eraser does not paint, so a colour set
     // while erasing (a pick, the colour docker) must not follow the artist back
-    // to the brush — switching back restores the colour the brush had.
+    // to the brush â€” switching back restores the colour the brush had.
     const bool eraser = (tool == EraserTool);
     if (m_tool != tool && m_brush.erase != eraser) {
         m_colorByTool[m_brush.erase ? 1 : 0] = m_brush.color;
@@ -1230,7 +1021,7 @@ void AppController::endShape()
 
     // Draw on a copy of the layer, then commit with the same command the brush
     // uses. The layer itself is left untouched by rasterising, so the "before"
-    // patch can be read straight out of it — an extra full copy of the layer
+    // patch can be read straight out of it â€” an extra full copy of the layer
     // per shape bought nothing.
     core::raster::RasterBuffer work = layer.pixels();
 
@@ -1756,7 +1547,7 @@ void AppController::refreshSnapshots()
     constexpr int kThumbW = 48;
     constexpr int kThumbH = 32;
     // The selection overlay is drawn stretched over the canvas by QML, so a
-    // bounded version is enough — building it at canvas resolution walked 16M
+    // bounded version is enough â€” building it at canvas resolution walked 16M
     // pixels per request on a 4000x4000 document.
     constexpr int kOverlayMax = 512;
 
@@ -1802,7 +1593,7 @@ QImage AppController::buildSelectionOverlay() const
         return overlay;
 
     // The overlay is drawn stretched over the canvas by QML, so a bounded
-    // version is enough — building it at canvas resolution walked 16M pixels per
+    // version is enough â€” building it at canvas resolution walked 16M pixels per
     // request on a 4000x4000 document.
     constexpr int kOverlayMax = 512;
     const float scale =
@@ -1946,7 +1737,7 @@ void AppController::addRecentFile(const QString& path)
     // The selftest drives these same code paths on throwaway documents. Letting
     // them into the Recent list put a test file ("prism-blend.prism", layer at
     // ColorDodge 60%) on the start page, where opening it made every stroke
-    // look grey — a test artifact presented as the user's own document.
+    // look grey â€” a test artifact presented as the user's own document.
     if (path.isEmpty() || m_selfTestMode)
         return;
     m_recentFiles.removeAll(path);
@@ -2332,17 +2123,10 @@ void AppController::undo()
 {
     // History throws when there is nothing to undo (a programming error, not a
     // user error). The menu items are disabled in that state, but the keyboard
-    // shortcuts and any scripted caller are not — and an escaping exception
+    // shortcuts and any scripted caller are not â€” and an escaping exception
     // killed the whole app, which is what testers saw as a random crash.
     if (!m_history.canUndo())
         return;
-    // A shared raster layer has no per-stroke undo once someone painted over
-    // the stroke, so during a collab session nobody undoes: local undo would
-    // silently diverge this machine from the room.
-    if (collabActive()) {
-        setStatusMessage(tr("Undo is paused while in a collab room."));
-        return;
-    }
     m_history.undo();
     m_layersModel->refresh();
     emit layersChanged();
@@ -2354,10 +2138,6 @@ void AppController::redo()
 {
     if (!m_history.canRedo())
         return;
-    if (collabActive()) {
-        setStatusMessage(tr("Undo is paused while in a collab room."));
-        return;
-    }
     m_history.redo();
     m_layersModel->refresh();
     emit layersChanged();
@@ -2485,7 +2265,7 @@ bool AppController::saveProject(const QUrl& url)
 {
     QString path = localPathFrom(url);
     // A project file without the .prism suffix is invisible to the Open
-    // dialog's filter — that is why reopened saves appeared to be missing.
+    // dialog's filter â€” that is why reopened saves appeared to be missing.
     if (!path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
         path += QStringLiteral(".prism");
 
@@ -2560,7 +2340,7 @@ bool AppController::openProject(const QUrl& url)
     const QString filePath = localPathFrom(url);
     auto doc = io::ProjectIO::load(filePath);
     if (!doc) {
-        setLastError(tr("Could not open %1 — it is not a valid Prism project.")
+        setLastError(tr("Could not open %1 â€” it is not a valid Prism project.")
                          .arg(QFileInfo(filePath).fileName()));
         return false;
     }
@@ -2591,7 +2371,7 @@ bool AppController::importImage(const QUrl& url)
     const QString path = localPathFrom(url);
     auto doc = io::ProjectIO::importImage(path);
     if (!doc) {
-        setLastError(tr("Could not open %1 — unsupported or unreadable image.")
+        setLastError(tr("Could not open %1 â€” unsupported or unreadable image.")
                          .arg(QFileInfo(path).fileName()));
         return false;
     }
@@ -2623,7 +2403,7 @@ bool AppController::importImageAsLayer(const QUrl& url)
         return importImage(QUrl::fromLocalFile(path));
     QImage image(path);
     if (image.isNull()) {
-        setLastError(tr("Could not import %1 — unsupported or unreadable image.")
+        setLastError(tr("Could not import %1 â€” unsupported or unreadable image.")
                          .arg(QFileInfo(path).fileName()));
         return false;
     }
@@ -2641,7 +2421,7 @@ bool AppController::importImageAsLayer(const QUrl& url)
     layer->pixels() = core::raster::RasterBuffer(bufferW, bufferH);
 
     // Center the image on the canvas; parts larger than the canvas are
-    // clipped (no silent resample — pixel-exact placement).
+    // clipped (no silent resample â€” pixel-exact placement).
     const int dx = (cs.width - image.width()) / 2 + origin.x;
     const int dy = (cs.height - image.height()) / 2 + origin.y;
     const int x0 = std::max(origin.x, dx);
@@ -2674,7 +2454,7 @@ bool AppController::importImageAsLayer(const QUrl& url)
     const int clippedY = std::max(0, image.height() - (y1 - y0));
     if (clippedX > 0 || clippedY > 0)
         setStatusMessage(tr("Imported \"%1\" as a layer (%2x%3). Canvas is %4x%5, so "
-                            "%6x%7 px were cropped — scale the layer with the Transform "
+                            "%6x%7 px were cropped â€” scale the layer with the Transform "
                             "tool, or start a document large enough for it.")
                              .arg(QString::fromStdString(name))
                              .arg(image.width())
@@ -2870,12 +2650,6 @@ void AppController::extendStroke(float x, float y, float pressure)
 {
     if (m_currentStroke.empty())
         return;
-    if (m_collab && m_collab->active()) {
-        if (!m_cursorThrottle.isValid() || m_cursorThrottle.elapsed() > 100) {
-            m_cursorThrottle.restart();
-            m_collab->sendCursor(x, y);
-        }
-    }
     const auto prev = m_currentStroke.back();
     // One bad sample must not spike the stamp: the raw pen signal dips at tip
     // contact and jitters sample to sample, so follow it with a lag.
@@ -2996,12 +2770,6 @@ void AppController::endStroke()
 {
     if (m_currentStroke.empty())
         return;
-    // The room gets the whole stroke at pen-up, not per point: applying it in
-    // one synchronous call cannot interleave with a local stroke in progress.
-    // (The Blend tool smudges in place and has no replayable op - ceiling: it
-    // stays local during a session.)
-    if (m_collab && m_collab->active() && !m_blending)
-        sendCollabStroke();
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
 
@@ -3047,7 +2815,7 @@ void AppController::endStroke()
         // The drag already built the erased layer incrementally, so commit
         // exactly that. Re-painting the whole stroke here used to shrink the
         // patch rect (pixels already at alpha 0 report "no change"), which left
-        // part of the erase uncommitted — erased strokes came back. It also
+        // part of the erase uncommitted â€” erased strokes came back. It also
         // subtracted alpha twice, over-erasing soft edges.
         m_erasing = false;
         m_compositor.clearLayerOverride();
@@ -3087,7 +2855,7 @@ void AppController::endStroke()
 
     if (m_brush.erase) {
         // Erasing subtracts from the layer's own pixels. The preview scratch
-        // starts transparent, so "erasing" into it is a no-op — the erase has
+        // starts transparent, so "erasing" into it is a no-op â€” the erase has
         // to run against a copy of the layer. Deciding this BEFORE painting is
         // what makes the eraser work. (Only reached when the live erase preview
         // was not available, e.g. no active layer.)

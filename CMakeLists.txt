@@ -50,7 +50,6 @@ qt_add_qml_module(prism
         src/ui/qml/StartPage.qml
         src/ui/qml/ToolBox.qml
         src/ui/qml/ToolbarButton.qml
-        src/ui/qml/CollabDialog.qml
         src/ui/qml/ColorSelector.qml
         src/ui/qml/LayersDocker.qml
         src/ui/qml/BrushPresetsDocker.qml
