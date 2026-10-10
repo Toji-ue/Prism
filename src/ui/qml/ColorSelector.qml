@@ -1,6 +1,6 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls.Basic
-import Prism.Ui 1.0
+import Prism.Ui 1.0
 import Prism
 
 // Krita-style "Advanced Color Selector": HSV wheel + value strip + HSV
@@ -21,7 +21,7 @@ Rectangle {
         id: header
         width: parent.width
         height: ThemeManager.themeColor("dockerHeaderHeight")
-        color: ThemeManager.themeColor("windowAlt")
+        color: "transparent"
 
         Row {
             anchors.left: parent.left

@@ -2,7 +2,7 @@
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import Prism.Ui 1.0
+import Prism.Ui 1.0
 import Prism
 
 ApplicationWindow {
@@ -272,10 +272,7 @@ ApplicationWindow {
         // Hidden on the start page: the welcome screen owns the whole window.
         visible: !controller.startPageVisible
         height: 34
-        background: Rectangle {
-            color: ThemeManager.themeColor("window")
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
-        }
+        background: Rectangle { color: ThemeManager.themeColor("window") }
 
         RowLayout {
             anchors.fill: parent
@@ -286,61 +283,77 @@ ApplicationWindow {
             // Small action buttons. Not a Repeater: a Canvas icon created by a
             // Repeater inside this ToolBar never gets a texture, so those buttons
             // laid out correctly and drew nothing (see ToolbarButton.qml).
-            Row {
-                spacing: 6
-                ToolbarButton {
-                    iconName: "file-new"
-                    tip: qsTr("New (Ctrl+N)")
-                    onClicked: newDocDialog.open()
-                }
-                ToolbarButton {
-                    iconName: "file-open"
-                    tip: qsTr("Open (Ctrl+O)")
-                    onClicked: openDialog.open()
-                }
-                ToolbarButton {
-                    iconName: "file-save"
-                    tip: qsTr("Save (Ctrl+S)")
-                    onClicked: saveDialog.open()
-                }
-                // The drawing record is the answer to "did you really draw this?",
-                // so it sits in the toolbar, not three menus deep.
-                ToolbarButton {
-                    iconName: "record"
-                    usable: controller.recordedFrames > 0
-                    active: controller.recording
-                    tip: controller.recordedFrames > 0
-                         ? qsTr("Export the drawing record - MP4, GIF or .prismrec (%1 frames)")
-                               .arg(controller.recordedFrames)
-                         : qsTr("Drawing record: nothing recorded yet")
-                    onClicked: recordDialog.open()
+            // Grouped in a soft raised chip instead of divider lines - part of
+            // the "no hairline borders" look.
+            Rectangle {
+                radius: ThemeManager.themeColor("radiusSmall")
+                color: ThemeManager.themeColor("panelRaised")
+                implicitWidth: fileRow.width + 12
+                implicitHeight: 28
+                Row {
+                    id: fileRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    ToolbarButton {
+                        iconName: "file-new"
+                        tip: qsTr("New (Ctrl+N)")
+                        onClicked: newDocDialog.open()
+                    }
+                    ToolbarButton {
+                        iconName: "file-open"
+                        tip: qsTr("Open (Ctrl+O)")
+                        onClicked: openDialog.open()
+                    }
+                    ToolbarButton {
+                        iconName: "file-save"
+                        tip: qsTr("Save (Ctrl+S)")
+                        onClicked: saveDialog.open()
+                    }
+                    // The drawing record is the answer to "did you really draw this?",
+                    // so it sits in the toolbar, not three menus deep.
+                    ToolbarButton {
+                        iconName: "record"
+                        usable: controller.recordedFrames > 0
+                        active: controller.recording
+                        tip: controller.recordedFrames > 0
+                             ? qsTr("Export the drawing record - MP4, GIF or .prismrec (%1 frames)")
+                                   .arg(controller.recordedFrames)
+                             : qsTr("Drawing record: nothing recorded yet")
+                        onClicked: recordDialog.open()
+                    }
                 }
             }
 
-            Rectangle { width: 1; height: 20; color: ThemeManager.themeColor("border") }
-
-            Row {
-                spacing: 6
-                ToolbarButton {
-                    iconName: "undo"
-                    tip: qsTr("Undo (Ctrl+Z)")
-                    usable: controller.canUndo
-                    onClicked: controller.undo()
-                }
-                ToolbarButton {
-                    iconName: "redo"
-                    tip: qsTr("Redo (Ctrl+Shift+Z or Ctrl+Y)")
-                    usable: controller.canRedo
-                    onClicked: controller.redo()
+            Rectangle {
+                radius: ThemeManager.themeColor("radiusSmall")
+                color: ThemeManager.themeColor("panelRaised")
+                implicitWidth: historyRow.width + 12
+                implicitHeight: 28
+                Row {
+                    id: historyRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    ToolbarButton {
+                        iconName: "undo"
+                        tip: qsTr("Undo (Ctrl+Z)")
+                        usable: controller.canUndo
+                        onClicked: controller.undo()
+                    }
+                    ToolbarButton {
+                        iconName: "redo"
+                        tip: qsTr("Redo (Ctrl+Shift+Z or Ctrl+Y)")
+                        usable: controller.canRedo
+                        onClicked: controller.redo()
+                    }
                 }
             }
 
 
             // current brush preset button (opens the preset grid)
             Rectangle {
-                width: 168; height: 24
-                color: ThemeManager.themeColor("windowAlt")
-                border.color: ThemeManager.themeColor("border")
+                width: 168; height: 26
+                radius: ThemeManager.themeColor("radiusSmall")
+                color: ThemeManager.themeColor("panelRaised")
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 6
@@ -470,7 +483,9 @@ ApplicationWindow {
                         Rectangle {
                             anchors.fill: parent
                             color: "#ffffff"
-                            border.color: "#000000"
+                            // Soft desk edge around the paper instead of a hard
+                            // black hairline: reads as a sheet on a desk.
+                            border.color: ThemeManager.themeColor("canvasBackdrop")
                             border.width: 1
                         }
 
@@ -516,8 +531,8 @@ ApplicationWindow {
                             acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                             // Clicking the canvas takes focus back from whatever
                             // text field was last used. Window shortcuts (Ctrl+Z,
-                            // Ctrl+S...) are swallowed by a focused TextInput â€”
-                            // Qt sends it a ShortcutOverride that it accepts â€” so
+                            // Ctrl+S...) are swallowed by a focused TextInput Ã¢â‚¬â€
+                            // Qt sends it a ShortcutOverride that it accepts Ã¢â‚¬â€ so
                             // without this, undo kept editing the last text field
                             // instead of the document, "working sometimes".
                             focus: true
@@ -1001,14 +1016,11 @@ ApplicationWindow {
             height: 30
             color: ThemeManager.themeColor("windowAlt")
             objectName: "toolOptionsBar"
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 spacing: 8
-
-            Rectangle { width: 1; height: 20; color: ThemeManager.themeColor("border") }
 
             // Opacity (brush flow) as a slider, with the value beside it.
             // The value is NOT bound to the controller: a binding plus a write
@@ -1088,8 +1100,6 @@ ApplicationWindow {
                 onMoved: controller.brushHardness = value
             }
 
-            Rectangle { width: 1; height: 20; color: ThemeManager.themeColor("border") }
-
             // Mirror canvas (Krita's mirror tools)
             Repeater {
                 model: [
@@ -1130,7 +1140,6 @@ ApplicationWindow {
             width: parent.width
             height: 24
             color: ThemeManager.themeColor("windowAlt")
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
 
         RowLayout {
             anchors.fill: parent
@@ -1277,7 +1286,7 @@ ApplicationWindow {
         id: saveDialog
         title: qsTr("Save As")
         // Formats come from the controller, filtered to what this Qt build can
-        // actually write â€” offering an unsupported format made Save fail with
+        // actually write Ã¢â‚¬â€ offering an unsupported format made Save fail with
         // no explanation.
         nameFilters: controller.imageSaveFilters().concat([qsTr("All files (*)")])
         fileMode: FileDialog.SaveFile
@@ -1498,4 +1507,6 @@ ApplicationWindow {
         ColorSelector { controller: root.controller; anchors.fill: parent }
     }
 }
+
+
 

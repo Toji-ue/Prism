@@ -1,8 +1,8 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import Prism.Ui 1.0
+import Prism.Ui 1.0
 import Prism
 
 // Krita-style Brush Presets docker: header actions, filter row, thumbnail
@@ -45,16 +45,17 @@ Rectangle {
         id: header
         width: parent.width
         height: ThemeManager.themeColor("dockerHeaderHeight")
-        color: ThemeManager.themeColor("windowAlt")
+        color: "transparent"
 
         Text {
             anchors.left: parent.left
             anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
-            text: qsTr("Brush Presets")
+            text: qsTr("Brush Presets").toUpperCase()
             visible: !docker.embedded
-            color: ThemeManager.themeColor("text")
-            font.pixelSize: 11
+            color: ThemeManager.themeColor("textDim")
+            font.pixelSize: 10
+            font.letterSpacing: 0.5
         }
         Row {
             anchors.right: parent.right
