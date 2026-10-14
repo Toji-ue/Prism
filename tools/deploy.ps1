@@ -24,7 +24,7 @@ $releaseHash = Get-PrismHash $source
 $stage = Join-Path $root ('build\deploy-stage-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -LiteralPath $source -Destination (Join-Path $stage 'prism.exe')
-& (Join-Path $bin 'windeployqt.exe') --release --force --no-patchqt --no-translations --no-opengl-sw --no-system-d3d-compiler --no-ffmpeg --compiler-runtime --qmldir (Join-Path $root 'src\ui\qml') --qmlimport (Join-Path $root 'build-release') --dir $stage (Join-Path $stage 'prism.exe')
+& (Join-Path $bin 'windeployqt.exe') --release --force --no-patchqt --no-translations --no-opengl-sw --no-system-d3d-compiler --no-ffmpeg --compiler-runtime --qmldir (Join-Path $root 'src\ui\qml') --qmlimport (Join-Path $root 'build-release') --plugindir (Join-Path $stage 'plugins') --qml-deploy-dir (Join-Path $stage 'qml') --dir $stage (Join-Path $stage 'prism.exe')
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed: $LASTEXITCODE" }
 $module = Join-Path $stage 'qml\Prism'
 New-Item -ItemType Directory -Force -Path $module | Out-Null
