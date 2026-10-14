@@ -1,8 +1,9 @@
-﻿import QtQuick
-import QtQuick.Controls.Basic
+import QtQuick
+import QtQuick.Controls.Basic
+
 import Prism
 
-// Compact Krita-style slider: thin groove, small square handle. The default
+// Compact studio slider: thin groove, small square handle. The default
 // Controls Basic slider renders a large round knob that looks wrong in a
 // dense tool UI, so every slider in the app uses this instead.
 Slider {
@@ -13,7 +14,7 @@ Slider {
     // Wheel and arrow keys move the handle. Dragging a 10px handle with a pen
     // is imprecise, and every slider in the app gets this for free.
     readonly property real nudgeStep: control.stepSize > 0 ? control.stepSize
-                                                           : Math.max((control.to - control.from) / 100, 1)
+                                                           : (control.to - control.from) / 100
 
     function nudge(direction) {
         control.value = Math.max(control.from, Math.min(control.to,
@@ -51,7 +52,7 @@ Slider {
             width: control.visualPosition * parent.width
             height: parent.height
             radius: ThemeManager.themeColor("radiusSmall")
-            color: ThemeManager.themeColor("highlight")
+            color: ThemeManager.themeColor("textDim")
         }
     }
 
@@ -60,7 +61,7 @@ Slider {
         y: control.topPadding + control.availableHeight / 2 - height / 2
         width: 10
         height: 14
-        radius: 2
+        radius: ThemeManager.themeColor("radiusChip")
         color: control.pressed ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("text")
         border.color: ThemeManager.themeColor("border")
     }

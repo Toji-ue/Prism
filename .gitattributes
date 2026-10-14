@@ -1,0 +1,2 @@
+# Preserve original notice/provenance bytes, including upstream line endings.
+third_party/notices/** -text

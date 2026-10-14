@@ -1,111 +1,125 @@
-# Packages deploy\ for testers:
-#   dist\Prism-Setup.exe    - NSIS installer (per-user, no admin, wizard,
-#                             Add/Remove Programs entry, uninstaller)
-#   dist\Prism-win64-<date>.zip - portable zip (extract and run, no install)
-#
-# The payload is self-contained: the app needs nothing installed on the target
-# machine beyond Windows 10 64-bit (verified by running --selftest with a PATH
-# of only C:\Windows).
-#
-# Usage: powershell -File tools\package.ps1
-
+# Package only the exact tested Release deployment. License gates apply to distribution.
+param([string]$MsysRoot = 'C:\msys64')
 $ErrorActionPreference = 'Stop'
-
-$root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'package-validation.ps1')
+$root = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $deploy = Join-Path $root 'deploy'
-$dist = Join-Path $root 'dist'
-$installer = Join-Path $root 'tools\installer'
-$makensis = 'C:\msys64\mingw64\bin\makensis.exe'
-
-if (-not (Test-Path (Join-Path $deploy 'prism.exe'))) {
-    throw "deploy\prism.exe missing - run tools\deploy.ps1 first"
-}
-
-# --- stage the payload: app files + generated tester notes -------------------
+$release = Join-Path $root 'build-release\prism.exe'
+$manifestPath = Join-Path $deploy 'candidate-manifest.json'
+if (-not (Test-Path -LiteralPath $manifestPath)) { throw 'Tested deployment manifest missing; run tools/deploy.ps1 after the Release build passes' }
+$tested = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$identity = Get-PrismIdentity $root
+if ($tested.version -ne $identity.version -or $tested.gitCommit -ne $identity.gitCommit -or $tested.sourceSha256 -ne $identity.sourceSha256) { throw 'Source identity differs from tested deployment; rebuild and redeploy before packaging' }
+Assert-PrismPayload $deploy $tested $release
+$dirtySuffix = if ($identity.gitDirty) { '-dirty' } else { '' }
+$name = "Prism-$($identity.version)-$($identity.gitCommit.Substring(0, 12))$dirtySuffix-$($identity.sourceSha256.Substring(0, 12))"
+$dist = Join-Path $root "dist\$name"
 $stage = Join-Path $dist 'stage'
-if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+# Never delete an existing candidate; a failed/repeated run receives a new directory.
+if (Test-Path -LiteralPath $dist) { $dist += '-' + [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 6); $stage = Join-Path $dist 'stage' }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
-Copy-Item "$deploy\*" $stage -Recurse -Force
-foreach ($f in @('Prism-Setup.ps1', 'Install-Prism.cmd', 'Prism-ClickHere.cmd')) {
-    Remove-Item (Join-Path $stage $f) -Force -ErrorAction SilentlyContinue
-}
-
-# The tester guide ships inside the package but is not a tracked source file:
-# keeping it here means the repo carries no extra document and the notes can
-# never go stale relative to what actually gets built.
+Copy-Item -Path (Join-Path $deploy '*') -Destination $stage -Recurse -Force
 $notes = @'
-PRISM - HUONG DAN CHO TESTER
-============================
+PRISM CLOSED-BETA CANDIDATE - TESTER GUIDE
+========================================
+Candidate identity is in candidate-manifest.json. Include that file with feedback.
+This is a Windows drawing-app candidate, not a public or cross-platform release.
 
-YEU CAU MAY TINH
-  Windows 10 (64-bit) tro len. KHONG can cai them gi ca: khong Qt, khong
-  .NET, khong Visual C++ Redistributable. O dia trong ~160 MB.
+INSTALL / PORTABLE / USER DATA
+Windows 10/11 64-bit. Installer: run the versioned Prism-Setup executable.
+Portable: extract the versioned ZIP to its own folder and run prism.exe.
+Qt and its runtime libraries are supplied as separate replaceable DLLs.
+Uninstall removes installed application files; it preserves user projects,
+settings, brushes, recovery snapshots and recordings. Save artwork outside the
+installation directory. See THIRD-PARTY for runtime licenses and provenance.
+This candidate is unsigned. Verify its SHA-256 against artifacts-manifest.json;
+the hashes detect changed files and do not establish the publisher's identity.
 
-CAI DAT
-  Cach 1 (khuyen nghi): chay Prism-Setup.exe -> Install. Shortcut "Prism"
-      se co tren Desktop va Start Menu. Go bo: Settings > Apps > Prism >
-      Uninstall.
-  Cach 2 (portable): giai nen file zip roi chay thang prism.exe.
-  Neu Windows hoi "Windows protected your PC": More info > Run anyway
-  (installer khong tai gi tu mang).
+DRAWING WORKSPACE
+Every entry starts with the full interface. Layers is above the compact Colour
+shelf. Brush Lab and the full Colour picker open as panels; Colour can be pinned.
+The four-corner toolbar icon or Tab enters focus mode. The workspace-layout icon
+at the top right or Tab restores the full interface. During a stroke the restore
+icon disappears, then returns. There are no edge-hover panels.
+Q opens Quick Controls near the pen. Ctrl+1: Layers; Ctrl+2: Brush Lab;
+Ctrl+3: Colour. Use recent colours and pinned/recent brushes. Tool shortcuts can
+be configured. F1 opens offline help, including current shortcut assignments.
+Text fields keep their editing keys. Try both light and dark themes.
 
-BAO LOI
-  Gui kem file log: %APPDATA%\Prism\Prism\prism.log
-  (dan duong dan tren vao Explorer la toi). Log ghi loi QML va ket qua
-  thao tac, co no la tim nguyen nhan nhanh hon nhieu.
+SAVE / OPEN / RECOVERY
+Ctrl+S saves the native layered .prism project; Ctrl+Shift+S opens Save As.
+Flat PNG/JPEG/WebP exports are separate from saving editable artwork.
+Check confirmation and persistent errors. Cancel and retry failed operations.
+Unsaved work prompts Save/Discard/Cancel on document replacement or exit.
+Autosave keeps separate recovery snapshots; Start Page offers Recover Artwork.
+Always retain a separate copy of valuable work while testing a beta candidate.
 
-NEN TEST NHUNG GI
-  1. Tao document moi / mo anh PNG, JPG / luu .prism / Export PNG, JPG.
-  2. Ve bang brush: doi Size, Opacity, Hardness bang ca slider va o so.
-  3. Eraser: ve roi tay - kiem tra undo (Ctrl+Z) / redo (Ctrl+Shift+Z).
-  4. Layers: them (+), doi ten (double-click vao ten), an/hien, lock;
-     KEO-THA doi thu tu; nut Raise/Lower; keo opacity slider (so % tren
-     dong layer phai doi ngay); thu blend mode (Multiply, Color Burn,
-     Luminosity...); Layer > Import Image as Layer (anh lon hon canvas se
-     bi cat va co thong bao o thanh trang thai).
-  5. Selection: Select All, Deselect, wand, lasso; ve trong vung chon.
-  6. Transform, crop, fill, text, cac shape (line/rect/ellipse).
-  7. Filters: Invert, Desaturate, Blur, Brightness/Contrast.
-  8. Doi hotkey: Settings > Configure Tool Shortcuts (go phim trung se co
-     canh bao).
-  9. Zoom slider goc phai duoi + phim tat +/-.
- 10. Luu project roi mo lai - kiem tra layers/blend/opacity con dung.
+DRAWING RECORD / STORAGE
+Recording starts automatically per document and cannot be paused or disabled.
+REC is status, not a toggle. .prismrec retains every recorded frame; GIF/MP4
+sample the timeline to a bounded timelapse, retaining its first and final frame.
+An export records the app's drawing sequence, not the identity of its artist.
+Watch for recording errors/gaps; retry must retain the valid earlier sequence.
+Normal export requires the final frame. Explicit partial exports remain labeled.
+Storage lists session status and size, offers export/open-folder and confirmed
+deletion of inactive sessions. Nothing is automatically deleted by retention.
+Manual deletion is permanent; export or back up a session before deleting it.
+Artwork recovery and recording recovery are distinct actions on the Start Page.
 
-DA SUA GAN DAY
-  * Ve muot hon nhieu: chi nap phan canvas thay doi len GPU thay vi ca anh
-    moi khung hinh. Do duoc: canvas 2000x3000 nhanh ~10 lan, 4000x4000 ~4 lan.
-  * Nha chuot khong con khung: truoc day moi net ve xong phai ve lai net va
-    ghep lai toan bo canvas (4000x4000 mat ~1.2 giay), gio chi xu ly dung
-    vung net ve (~0.15 giay).
-  * Click mot cai la co cham muc ngay (truoc day phai keo moi hien).
+TEST PRIORITIES
+1. Pixel/inch/mm dimensions and 72/300 DPI; clipboard pixels and transparency.
+2. HB/2B graphite, Ink release taper, Paint, eraser, quick light/heavy strokes.
+3. Undo/redo; groups, clipping/alpha lock; reorder layers and drag opacity.
+4. Selections, crop/resize, shapes, transforms, fills and filters.
+5. Save/reopen .prism: layers, dimensions/DPI, clipping and pixels must survive.
+6. Cancel/discard/save during New/Open/close; failed saves and recovery retries.
+7. Q/Tab/Ctrl+1/2/3, F1, pen-sized controls, pinned Colour and light/dark themes.
+8. Continuous edits with autosave, disk/storage failures, recording retry and
+   final-frame/partial exports. Check GIF/MP4 orientation with an external decoder.
+9. 1000x620 and 1280x780 logical windows at Windows 100/125/150/200% scaling.
+10. Install/upgrade/uninstall on clean Windows; verify user-data preservation.
 
-LOI DA BIET, CHUA SUA
-  * Chua co layer group / clipping mask / alpha lock.
-  * Image > Resize Canvas... chua hoat dong (dang disable).
-  * Crop khong undo duoc.
-  * Transform xoay bang keo ngang, khong phai khung 8 handle nhu Krita.
-  Neu VAN con lag, gui kem: kich thuoc canvas, so layer, ve bang chuot hay
-  but cam ung, va file log.
+ACCEPTANCE STILL REQUIRES EVIDENCE
+Automated core/selftests and synthetic interaction checks do not establish pen
+feel, GPU-driver reliability or installer correctness on a clean computer.
+Physical Wacom/Huion/XP-Pen validation, a completed illustration, eight-hour
+drawing/recording/recovery/export, and clean-machine install/upgrade/uninstall
+remain external acceptance gates unless separately recorded for THIS identity.
+Linux/macOS CI checks build/core tests only; it does not certify those releases.
+Current colour support: RGB/Alpha, 8-bit, sRGB. No wet pigment simulation.
+Manifest checks identify exactly which automated gates ran; unlisted checks
+are unverified. License provenance is not a claim of legal compliance.
 
-CAM ON BAN DA TEST!
+REPORT A PROBLEM
+Attach candidate-manifest.json, steps, expected/actual result and screenshots.
+Include Windows version/scale, GPU, tablet model/driver, canvas size/layer count,
+and %APPDATA%\Prism\Prism\prism.log. Do not send private artwork unnecessarily.
 '@
-[System.IO.File]::WriteAllText((Join-Path $stage 'README-TESTER.txt'), $notes,
-    [System.Text.UTF8Encoding]::new($false))
-
-New-Item -ItemType Directory -Force -Path $dist | Out-Null
-
-# --- installer ---------------------------------------------------------------
-if (-not (Test-Path $makensis)) {
-    throw "makensis not found at $makensis (pacman -S mingw-w64-x86_64-nsis)"
-}
-$setup = Join-Path $dist 'Prism-Setup.exe'
-Remove-Item $setup -Force -ErrorAction SilentlyContinue
-& $makensis '-V2' "-DSTAGE=$stage" (Join-Path $installer 'prism.nsi') | Write-Output
-if ($LASTEXITCODE -ne 0) { throw "makensis failed (exit $LASTEXITCODE)" }
-Write-Output ("installer: {0} ({1:N1} MB)" -f $setup, ((Get-Item $setup).Length / 1MB))
-
-# --- portable zip ------------------------------------------------------------
-$zip = Join-Path $dist ("Prism-win64-{0}.zip" -f (Get-Date -Format 'yyyyMMdd'))
-Remove-Item $zip -Force -ErrorAction SilentlyContinue
-Compress-Archive -Path "$stage\*" -DestinationPath $zip -CompressionLevel Optimal
-Write-Output ("portable : {0} ({1:N1} MB)" -f $zip, ((Get-Item $zip).Length / 1MB))
+[IO.File]::WriteAllText((Join-Path $stage 'README-TESTER.txt'), $notes, [Text.UTF8Encoding]::new($false))
+$notices = Join-Path $stage 'THIRD-PARTY'
+$inventory = Export-PrismNotices $stage $notices $MsysRoot
+$licenseStatus = if (@($inventory.packages | Where-Object review -ne 'recorded-permissive').Count -gt 0 -or @($inventory.unmatchedDlls).Count -gt 0) { 'blocked-unreviewed-dependencies' } else { 'permissive-metadata-recorded; obligations not certified' }
+Copy-Item -LiteralPath (Join-Path $root 'third_party\README.md') -Destination (Join-Path $notices 'README.md')
+# Installer removes only these exact relative application files, never user-data trees.
+$ownedDirectories = @(Get-ChildItem -LiteralPath $stage -Directory -Recurse | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object { $_.FullName.Substring($stage.Length + 1) })
+[IO.File]::WriteAllLines((Join-Path $stage 'installed-directories.txt'), $ownedDirectories, [Text.Encoding]::Unicode)
+$ownedFiles = @((Get-PrismPayload $stage).path) + @('candidate-manifest.json', 'installed-files.txt', 'installed-directories.txt')
+[IO.File]::WriteAllLines((Join-Path $stage 'installed-files.txt'), ($ownedFiles | Sort-Object -Unique | ForEach-Object { $_.Replace('/', '\') }), [Text.Encoding]::Unicode)
+$manifest = [ordered]@{ schemaVersion = 1; version = $identity.version; gitCommit = $identity.gitCommit; gitDirty = $identity.gitDirty; sourceSha256 = $identity.sourceSha256; releaseExeSha256 = $tested.releaseExeSha256; testedUtc = $tested.testedUtc; checks = $tested.checks; acceptance = $tested.acceptance; distributionLicenseStatus = $licenseStatus; installerPayloadVerification = 'Exact staged hashes checked before/after NSIS; clean-machine installation NOT verified'; payload = Get-PrismPayload $stage }
+Write-PrismJson (Join-Path $stage 'candidate-manifest.json') $manifest
+Assert-PrismPayload $stage $manifest $release
+# Stage remains reviewable if this fails, but no distributable ZIP/installer is emitted.
+Assert-PrismDistributionLicenses $inventory
+$makensis = Join-Path $MsysRoot 'mingw64\bin\makensis.exe'
+if (-not (Test-Path -LiteralPath $makensis)) { throw "NSIS compiler missing: $makensis. Install the build tool explicitly before packaging." }
+$setup = Join-Path $dist "$name-Setup.exe"
+& $makensis '-V2' "-DSTAGE=$stage" "-DOUTPUT=$setup" "-DCANDIDATE_VERSION=$($identity.version)" (Join-Path $PSScriptRoot 'installer\prism.nsi') | Write-Output
+if ($LASTEXITCODE -ne 0) { throw "NSIS failed: $LASTEXITCODE" }
+Assert-PrismPayload $stage $manifest $release
+$zip = Join-Path $dist "$name-win64.zip"
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+Assert-PrismZip $zip $manifest
+$after = Get-PrismIdentity $root
+if ($identity.sourceSha256 -ne $after.sourceSha256 -or $identity.gitCommit -ne $after.gitCommit) { throw 'Source changed during packaging; these artifacts are not a verified candidate' }
+Write-PrismJson (Join-Path $dist 'artifacts-manifest.json') ([ordered]@{ candidate = $manifest; artifacts = @([ordered]@{ path = [IO.Path]::GetFileName($setup); sha256 = Get-PrismHash $setup }, [ordered]@{ path = [IO.Path]::GetFileName($zip); sha256 = Get-PrismHash $zip }); verified = @('staged installer input before/after NSIS', 'all ZIP entries including prism.exe'); cleanWindowsInstallerAcceptance = 'pending' })
+Write-Output "Verified candidate: $dist"

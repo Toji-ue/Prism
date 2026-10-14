@@ -22,9 +22,10 @@ public:
     /// With \p overlayErases the overlay's alpha is SUBTRACTED from the
     /// composite instead of painted over it.
     /// Returns the rect actually composited (dirty intersected with canvas).
-    prism::core::geometry::Rect composite(prism::core::geometry::Rect dirty,
-                                          const prism::core::raster::RasterBuffer* overlay = nullptr,
-                                          bool overlayErases = false);
+    prism::core::geometry::Rect
+    composite(prism::core::geometry::Rect dirty,
+              const prism::core::raster::RasterBuffer* overlay = nullptr,
+              bool overlayErases = false, long long overlayLayerIndex = -1);
 
     /// Substitutes a layer's pixels for the duration of an edit — the eraser
     /// preview uses this so ONLY the layer being erased changes on screen.
@@ -34,13 +35,13 @@ public:
     void clearLayerOverride();
 
     /// The flattened canvas. Owned here so it survives between frames.
-    [[nodiscard]] const prism::core::raster::RasterBuffer& result() const noexcept
-    {
+    [[nodiscard]] const prism::core::raster::RasterBuffer& result() const noexcept {
         return m_result;
     }
 
     /// Reallocate caches after a canvas resize.
     void canvasResized();
+    [[nodiscard]] int canvasDpi() const noexcept { return m_doc.canvasSize().dpi; }
 
 private:
     prism::core::Document& m_doc;

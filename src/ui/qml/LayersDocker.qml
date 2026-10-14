@@ -12,8 +12,9 @@ Rectangle {
     /// True when hosted in the tabbed docker column: the tab already names the
     /// panel, so only its action buttons are kept.
     property bool embedded: false
+    property bool glass: false
 
-    color: ThemeManager.themeColor("panel")
+    color: glass ? "transparent" : ThemeManager.themeColor("panel")
     radius: ThemeManager.themeColor("radius")
 
     // Opacity is edited live (no history per pixel of drag); the history
@@ -47,36 +48,84 @@ Rectangle {
 
             Repeater {
                 model: [
-                    { icon: "plus",      tip: qsTr("New layer"),      act: "add" },
-                    { icon: "duplicate", tip: qsTr("Duplicate layer"), act: "dup" },
-                    { icon: "arrow-up",  tip: qsTr("Raise layer"),    act: "up" },
-                    { icon: "arrow-down", tip: qsTr("Lower layer"),   act: "down" },
-                    { icon: "trash",     tip: qsTr("Delete layer"),   act: "del" }
+                    {
+                        icon: "plus",
+                        tip: qsTr("New layer"),
+                        act: "add"
+                    },
+                    {
+                        icon: "duplicate",
+                        tip: qsTr("Duplicate layer"),
+                        act: "dup"
+                    },
+                    {
+                        icon: "arrow-up",
+                        tip: qsTr("Raise layer"),
+                        act: "up"
+                    },
+                    {
+                        icon: "arrow-down",
+                        tip: qsTr("Lower layer"),
+                        act: "down"
+                    },
+                    {
+                        icon: "trash",
+                        tip: qsTr("Delete layer"),
+                        act: "del"
+                    }
                 ]
                 delegate: Rectangle {
-                    width: 20; height: 20
+                    width: 32
+                    height: 32
+                    radius: ThemeManager.themeColor("radiusControl")
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: modelData.tip
+                    function trigger() {
+                        switch (modelData.act) {
+                        case "add":
+                            addLayerMenu.popup();
+                            break;
+                        case "dup":
+                            controller.duplicateLayer();
+                            break;
+                        case "up":
+                            controller.moveLayerUp();
+                            break;
+                        case "down":
+                            controller.moveLayerDown();
+                            break;
+                        case "del":
+                            controller.deleteLayer();
+                            break;
+                        }
+                    }
+                    Accessible.onPressAction: trigger()
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Space || event.key === Qt.Key_Return) {
+                            trigger();
+                            event.accepted = true;
+                        }
+                    }
+                    border.width: activeFocus ? 1 : 0
+                    border.color: ThemeManager.themeColor("highlight")
                     // Names the button for the --demo-click verification hook
                     // (e.g. "layerButton_up" is Raise layer).
                     objectName: "layerButton_" + modelData.act
                     color: mh.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
                     Icon {
                         anchors.centerIn: parent
-                        width: 14; height: 14
+                        width: 14
+                        height: 14
                         name: modelData.icon
                         color: ThemeManager.themeColor("text")
                     }
-                    HoverHandler { id: mh }
+                    HoverHandler {
+                        id: mh
+                    }
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: {
-                            switch (modelData.act) {
-                            case "add":  addLayerMenu.popup(); break
-                            case "dup":  controller.duplicateLayer(); break
-                            case "up":   controller.moveLayerUp(); break
-                            case "down": controller.moveLayerDown(); break
-                            case "del":  controller.deleteLayer(); break
-                            }
-                        }
+                        onClicked: parent.trigger()
                     }
                     ToolTip.visible: mh.hovered
                     ToolTip.delay: 500
@@ -84,7 +133,12 @@ Rectangle {
                 }
             }
         }
-        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            color: ThemeManager.themeColor("border")
+        }
     }
 
     // ---- blend mode + opacity ----
@@ -99,7 +153,8 @@ Rectangle {
         PComboBox {
             id: blendCombo
             width: parent.width
-            height: 22
+            height: 32
+            Accessible.name: qsTr("Layer blend mode")
             font.pixelSize: 11
             model: controller.blendModeNames()
             // NOT bound: a binding plus the write from onActivated fight each
@@ -107,14 +162,17 @@ Rectangle {
             Component.onCompleted: syncBlendCombo()
             Connections {
                 target: controller
-                function onActiveLayerIndexChanged() { blendCombo.syncBlendCombo() }
-                function onLayersChanged() { blendCombo.syncBlendCombo() }
+                function onActiveLayerIndexChanged() {
+                    blendCombo.syncBlendCombo();
+                }
+                function onLayersChanged() {
+                    blendCombo.syncBlendCombo();
+                }
             }
             function syncBlendCombo() {
-                const idx = controller.activeLayerIndex
-                const v = controller.layers.data(controller.layers.index(idx, 0),
-                                                 LayerListModel.BlendModeRole)
-                currentIndex = v === undefined ? 0 : v
+                const idx = controller.activeLayerIndex;
+                const v = controller.layers.data(controller.layers.index(idx, 0), LayerListModel.BlendModeRole);
+                currentIndex = v === undefined ? 0 : v;
             }
             onActivated: controller.setLayerBlendMode(controller.activeLayerIndex, currentIndex)
         }
@@ -131,8 +189,11 @@ Rectangle {
             PSlider {
                 id: opacitySlider
                 objectName: "opacitySlider"
+                height: 32
+                Accessible.name: qsTr("Layer opacity")
                 width: parent.width - 74
-                from: 0; to: 100
+                from: 0
+                to: 100
                 // Value is synced imperatively: while the user drags, the model
                 // updates to follow the handle, and outside a drag the model
                 // leads. Binding it here made the two overwrite each other, so
@@ -140,28 +201,34 @@ Rectangle {
                 Component.onCompleted: syncOpacity()
                 Connections {
                     target: controller
-                    function onActiveLayerIndexChanged() { opacitySlider.syncOpacity() }
-                    function onLayersChanged() { opacitySlider.syncOpacity() }
+                    function onActiveLayerIndexChanged() {
+                        opacitySlider.syncOpacity();
+                    }
+                    function onLayersChanged() {
+                        opacitySlider.syncOpacity();
+                    }
                 }
                 function syncOpacity() {
                     if (pressed)
-                        return
-                    const v = controller.layers.data(
-                        controller.layers.index(controller.activeLayerIndex, 0),
-                        LayerListModel.OpacityRole)
-                    value = v === undefined ? 100 : v
+                        return;
+                    const v = controller.layers.data(controller.layers.index(controller.activeLayerIndex, 0), LayerListModel.OpacityRole);
+                    value = v === undefined ? 100 : v;
                 }
                 onPressedChanged: {
                     if (pressed)
-                        docker.dragStartOpacity = value
+                        docker.dragStartOpacity = value;
                     else
-                        controller.commitLayerOpacity(controller.activeLayerIndex,
-                                                      Math.round(value),
-                                                      docker.dragStartOpacity)
+                        controller.commitLayerOpacity(controller.activeLayerIndex, Math.round(value), docker.dragStartOpacity);
                 }
                 // Live preview without touching history.
-                onMoved: controller.previewLayerOpacity(controller.activeLayerIndex,
-                                                        Math.round(value))
+                onMoved: {
+                    const index = controller.activeLayerIndex
+                    if (pressed) controller.previewLayerOpacity(index, Math.round(value))
+                    else {
+                        const before = controller.layers.data(controller.layers.index(index, 0), LayerListModel.OpacityRole)
+                        controller.commitLayerOpacity(index, Math.round(value), before === undefined ? 100 : before)
+                    }
+                }
             }
             Text {
                 text: Math.round(opacitySlider.value) + "%"
@@ -181,10 +248,14 @@ Rectangle {
             onTriggered: controller.addLayer()
         }
         MenuItem {
+            text: qsTr("Group selected layer")
+            onTriggered: controller.groupLayer()
+        }
+        MenuItem {
             text: qsTr("Import Image as Layer...")
             onTriggered: {
-                console.info("layers+: Import Image as Layer clicked")
-                importImageDialog.open()
+                console.info("layers+: Import Image as Layer clicked");
+                importImageDialog.open();
             }
         }
     }
@@ -195,9 +266,9 @@ Rectangle {
         nameFilters: controller.imageOpenFilters().concat([qsTr("All files (*)")])
         fileMode: FileDialog.OpenFile
         onAccepted: {
-            console.info("layers+: import image accepted: " + selectedFile)
+            console.info("layers+: import image accepted: " + selectedFile);
             if (!controller.importImageAsLayer(selectedFile))
-                console.warn("layers+: import as layer failed: " + controller.lastError)
+                console.warn("layers+: import as layer failed: " + controller.lastError);
         }
     }
 
@@ -213,6 +284,30 @@ Rectangle {
         MenuItem {
             text: qsTr("Duplicate Layer")
             onTriggered: controller.duplicateLayer()
+        }
+        MenuItem {
+            text: qsTr("Group selected layer")
+            onTriggered: controller.groupLayer()
+        }
+        MenuItem {
+            text: qsTr("Move into group above")
+            onTriggered: controller.moveLayerIntoGroupAbove(layerMenu.targetIndex)
+        }
+        MenuItem {
+            text: qsTr("Move out of group")
+            onTriggered: controller.moveLayerOutOfGroup(layerMenu.targetIndex)
+        }
+        MenuItem {
+            text: qsTr("Clip to layer below")
+            checkable: true
+            checked: controller.layers.data(controller.layers.index(layerMenu.targetIndex, 0), LayerListModel.ClippedRole) === true
+            onTriggered: controller.setLayerClipped(layerMenu.targetIndex, checked)
+        }
+        MenuItem {
+            text: qsTr("Alpha Lock")
+            checkable: true
+            checked: controller.layers.data(controller.layers.index(layerMenu.targetIndex, 0), LayerListModel.AlphaLockedRole) === true
+            onTriggered: controller.setLayerAlphaLocked(layerMenu.targetIndex, checked)
         }
         MenuItem {
             text: qsTr("Merge with Layer Below")
@@ -232,34 +327,32 @@ Rectangle {
         MenuItem {
             text: qsTr("Toggle Visibility")
             onTriggered: {
-                const rows = controller.layers
-                const visible = rows.data(rows.index(layerMenu.targetIndex, 0),
-                                          LayerListModel.VisibleRole)
-                controller.setLayerVisible(layerMenu.targetIndex, !visible)
+                const rows = controller.layers;
+                const visible = rows.data(rows.index(layerMenu.targetIndex, 0), LayerListModel.VisibleRole);
+                controller.setLayerVisible(layerMenu.targetIndex, !visible);
             }
         }
         MenuItem {
             text: qsTr("Toggle Lock")
             onTriggered: {
-                const rows = controller.layers
-                const locked = rows.data(rows.index(layerMenu.targetIndex, 0),
-                                         LayerListModel.LockedRole)
-                controller.setLayerLocked(layerMenu.targetIndex, !locked)
+                const rows = controller.layers;
+                const locked = rows.data(rows.index(layerMenu.targetIndex, 0), LayerListModel.LockedRole);
+                controller.setLayerLocked(layerMenu.targetIndex, !locked);
             }
         }
         MenuSeparator {}
         MenuItem {
             text: qsTr("Select Layer Content")
             onTriggered: {
-                controller.activeLayerIndex = layerMenu.targetIndex
-                controller.selectLayerContent()
+                controller.activeLayerIndex = layerMenu.targetIndex;
+                controller.selectLayerContent();
             }
         }
         MenuItem {
             text: qsTr("Clear Layer")
             onTriggered: {
-                controller.activeLayerIndex = layerMenu.targetIndex
-                controller.clearCanvas()
+                controller.activeLayerIndex = layerMenu.targetIndex;
+                controller.clearCanvas();
             }
         }
         MenuSeparator {}
@@ -267,8 +360,8 @@ Rectangle {
             text: qsTr("Delete Layer")
             enabled: controller.layers.rowCount() > 1
             onTriggered: {
-                controller.activeLayerIndex = layerMenu.targetIndex
-                controller.deleteLayer()
+                controller.activeLayerIndex = layerMenu.targetIndex;
+                controller.deleteLayer();
             }
         }
     }
@@ -281,10 +374,9 @@ Rectangle {
         anchors.topMargin: 4
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        height: Math.min(Math.max(36, docker.height - y - 4), count * 36)
         anchors.leftMargin: 4
         anchors.rightMargin: 4
-        anchors.bottomMargin: 4
         clip: true
         model: controller.layers
         // Krita's layer docker lists the TOP layer first, while layer index 0
@@ -304,27 +396,27 @@ Rectangle {
         /// contentY grow the other way.
         function indexAtViewportY(viewportY) {
             for (let i = 0; i < count; ++i) {
-                const item = itemAtIndex(i)
+                const item = itemAtIndex(i);
                 if (!item)
-                    continue
-                const top = item.y - contentY
+                    continue;
+                const top = item.y - contentY;
                 if (viewportY >= top && viewportY < top + item.height)
-                    return i
+                    return i;
             }
-            return -1
+            return -1;
         }
 
         /// Viewport y of the top edge of row \a layerIndex's row.
         function viewportYOfRow(layerIndex) {
-            const item = itemAtIndex(layerIndex)
-            return item ? item.y - contentY : 0
+            const item = itemAtIndex(layerIndex);
+            return item ? item.y - contentY : 0;
         }
 
         /// Centre of a row in this view's coordinates. Used by the
         /// --demo-drag-layer hook, which must not assume a layout direction.
         function demoRowY(layerIndex) {
-            const item = itemAtIndex(layerIndex)
-            return item ? item.y - contentY + item.height / 2 : -1
+            const item = itemAtIndex(layerIndex);
+            return item ? item.y - contentY + item.height / 2 : -1;
         }
 
         // Drop indicator: a Krita-style line showing where the layer will land.
@@ -337,14 +429,32 @@ Rectangle {
             color: ThemeManager.themeColor("highlight")
             z: 10
             // Drawn on the edge the layer is moving TOWARDS, in list terms.
-            y: list.dropToIndex > list.dragFromIndex ? list.viewportYOfRow(list.dropToIndex) + 27
-                                                     : list.viewportYOfRow(list.dropToIndex)
+            y: list.dropToIndex > list.dragFromIndex ? list.viewportYOfRow(list.dropToIndex) + 35 : list.viewportYOfRow(list.dropToIndex)
         }
 
         delegate: Rectangle {
             id: layerRow
             width: ListView.view ? ListView.view.width : 0
-            height: 28
+            height: 36
+            objectName: "layerRow_" + index
+            activeFocusOnTab: !editingName
+            Accessible.role: Accessible.ListItem
+            Accessible.name: model.name
+            Accessible.selected: controller.activeLayerIndex === index
+            Accessible.onPressAction: controller.activeLayerIndex = index
+            border.width: activeFocus ? 1 : 0
+            border.color: ThemeManager.themeColor("highlight")
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_Space || event.key === Qt.Key_Return) {
+                    controller.activeLayerIndex = index;
+                    event.accepted = true;
+                } else if (event.key === Qt.Key_F2) {
+                    layerRow.editingName = true;
+                    nameEdit.forceActiveFocus();
+                    nameEdit.selectAll();
+                    event.accepted = true;
+                }
+            }
             color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlight") : "transparent"
             // The row being dragged fades so the gap it will leave is visible.
             opacity: ListView.view && ListView.view.dragFromIndex === index ? 0.45 : 1.0
@@ -367,17 +477,17 @@ Rectangle {
                     // click); the drag handler below only fires once the
                     // pointer actually moves, so without this a click on a
                     // layer did nothing and the user could not switch layers.
-                    controller.activeLayerIndex = index
+                    controller.activeLayerIndex = index;
                     if (mouse.button === Qt.RightButton) {
-                        layerMenu.targetIndex = index
-                        layerMenu.parent = layerRow
-                        layerMenu.open()
+                        layerMenu.targetIndex = index;
+                        layerMenu.parent = layerRow;
+                        layerMenu.open();
                     }
                 }
                 onDoubleClicked: {
-                    layerRow.editingName = true
-                    nameEdit.forceActiveFocus()
-                    nameEdit.selectAll()
+                    layerRow.editingName = true;
+                    nameEdit.forceActiveFocus();
+                    nameEdit.selectAll();
                 }
             }
 
@@ -400,31 +510,29 @@ Rectangle {
 
                 onActiveChanged: {
                     if (!view)
-                        return
+                        return;
                     if (active) {
-                        controller.activeLayerIndex = index
-                        view.dragFromIndex = index
-                        view.dropToIndex = index
+                        controller.activeLayerIndex = index;
+                        view.dragFromIndex = index;
+                        view.dropToIndex = index;
                     } else if (view.dragFromIndex >= 0) {
-                        console.info("layers: drag row " + view.dragFromIndex + " -> "
-                                     + view.dropToIndex)
-                        controller.moveLayerTo(view.dragFromIndex, view.dropToIndex)
-                        view.dragFromIndex = -1
-                        view.dropToIndex = -1
+                        console.info("layers: drag row " + view.dragFromIndex + " -> " + view.dropToIndex);
+                        controller.moveLayerTo(view.dragFromIndex, view.dropToIndex);
+                        view.dragFromIndex = -1;
+                        view.dropToIndex = -1;
                     }
                 }
                 onCentroidChanged: {
                     if (!active || !view)
-                        return
+                        return;
                     // Which row is the pointer over? Ask the view rather than
                     // dividing by the row height: with BottomToTop layout the
                     // y-to-index mapping is flipped.
-                    const p = view.mapFromItem(null, rowDrag.centroid.scenePosition.x,
-                                               rowDrag.centroid.scenePosition.y)
-                    const over = view.indexAtViewportY(p.y)
+                    const p = view.mapFromItem(null, rowDrag.centroid.scenePosition.x, rowDrag.centroid.scenePosition.y);
+                    const over = view.indexAtViewportY(p.y);
                     if (over < 0)
-                        return
-                    view.dropToIndex = over
+                        return;
+                    view.dropToIndex = over;
                 }
             }
 
@@ -436,15 +544,43 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 3
 
-                // visibility
                 Item {
-                    width: 18; height: 18
+                    width: Math.min(24, model.depth * 12)
+                    height: 1
+                }
+
+                // visibility
+                Rectangle {
+                    id: visibilityButton
+                    objectName: "layerVisibility_" + index
+                    width: 32
+                    height: 32
+                    radius: ThemeManager.themeColor("radiusControl")
+                    color: visibilityHover.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
+                    activeFocusOnTab: true
+                    border.width: activeFocus ? 1 : 0
+                    border.color: ThemeManager.themeColor("highlight")
+                    Accessible.role: Accessible.CheckBox
+                    Accessible.name: qsTr("Show layer %1").arg(model.name)
+                    Accessible.checked: model.visible
+                    Accessible.onToggleAction: controller.setLayerVisible(index, !model.visible)
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Space || event.key === Qt.Key_Return) {
+                            controller.setLayerVisible(index, !model.visible);
+                            event.accepted = true;
+                        }
+                    }
+                    HoverHandler {
+                        id: visibilityHover
+                    }
+                    ToolTip.visible: visibilityHover.hovered
+                    ToolTip.text: model.visible ? qsTr("Hide layer") : qsTr("Show layer")
                     Icon {
                         anchors.centerIn: parent
-                        width: 13; height: 13
+                        width: 13
+                        height: 13
                         name: model.visible ? "eye" : "eye-off"
-                        color: controller.activeLayerIndex === index
-                               ? ThemeManager.themeColor("highlightText") : (model.visible ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim"))
+                        color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlightText") : (model.visible ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim"))
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -453,14 +589,37 @@ Rectangle {
                 }
 
                 // lock
-                Item {
-                    width: 18; height: 18
+                Rectangle {
+                    id: lockButton
+                    objectName: "layerLock_" + index
+                    width: 32
+                    height: 32
+                    radius: ThemeManager.themeColor("radiusControl")
+                    color: lockHover.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
+                    activeFocusOnTab: true
+                    border.width: activeFocus ? 1 : 0
+                    border.color: ThemeManager.themeColor("highlight")
+                    Accessible.role: Accessible.CheckBox
+                    Accessible.name: qsTr("Lock layer %1").arg(model.name)
+                    Accessible.checked: model.locked
+                    Accessible.onToggleAction: controller.setLayerLocked(index, !model.locked)
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Space || event.key === Qt.Key_Return) {
+                            controller.setLayerLocked(index, !model.locked);
+                            event.accepted = true;
+                        }
+                    }
+                    HoverHandler {
+                        id: lockHover
+                    }
+                    ToolTip.visible: lockHover.hovered
+                    ToolTip.text: model.locked ? qsTr("Unlock layer") : qsTr("Lock layer")
                     Icon {
                         anchors.centerIn: parent
-                        width: 13; height: 13
+                        width: 13
+                        height: 13
                         name: model.locked ? "lock" : "unlock"
-                        color: controller.activeLayerIndex === index
-                               ? ThemeManager.themeColor("highlightText") : (model.locked ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim"))
+                        color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlightText") : (model.locked ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim"))
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -470,7 +629,8 @@ Rectangle {
 
                 // real thumbnail of this layer's pixels
                 Rectangle {
-                    width: 24; height: 20
+                    width: 24
+                    height: 20
                     color: ThemeManager.themeColor("panelSunken")
                     border.color: ThemeManager.themeColor("border")
                     border.width: 1
@@ -490,8 +650,8 @@ Rectangle {
                 Text {
                     id: nameText
                     visible: !layerRow.editingName
-                    width: Math.max(50, parent.width - 150)
-                    text: model.name
+                    width: Math.max(12, parent.width - Math.min(24, model.depth * 12) - 64 - 24 - opacityText.width - 18)
+                    text: model.type === 2 ? "▣ " + model.name : model.name
                     color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
                     font.pixelSize: 11
                     anchors.verticalCenter: parent.verticalCenter
@@ -509,19 +669,19 @@ Rectangle {
                     selectByMouse: true
                     clip: true
                     onEditingFinished: {
-                        controller.renameLayer(index, text)
-                        layerRow.editingName = false
+                        controller.renameLayer(index, text);
+                        layerRow.editingName = false;
                     }
                     Keys.onEscapePressed: {
-                        text = model.name
-                        layerRow.editingName = false
+                        text = model.name;
+                        layerRow.editingName = false;
                     }
                 }
 
                 Text {
+                    id: opacityText
                     text: model.opacity + "%"
-                    color: controller.activeLayerIndex === index
-                           ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("textDim")
+                    color: controller.activeLayerIndex === index ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("textDim")
                     font.pixelSize: 10
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -529,4 +689,3 @@ Rectangle {
         }
     }
 }
-

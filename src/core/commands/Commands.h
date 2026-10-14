@@ -106,6 +106,7 @@ private:
     Document& m_doc;
     std::size_t m_index;
     std::unique_ptr<Layer> m_layer;
+    std::vector<std::uint64_t> m_childIds;
 };
 
 /// Moves a layer within the stack; undo reverses the move.
@@ -124,7 +125,7 @@ private:
     std::size_t m_to;
 };
 
-/// Duplicates a layer (pixels + properties); undo removes the copy.
+/// Duplicates a layer and, for a group, its full nested subtree.
 class DuplicateLayerCommand final : public Command {
 public:
     DuplicateLayerCommand(Document& doc, std::size_t index);
@@ -136,9 +137,8 @@ public:
 
 private:
     Document& m_doc;
-    std::size_t m_sourceIndex;
     std::size_t m_newIndex = 0;
-    std::unique_ptr<Layer> m_copy;
+    std::vector<std::unique_ptr<Layer>> m_copies;
 };
 
 /// Clears a raster layer's pixels (fills transparent); undo restores them.
@@ -203,6 +203,52 @@ private:
     geometry::Point m_beforeOrigin;
 };
 
+/// Destructive top-left canvas resize, with the original raster buffers held
+/// for undo. Unlike CropCommand, pixels outside the old canvas are discarded.
+class ResizeCanvasCommand final : public Command {
+public:
+    ResizeCanvasCommand(Document& doc, CanvasSize size);
+    const char* description() const override { return "Resize canvas"; }
+    void undo() override;
+    void redo() override;
+
+private:
+    Document& m_doc;
+    CanvasSize m_newSize;
+    CanvasSize m_oldSize;
+    geometry::Point m_oldOrigin;
+    std::vector<raster::RasterBuffer> m_oldPixels;
+};
+
+/// Wraps one layer (or an existing group) in a new group, retaining the
+/// selected layer's old parent so nested groups undo without changing pixels.
+class GroupLayerCommand final : public Command {
+public:
+    GroupLayerCommand(Document& doc, std::size_t index, std::string name);
+    const char* description() const override { return "Group layer"; }
+    void undo() override;
+    void redo() override;
+private:
+    Document& m_doc;
+    std::size_t m_index;
+    std::uint64_t m_oldParent;
+    std::unique_ptr<Layer> m_group;
+    std::uint64_t m_groupId;
+};
+
+class SetLayerParentCommand final : public Command {
+public:
+    SetLayerParentCommand(Document& doc, std::size_t index, std::uint64_t parentId);
+    const char* description() const override { return "Move layer into group"; }
+    void undo() override;
+    void redo() override;
+private:
+    Document& m_doc;
+    std::size_t m_index;
+    std::uint64_t m_oldParent;
+    std::uint64_t m_newParent;
+};
+
 /// Moves a raster layer's whole content by (dx, dy) pixels. Undo restores
 /// the pre-move pixels exactly (one full-buffer snapshot).
 class MoveLayerContentCommand final : public Command {
@@ -236,6 +282,8 @@ public:
         Opacity,
         BlendMode,
         Locked,
+        Clipped,
+        AlphaLocked,
     };
 
     SetLayerPropertyCommand(Document& doc, std::size_t index, Property prop,

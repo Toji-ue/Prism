@@ -18,9 +18,113 @@ ApplicationWindow {
 
     // Injected from C++ so the image providers share this instance.
     required property AppController controller
+    property bool closeApproved: false
+    onClosing: function(event) {
+        if (!closeApproved) {
+            event.accepted = false
+            controller.requestDocumentAction("close")
+        }
+    }
 
-    /// Which docker the right-hand column shows: 0 Layers, 1 Brush, 2 Colour.
-    property int dockerTab: 0
+    readonly property bool focusMode: controller.focusMode
+    readonly property bool textEditing: root.activeFocusItem instanceof TextInput
+                                        || root.activeFocusItem instanceof TextField
+                                        || root.activeFocusItem instanceof TextArea
+    property string toastText: ""
+    property bool toastVisible: false
+    property var pendingCanvasCentre: null
+    property bool pendingViewportWidth: false
+    property bool pendingViewportHeight: false
+    readonly property bool pointerDown: canvasMouse.pressed || controller.strokeActive
+    readonly property point pointerInWindow: canvasMouse.containsMouse
+            ? canvasMouse.mapToItem(root.contentItem, canvasMouse.mouseX, canvasMouse.mouseY)
+            : Qt.point(root.width / 2, root.height / 2)
+    onPointerDownChanged: if (pointerDown) {
+        quickPanel.close()
+        drawingQuickControls.close()
+    } else if (toastVisible) toastTimer.restart()
+    onFocusModeChanged: {
+        quickPanel.close()
+        colorPopup.close()
+        presetsPopup.close()
+        drawingQuickControls.close()
+        canvasMouse.forceActiveFocus()
+    }
+
+    function restorePendingCanvasCentre(changedAxis) {
+        if (!pendingCanvasCentre) return
+        if (changedAxis === "width") pendingViewportWidth = true
+        if (changedAxis === "height") pendingViewportHeight = true
+        const mapped = canvasSheet.mapToItem(flick, pendingCanvasCentre.x,
+                                              pendingCanvasCentre.y)
+        const maxX = Math.max(0, flick.contentWidth - flick.width)
+        const maxY = Math.max(0, flick.contentHeight - flick.height)
+        flick.contentX = Math.max(0, Math.min(maxX,
+                                               flick.contentX + mapped.x - flick.width / 2))
+        flick.contentY = Math.max(0, Math.min(maxY,
+                                               flick.contentY + mapped.y - flick.height / 2))
+        if (pendingViewportWidth && pendingViewportHeight)
+            pendingCanvasCentre = null
+    }
+
+    function setDrawingChromeCollapsed(collapsed) {
+        if (controller.startPageVisible || pointerDown || controller.focusMode === collapsed)
+            return
+        // Preserve the canvas point at the viewport centre when the side rails
+        // and header change the available area. Zoom is deliberately untouched.
+        pendingCanvasCentre = flick.mapToItem(canvasSheet, flick.width / 2, flick.height / 2)
+        pendingViewportWidth = false
+        pendingViewportHeight = false
+        controller.focusMode = collapsed
+    }
+
+    function toggleDrawingChrome() {
+        setDrawingChromeCollapsed(!controller.focusMode)
+    }
+
+    function showWorkspacePanel(index) {
+        if (pointerDown) return
+        if (index === 0 && !focusMode) {
+            mainLayersDocker.forceActiveFocus()
+            return
+        }
+        quickPanel.page = index
+        quickPanel.open()
+    }
+
+    function openDrawingQuickControls() {
+        if (pointerDown || controller.startPageVisible || root.textEditing)
+            return
+        if (drawingQuickControls.opened) { drawingQuickControls.close(); return }
+        const point = root.pointerInWindow
+        drawingQuickControls.openNear(point.x, point.y, root.width, root.height)
+    }
+
+    function showToast(message) {
+        if (!message) return
+        toastText = message
+        toastVisible = true
+        if (!pointerDown) toastTimer.restart()
+    }
+
+    Timer { id: toastTimer; interval: 3500; onTriggered: root.toastVisible = false }
+    Connections {
+        target: controller
+        function onUnsavedChangesDecisionRequested() { unsavedDialog.open() }
+        function onSaveAsRequested() { saveDialog.open() }
+        function onCloseReady() { root.closeApproved = true; root.close() }
+        function onCloseRecordingError(message) { recordingCloseDialog.detail = message; recordingCloseDialog.open() }
+        function onRecordingRecovered(success) {
+            if (!success) return
+            if (controller.recordingHasGaps) partialRecordDialog.open()
+            else { recordDialog.partial = false; recordDialog.open() }
+        }
+        function onDocumentReplaced() {
+            Qt.callLater(() => controller.fitToViewport(canvasArea.width - 40, canvasArea.height - 40))
+        }
+        function onLastErrorChanged() { if (controller.lastError) root.toastVisible = false }
+        function onStatusMessageChanged() { root.showToast(controller.statusMessage) }
+    }
 
     Component.onCompleted: {
         showMaximized()
@@ -76,10 +180,11 @@ ApplicationWindow {
         controller: root.controller
         onRequestNew: newDocDialog.open()
         onRequestOpen: openDialog.open()
+        onRequestRecordExport: { recordDialog.partial = false; recordDialog.open() }
     }
 
     // Switches the Advanced Color Selector docker to its Tool Options tab.
-    function showToolOptions() { mainColorSelector.tab = 1 }
+    function showToolOptions() { quickPanel.page = 2; quickPanel.open() }
 
     // Verification hook (prism --demo-menu): opens a dropdown so its colours
     // can be checked from a screenshot.
@@ -98,6 +203,10 @@ ApplicationWindow {
     // Windows will not deliver hover events to a non-foreground window.
     property var demoPointer: null
     function demoCursor(x, y) { demoPointer = Qt.point(x, y) }
+    function demoQuickControls(x, y) {
+        controller.startPageVisible = false
+        drawingQuickControls.openNear(x, y, root.width, root.height)
+    }
 
     // The active tool's keyboard shortcut, for the status bar hint.
     readonly property string toolHint: {
@@ -125,9 +234,11 @@ ApplicationWindow {
         onActivated: controller.redo()
     }
     Shortcut { sequence: "Ctrl+Y"; enabled: controller.canRedo; onActivated: controller.redo() }
-    Shortcut { sequence: "Ctrl+S"; onActivated: saveDialog.open() }
-    Shortcut { sequence: "Ctrl+O"; onActivated: openDialog.open() }
-    Shortcut { sequence: "Ctrl+N"; onActivated: newDocDialog.open() }
+    Shortcut { sequence: "Ctrl+S"; enabled: !controller.saving && !root.pointerDown; onActivated: controller.saveCurrentProject() }
+    Shortcut { sequence: "Ctrl+Shift+S"; enabled: !controller.saving && !root.pointerDown; onActivated: saveDialog.open() }
+    Shortcut { sequence: "Ctrl+O"; enabled: !controller.documentEditing && !controller.documentActionPending; onActivated: openDialog.open() }
+    Shortcut { sequence: "Ctrl+N"; enabled: !controller.documentEditing && !controller.documentActionPending; onActivated: newDocDialog.open() }
+    Shortcut { sequence: "F1"; enabled: !root.pointerDown; onActivated: helpDialog.open() }
     Shortcut { sequence: "Ctrl+Shift+N"; onActivated: controller.addLayer() }
     Shortcut { sequence: "Ctrl+E"; onActivated: controller.exportPng ? exportDialog.open() : {} }
     Shortcut { sequence: "Ctrl+A"; onActivated: controller.selectAll() }
@@ -137,6 +248,7 @@ ApplicationWindow {
     // Finish an in-progress click path (polyline / bezier / selection paths).
     Shortcut {
         sequence: "Return"
+        enabled: !root.activeFocusItem || !root.activeFocusItem.keyboardButton
         onActivated: {
             // A crop frame is a pending edit: Enter applies what is on screen.
             if (controller.tool === AppController.CropTool && canvasMouse.cropRect) {
@@ -166,6 +278,15 @@ ApplicationWindow {
     Shortcut { sequence: "+"; onActivated: controller.brushSize = Math.min(200, controller.brushSize + 2) }
     Shortcut { sequence: "-"; onActivated: controller.brushSize = Math.max(1, controller.brushSize - 2) }
     Shortcut { sequence: "Delete"; onActivated: controller.clearCanvas() }
+    Shortcut {
+        sequence: "Tab"
+        context: Qt.ApplicationShortcut
+        enabled: !controller.startPageVisible && !root.textEditing && !root.pointerDown
+        onActivated: root.toggleDrawingChrome()
+    }
+    Shortcut { sequence: "Ctrl+1"; context: Qt.ApplicationShortcut; enabled: !controller.startPageVisible && !root.textEditing && !root.pointerDown; onActivated: showWorkspacePanel(0) }
+    Shortcut { sequence: "Ctrl+2"; context: Qt.ApplicationShortcut; enabled: !controller.startPageVisible && !root.textEditing && !root.pointerDown; onActivated: showWorkspacePanel(1) }
+    Shortcut { sequence: "Ctrl+3"; context: Qt.ApplicationShortcut; enabled: !controller.startPageVisible && !root.textEditing && !root.pointerDown; onActivated: showWorkspacePanel(2) }
 
     // Leaving the crop tool commits the pending frame, like Photoshop: picking
     // another tool is how most people finish a crop ("drag a frame, then grab
@@ -191,15 +312,44 @@ ApplicationWindow {
     Instantiator {
         model: root.controller.toolShortcutList
         delegate: Shortcut {
-            enabled: modelData.key.length > 0
+            enabled: modelData.key.length > 0 && !root.textEditing && !root.pointerDown
             sequence: modelData.key
             context: Qt.ApplicationShortcut
-            onActivated: root.controller.tool = modelData.tool
+            onActivated: {
+                if (modelData.tool === -1) root.openDrawingQuickControls()
+                else root.controller.tool = modelData.tool
+            }
         }
     }
 
     // ---------------- menu bar ----------------
     menuBar: MenuBar {
+        visible: !root.focusMode && !controller.startPageVisible
+        background: Rectangle {
+            color: ThemeManager.themeColor("window")
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: ThemeManager.themeColor("border")
+            }
+        }
+        delegate: MenuBarItem {
+            id: menuItem
+            implicitWidth: label.implicitWidth + 24
+            implicitHeight: 32
+            contentItem: Text {
+                id: label
+                text: menuItem.text.replace(/&/g, "")
+                color: ThemeManager.themeColor("text")
+                font.pixelSize: ThemeManager.themeColor("fontBody")
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignHCenter
+            }
+            background: Rectangle {
+                color: menuItem.highlighted ? ThemeManager.themeColor("buttonHover") : "transparent"
+            }
+        }
         // Everything except the ways to open a document is inert while the
         // start page is up, so menu entries that need a canvas are disabled.
         PMenu {
@@ -207,22 +357,26 @@ ApplicationWindow {
             title: qsTr("&File")
             Action { text: qsTr("&New...\tCtrl+N"); onTriggered: newDocDialog.open() }
             Action { text: qsTr("&Open...\tCtrl+O"); onTriggered: openDialog.open() }
-            Action { text: qsTr("&Save\tCtrl+S"); onTriggered: saveDialog.open() }
+            Action { text: qsTr("&Save\tCtrl+S"); enabled: !controller.saving && !root.pointerDown; onTriggered: controller.saveCurrentProject() }
+            Action { text: qsTr("Save &As...\tCtrl+Shift+S"); enabled: !controller.saving && !root.pointerDown; onTriggered: saveDialog.open() }
             Action { text: qsTr("&Export PNG...\tCtrl+E"); onTriggered: exportDialog.open() }
             Action {
                 // Proof of process: the session's timelapse + hash chain, for
                 // whoever asks whether the artwork is hand-drawn.
                 text: qsTr("Export Drawing &Record (MP4 / GIF)...")
-                enabled: controller.recordedFrames > 0
-                onTriggered: recordDialog.open()
+                enabled: controller.recordedFrames > 0 && !controller.recordingExporting
+                onTriggered: { recordDialog.partial = false; recordDialog.open() }
             }
+            Action { text: qsTr("Recording Storage…"); onTriggered: storageDialog.open() }
+            Action { text: controller.recordingRepairing ? qsTr("Repairing recording…") : qsTr("Retry recording"); enabled: controller.recordingError.length > 0 && !controller.recordingRepairing; onTriggered: controller.retryRecording() }
+            Action { text: qsTr("Export partial recording…"); enabled: controller.recordedFrames > 0 && !controller.recordingExporting; onTriggered: partialRecordDialog.open() }
             MenuSeparator {}
             Action {
                 text: qsTr("&Start Page")
                 onTriggered: controller.startPageVisible = true
             }
             MenuSeparator {}
-            Action { text: qsTr("&Quit\tCtrl+Q"); onTriggered: Qt.quit() }
+            Action { text: qsTr("&Quit\tCtrl+Q"); onTriggered: root.close() }
         }
         PMenu {
             title: qsTr("&Edit")
@@ -246,13 +400,16 @@ ApplicationWindow {
             Action { text: qsTr("Zoom &In"); onTriggered: controller.zoom = Math.min(8, controller.zoom * 1.25) }
             Action { text: qsTr("Zoom &Out"); onTriggered: controller.zoom = Math.max(0.05, controller.zoom / 1.25) }
             Action { text: qsTr("&100%"); onTriggered: controller.zoom = 1.0 }
-            Action { text: qsTr("&Fit to Window"); onTriggered: controller.zoom = 0.5 }
+            Action { text: qsTr("&Fit to Window"); onTriggered: controller.fitToViewport(canvasArea.width - 40, canvasArea.height - 40) }
+            MenuSeparator {}
+            Action { text: qsTr("Mirror Horizontally\tCtrl+Shift+M"); checkable: true; checked: controller.mirrorHorizontal; onTriggered: controller.mirrorHorizontal = !controller.mirrorHorizontal }
+            Action { text: qsTr("Mirror Vertically"); checkable: true; checked: controller.mirrorVertical; onTriggered: controller.mirrorVertical = !controller.mirrorVertical }
         }
         PMenu {
             title: qsTr("&Image")
             enabled: !controller.startPageVisible
-            Action { text: qsTr("Resize Canvas..."); enabled: false }
-            Action { text: qsTr("Canvas Information"); enabled: false }
+            Action { text: qsTr("Resize Canvas..."); onTriggered: resizeDialog.open() }
+            Action { text: qsTr("Canvas Information"); onTriggered: canvasInfoDialog.open() }
         }
         PMenu {
             title: qsTr("&Select")
@@ -284,130 +441,77 @@ ApplicationWindow {
             title: qsTr("&Settings")
             enabled: !controller.startPageVisible
             Action {
-                text: qsTr("Record Drawing Session")
-                checkable: true
-                checked: controller.recording
-                onTriggered: controller.recording = checked
-            }
-            Action {
                 text: qsTr("Configure Tool Shortcuts...")
                 onTriggered: shortcutDialog.open()
             }
+            Action { text: qsTr("Switch Light / Dark Theme"); onTriggered: root.toggleTheme() }
         }
         PMenu {
             title: qsTr("&Window")
             enabled: !controller.startPageVisible
-            Action { text: qsTr("Show Dockers"); enabled: false }
+            Action {
+                text: qsTr("Focus Mode\tTab")
+                checkable: true
+                checked: controller.focusMode
+                onTriggered: root.setDrawingChromeCollapsed(checked)
+            }
+            Action { text: qsTr("Layers\tCtrl+1"); onTriggered: showWorkspacePanel(0) }
+            Action { text: qsTr("Brush Lab\tCtrl+2"); onTriggered: showWorkspacePanel(1) }
+            Action { text: qsTr("Colour\tCtrl+3"); onTriggered: showWorkspacePanel(2) }
         }
         PMenu {
             title: qsTr("&Help")
-            enabled: !controller.startPageVisible
-            Action { text: qsTr("About Prism"); enabled: false }
+            Action { text: qsTr("Drawing with Prism\tF1"); onTriggered: helpDialog.open() }
+            Action { text: qsTr("About Prism"); onTriggered: aboutDialog.open() }
         }
     }
 
     // ---------------- toolbar ----------------
     header: ToolBar {
-        // Hidden on the start page: the welcome screen owns the whole window.
-        visible: !controller.startPageVisible
-        height: 34
-        background: Rectangle { color: ThemeManager.themeColor("window") }
+        visible: !controller.startPageVisible && !root.focusMode
+        height: 40
+        background: Rectangle {
+            color: ThemeManager.themeColor("panel")
+            radius: ThemeManager.themeColor("radiusPanel")
+        }
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 6
-            anchors.rightMargin: 6
-            spacing: 6
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            spacing: 8
 
-            // Small action buttons. Not a Repeater: a Canvas icon created by a
-            // Repeater inside this ToolBar never gets a texture, so those buttons
-            // laid out correctly and drew nothing (see ToolbarButton.qml).
-            // Grouped in a soft raised chip instead of divider lines - part of
-            // the "no hairline borders" look.
-            Rectangle {
-                radius: ThemeManager.themeColor("radiusSmall")
-                color: ThemeManager.themeColor("panelRaised")
-                implicitWidth: fileRow.width + 12
-                implicitHeight: 28
-                Row {
-                    id: fileRow
-                    anchors.centerIn: parent
-                    spacing: 6
-                    ToolbarButton {
-                        iconName: "file-new"
-                        tip: qsTr("New (Ctrl+N)")
-                        onClicked: newDocDialog.open()
-                    }
-                    ToolbarButton {
-                        iconName: "file-open"
-                        tip: qsTr("Open (Ctrl+O)")
-                        onClicked: openDialog.open()
-                    }
-                    ToolbarButton {
-                        iconName: "file-save"
-                        tip: qsTr("Save (Ctrl+S)")
-                        onClicked: saveDialog.open()
-                    }
-                    // The drawing record is the answer to "did you really draw this?",
-                    // so it sits in the toolbar, not three menus deep.
-                    ToolbarButton {
-                        iconName: "record"
-                        usable: controller.recordedFrames > 0
-                        active: controller.recording
-                        tip: controller.recordedFrames > 0
-                             ? qsTr("Export the drawing record - MP4, GIF or .prismrec (%1 frames)")
-                                   .arg(controller.recordedFrames)
-                             : qsTr("Drawing record: nothing recorded yet")
-                        onClicked: recordDialog.open()
-                    }
-                    // Light/dark toggle, persisted via controller.theme.
-                    ToolbarButton {
-                        iconName: "invert"
-                        tip: ThemeManager.activeThemeName === "dark"
-                             ? qsTr("Switch to light theme")
-                             : qsTr("Switch to dark theme")
-                        onClicked: root.toggleTheme()
-                    }
-                }
+            ToolbarButton {
+                iconName: "file-save"
+                tip: qsTr("Save (Ctrl+S)")
+                onClicked: controller.saveCurrentProject()
             }
-
-            Rectangle {
-                radius: ThemeManager.themeColor("radiusSmall")
-                color: ThemeManager.themeColor("panelRaised")
-                implicitWidth: historyRow.width + 12
-                implicitHeight: 28
-                Row {
-                    id: historyRow
-                    anchors.centerIn: parent
-                    spacing: 6
-                    ToolbarButton {
-                        iconName: "undo"
-                        tip: qsTr("Undo (Ctrl+Z)")
-                        usable: controller.canUndo
-                        onClicked: controller.undo()
-                    }
-                    ToolbarButton {
-                        iconName: "redo"
-                        tip: qsTr("Redo (Ctrl+Shift+Z or Ctrl+Y)")
-                        usable: controller.canRedo
-                        onClicked: controller.redo()
-                    }
-                }
+            Rectangle { width: 1; height: 18; color: ThemeManager.themeColor("border") }
+            ToolbarButton {
+                iconName: "undo"
+                tip: qsTr("Undo (Ctrl+Z)")
+                usable: controller.canUndo
+                onClicked: controller.undo()
             }
-
-
-            // current brush preset button (opens the preset grid)
+            ToolbarButton {
+                iconName: "redo"
+                tip: qsTr("Redo (Ctrl+Shift+Z)")
+                usable: controller.canRedo
+                onClicked: controller.redo()
+            }
+            Rectangle { width: 1; height: 18; color: ThemeManager.themeColor("border") }
             Rectangle {
-                width: 168; height: 26
-                radius: ThemeManager.themeColor("radiusSmall")
+                width: 172; height: 32
+                radius: ThemeManager.themeColor("radiusControl")
                 color: ThemeManager.themeColor("panelRaised")
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 6
+                    anchors.leftMargin: 7
+                    anchors.rightMargin: 7
                     spacing: 6
                     Image {
-                        Layout.preferredWidth: 16
-                        Layout.preferredHeight: 16
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
                         fillMode: Image.PreserveAspectFit
                         cache: false
                         source: "image://preset/" + controller.activePresetIndex
@@ -418,46 +522,74 @@ ApplicationWindow {
                         color: ThemeManager.themeColor("text")
                         font.pixelSize: 11
                         elide: Text.ElideRight
-                        verticalAlignment: Text.AlignVCenter
                     }
-                    Icon {
-                        Layout.preferredWidth: 12
-                        Layout.preferredHeight: 12
-                        name: "chevron-down"
-                        color: ThemeManager.themeColor("textDim")
-                    }
+                    Icon { Layout.preferredWidth: 12; Layout.preferredHeight: 12; name: "chevron-down"; color: ThemeManager.themeColor("textDim") }
                 }
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: presetsPopup.open()
-                }
+                MouseArea { anchors.fill: parent; onClicked: presetsPopup.open() }
             }
-
-
-            Item { Layout.fillWidth: true }
-
-            // color swatch (opens the picker popup)
             Rectangle {
-                width: 30; height: 24
+                width: 32; height: 32
+                radius: ThemeManager.themeColor("radiusControl")
                 color: controller.brushColor
                 border.color: ThemeManager.themeColor("border")
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: colorPopup.open()
-                }
+                MouseArea { anchors.fill: parent; onClicked: colorPopup.open() }
             }
+            Item { Layout.fillWidth: true }
+            Text {
+                objectName: "recordingIndicator"
+                visible: true
+                text: controller.recordingRepairing ? qsTr("REC REPAIR") : controller.recordingError.length ? qsTr("REC ERROR") : controller.recordingHasGaps ? qsTr("REC · GAP") : controller.recording ? qsTr("REC") : qsTr("ARCHIVE")
+                color: controller.recordingError.length ? ThemeManager.themeColor("danger") : ThemeManager.themeColor("highlight")
+                font.pixelSize: 11
+                HoverHandler { id: recordingHover }
+                ToolTip.visible: recordingHover.hovered
+                ToolTip.text: controller.recordingError.length ? controller.recordingError : controller.recordingHasGaps ? qsTr("Recording resumed with gaps. Only partial export is available.") : qsTr("Recording is automatic. Open Recording Storage from File.")
+            }
+            ToolbarButton {
+                objectName: "workspaceCollapseButton"
+                width: 32; height: 32
+                iconName: "focus"
+                iconSize: 18
+                tip: qsTr("Focus mode (Tab)")
+                onClicked: root.setDrawingChromeCollapsed(true)
+            }
+        }
+    }
+
+    Rectangle {
+        id: workspaceRestoreSurface
+        objectName: "workspaceRestoreSurface"
+        z: 96
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 8
+        width: 32; height: 32
+        visible: root.focusMode && !controller.startPageVisible && !root.pointerDown
+        radius: ThemeManager.themeColor("radiusControl")
+        color: ThemeManager.themeColor("popup")
+        border.color: ThemeManager.themeColor("popupBorder")
+
+        ToolbarButton {
+            anchors.fill: parent
+            objectName: "workspaceRestoreButton"
+            iconName: "workspace"
+            iconSize: 18
+            tip: qsTr("Show interface (Tab)")
+            onClicked: root.setDrawingChromeCollapsed(false)
         }
     }
 
     // ---------------- body ----------------
     RowLayout {
         anchors.fill: parent
-        spacing: 0
+        anchors.margins: 8
+        spacing: 8
 
         // left toolbox
         ToolBox {
             controller: root.controller
             Layout.fillHeight: true
+            visible: !root.focusMode
         }
 
         // center: canvas viewport with grey backdrop (Krita's canvas area)
@@ -466,9 +598,10 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: ThemeManager.themeColor("canvasBackdrop")
+            radius: ThemeManager.themeColor("radiusPanel")
 
             // Fit the canvas into the viewport once the layout is known.
-            Component.onCompleted: controller.fitToViewport(width - 60, height - 60)
+            Component.onCompleted: controller.fitToViewport(width - 40, height - 40)
 
             // Wheel = zoom in/out (Ctrl+wheel also works), anchored on the
             // pointer so the point under the cursor stays put.
@@ -489,6 +622,7 @@ ApplicationWindow {
                 anchors.margins: 8
                 width: zoomLabel.implicitWidth + 12
                 height: 20
+                visible: !root.focusMode
                 color: ThemeManager.themeColor("popup")
                 border.color: ThemeManager.themeColor("popupBorder")
                 border.width: 1
@@ -505,6 +639,8 @@ ApplicationWindow {
                 id: flick
                 objectName: "canvasFlick"
                 anchors.fill: parent
+                onWidthChanged: root.restorePendingCanvasCentre("width")
+                onHeightChanged: root.restorePendingCanvasCentre("height")
                 contentWidth: Math.max(canvasSheet.width, flick.width)
                 contentHeight: Math.max(canvasSheet.height, flick.height)
                 clip: true
@@ -574,6 +710,8 @@ ApplicationWindow {
                         MouseArea {
                             id: canvasMouse
                             objectName: "canvasMouseArea"
+                            // Keep the current pointer grab until its committed release.
+                            enabled: !controller.documentActionPending || controller.documentEditing
                             anchors.fill: parent
                             acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                             // Clicking the canvas takes focus back from whatever
@@ -975,307 +1113,372 @@ ApplicationWindow {
             }
         }
 
-        // right: dockers. Heights are proportional so all three always fit
-        // the available column - each docker scrolls its own content.
+        // Layers stay visible above a small colour shelf while drawing.
         Rectangle {
             id: dockerArea
             Layout.preferredWidth: ThemeManager.themeColor("dockerWidth")
             Layout.fillHeight: true
-            color: ThemeManager.themeColor("window")
+            visible: !root.focusMode
+            color: "transparent"
 
-            Column {
+            ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 1
-                spacing: 2
-
-                // One tab bar for the whole column. Three dockers used to stack
-                // with fixed proportions, so the one used constantly (Layers)
-                // always had the least room while the colour wheel held nearly
-                // half the height. Tabs give the active docker the full column.
-                Rectangle {
-                    width: parent.width
-                    height: 26
-                    color: ThemeManager.themeColor("panel")
-                    radius: ThemeManager.themeColor("radius")
-
-                    Row {
-                        anchors.fill: parent
-                        anchors.margins: 2
-                        spacing: 2
-
-                        Repeater {
-                            model: [qsTr("Layers"), qsTr("Brush"), qsTr("Colour")]
-
-                            delegate: Rectangle {
-                                width: (parent.width - 4) / 3
-                                height: parent.height
-                                radius: ThemeManager.themeColor("radiusSmall")
-                                color: root.dockerTab === index ? ThemeManager.themeColor("highlight")
-                                                                : (tabHover.hovered
-                                                                   ? ThemeManager.themeColor("buttonHover") : "transparent")
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: modelData
-                                    color: root.dockerTab === index ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
-                                    font.pixelSize: 11
-                                }
-                                HoverHandler { id: tabHover }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: root.dockerTab = index
-                                }
-                            }
-                        }
-                    }
+                spacing: 8
+                LayersDocker {
+                    id: mainLayersDocker
+                    controller: root.controller
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                 }
-
-                StackLayout {
-                    width: parent.width
-                    height: parent.height - 28
-                    currentIndex: root.dockerTab
-
-                    LayersDocker {
-                        controller: root.controller
-                        embedded: true
-                    }
-                    BrushPresetsDocker {
-                        controller: root.controller
-                        embedded: true
-                    }
-                    ColorSelector {
-                        id: mainColorSelector
-                        controller: root.controller
-                    }
+                CompactColour {
+                    controller: root.controller
+                    visible: !controller.colourPickerPinned
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    onOpenFullPicker: root.showWorkspacePanel(2)
+                }
+                Rectangle {
+                    visible: controller.colourPickerPinned
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(320, root.height * 0.42)
+                    color: ThemeManager.themeColor("panel")
+                    radius: 12
+                    Button { id: unpinColour; objectName: "unpinColourPicker"; text: qsTr("Compact colour"); height: 32; anchors.right: parent.right; onClicked: controller.colourPickerPinned = false }
+                    ColorSelector { controller: root.controller; anchors.top: unpinColour.bottom; anchors.bottom: parent.bottom; width: parent.width }
                 }
             }
         }
     }
 
-    // ---------------- footer / status bar ----------------
-    // ---------------- footer: tool options + status ----------------
-    footer: Column {
-        visible: !controller.startPageVisible
 
-        // Brush controls sit under the canvas, next to the hand that
-        // uses them, instead of crowding the top bar.
+    // One contextual strip instead of two rows of persistent chrome.
+    footer: Item {
+        visible: !controller.startPageVisible && !root.focusMode
+        implicitHeight: 42
         Rectangle {
-            width: parent.width
-            height: 30
-            color: ThemeManager.themeColor("windowAlt")
-            objectName: "toolOptionsBar"
+            anchors.fill: parent
+            anchors.margins: 4
+            color: ThemeManager.themeColor("panel")
+            radius: ThemeManager.themeColor("radiusPanel")
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 8
-                anchors.rightMargin: 8
-                spacing: 8
-
-            // Opacity (brush flow) as a slider, with the value beside it.
-            // The value is NOT bound to the controller: a binding plus a write
-            // from onMoved fights the drag, and whichever side loses makes the
-            // slider look dead. Sync explicitly instead, and never while the
-            // user is holding the handle.
-            Text { text: qsTr("Opacity:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-            PSlider {
-                id: flowSlider
-                objectName: "flowSlider"
-                Layout.preferredWidth: 96
-                from: 0.05; to: 1
-                Component.onCompleted: value = controller.brushFlow
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!flowSlider.pressed)
-                            flowSlider.value = controller.brushFlow
+                anchors.leftMargin: 10
+                anchors.rightMargin: 10
+                spacing: 7
+                Text { text: qsTr("Size"); color: ThemeManager.themeColor("textDim"); font.pixelSize: 11 }
+                PSlider {
+                    id: sizeSlider
+                    objectName: "sizeSlider"
+                    Layout.preferredWidth: 100
+                    from: 1; to: 200
+                    Component.onCompleted: value = controller.brushSize
+                    Connections {
+                        target: controller
+                        function onBrushChanged() { if (!sizeSlider.pressed) sizeSlider.value = controller.brushSize }
                     }
+                    onMoved: controller.brushSize = Math.round(value)
                 }
-                onMoved: controller.brushFlow = value
-            }
-            Text {
-                Layout.preferredWidth: 34
-                text: Math.round(controller.brushFlow * 100) + "%"
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 11
-            }
-
-            Text { text: qsTr("Size:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-            PSpinBox {
-                id: sizeBox
-                objectName: "sizeBox"
-                Layout.preferredWidth: 84
-                from: 1; to: 200
-                Component.onCompleted: value = Math.round(controller.brushSize)
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!sizeBox.activeFocus)
-                            sizeBox.value = Math.round(controller.brushSize)
-                    }
+                Text {
+                    Layout.preferredWidth: 37
+                    text: Math.round(controller.brushSize) + " px"
+                    color: ThemeManager.themeColor("text")
+                    font.pixelSize: 11
                 }
-                onValueModified: v => controller.brushSize = v
-            }
-            // Direct size slider - the fastest way to size a brush.
-            PSlider {
-                id: sizeSlider
-                objectName: "sizeSlider"
-                Layout.preferredWidth: 110
-                from: 1; to: 200
-                Component.onCompleted: value = Math.min(200, controller.brushSize)
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!sizeSlider.pressed)
-                            sizeSlider.value = Math.min(200, controller.brushSize)
+                Text { text: qsTr("Flow"); color: ThemeManager.themeColor("textDim"); font.pixelSize: 11 }
+                PSlider {
+                    id: flowSlider
+                    objectName: "flowSlider"
+                    Layout.preferredWidth: 90
+                    from: 0.01; to: 1
+                    Component.onCompleted: value = controller.brushFlow
+                    Connections {
+                        target: controller
+                        function onBrushChanged() { if (!flowSlider.pressed) flowSlider.value = controller.brushFlow }
                     }
+                    onMoved: controller.brushFlow = value
                 }
-                onMoved: controller.brushSize = Math.round(value)
-            }
-
-            Text { text: qsTr("Hardness:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-            PSlider {
-                id: hardnessSlider
-                objectName: "hardnessSlider"
-                Layout.preferredWidth: 80
-                from: 0; to: 1
-                Component.onCompleted: value = controller.brushHardness
-                Connections {
-                    target: controller
-                    function onBrushChanged() {
-                        if (!hardnessSlider.pressed)
-                            hardnessSlider.value = controller.brushHardness
-                    }
+                Text {
+                    Layout.preferredWidth: 32
+                    text: Math.round(controller.brushFlow * 100) + "%"
+                    color: ThemeManager.themeColor("text")
+                    font.pixelSize: 11
                 }
-                onMoved: controller.brushHardness = value
-            }
-
-            // Mirror canvas (Krita's mirror tools)
-            Repeater {
-                model: [
-                    { icon: "mirror-h", tip: qsTr("Mirror canvas horizontally (Ctrl+Shift+M)"), act: "h" },
-                    { icon: "mirror-v", tip: qsTr("Mirror canvas vertically"), act: "v" },
-                    { icon: "invert",   tip: qsTr("Invert selection (Ctrl+Shift+I)"), act: "inv" }
-                ]
-                delegate: Rectangle {
-                    width: 24; height: 24
-                    readonly property bool on: (modelData.act === "h" && root.controller.mirrorHorizontal)
-                                               || (modelData.act === "v" && root.controller.mirrorVertical)
-                    color: on ? ThemeManager.themeColor("highlight") : (mh.hovered ? ThemeManager.themeColor("buttonHover") : "transparent")
-                    Icon {
-                        anchors.centerIn: parent
-                        width: 15; height: 15
-                        name: modelData.icon
-                        color: on ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
-                    }
-                    HoverHandler { id: mh }
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: {
-                            if (modelData.act === "h") root.controller.mirrorHorizontal = !root.controller.mirrorHorizontal
-                            else if (modelData.act === "v") root.controller.mirrorVertical = !root.controller.mirrorVertical
-                            else root.controller.invertSelection()
-                        }
-                    }
-                    ToolTip.visible: mh.hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: modelData.tip
+                Rectangle { width: 1; height: 18; color: ThemeManager.themeColor("border") }
+                Text {
+                    Layout.preferredWidth: 130
+                    text: controller.activeLayerInfo.name
+                    elide: Text.ElideRight
+                    color: ThemeManager.themeColor("text")
+                    font.pixelSize: 11
+                }
+                Text { visible: controller.activeLayerInfo.locked; text: qsTr("LOCK"); color: ThemeManager.themeColor("highlight"); font.pixelSize: 10 }
+                Text { visible: controller.activeLayerInfo.alphaLocked; text: qsTr("ALPHA"); color: ThemeManager.themeColor("highlight"); font.pixelSize: 10 }
+                Text { visible: controller.activeLayerInfo.clipped; text: qsTr("CLIP"); color: ThemeManager.themeColor("highlight"); font.pixelSize: 10 }
+                Text {
+                    visible: controller.recording
+                    text: qsTr("REC %1").arg(controller.recordedFrames)
+                    color: ThemeManager.themeColor("highlight")
+                    font.pixelSize: 11
+                }
+                Item { Layout.fillWidth: true }
+                Text {
+                    text: controller.saving ? qsTr("Saving…") : controller.saveStatus
+                    Layout.maximumWidth: 140
+                    elide: Text.ElideRight
+                    color: ThemeManager.themeColor("textDim")
+                    font.pixelSize: 11
+                    HoverHandler { id: protectionHover }
+                    ToolTip.visible: protectionHover.hovered
+                    ToolTip.text: qsTr("Project: %1\nRecovery: %2\nLast protected: %3").arg(controller.saveStatus).arg(controller.autosaveStatus).arg(controller.lastProtectedTime || qsTr("Not yet"))
+                }
+                Text {
+                    text: Math.round(controller.zoom * 100) + "%"
+                    color: ThemeManager.themeColor("text")
+                    font.pixelSize: 11
+                }
+                Text {
+                    text: qsTr("Fit")
+                    color: ThemeManager.themeColor("highlight")
+                    font.pixelSize: 11
+                    MouseArea { anchors.fill: parent; onClicked: controller.fitToViewport(canvasArea.width - 40, canvasArea.height - 40) }
                 }
             }
-            }
-        }
-
-        // Status bar
-        Rectangle {
-            width: parent.width
-            height: 24
-            color: ThemeManager.themeColor("windowAlt")
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 8
-            anchors.rightMargin: 8
-            spacing: 12
-
-            Text {
-                text: root.toolHint + "  -  " + controller.brushName
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 11
-            }
-            // A failed open/save must be visible, never silent.
-            Text {
-                visible: controller.lastError.length > 0
-                text: controller.lastError
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 11
-            }
-            // Informational outcome of the last action (e.g. how much of an
-            // imported image did not fit the canvas).
-            Text {
-                visible: controller.statusMessage.length > 0
-                text: controller.statusMessage
-                color: ThemeManager.themeColor("textDim")
-                font.pixelSize: 11
-            }
-            Item { Layout.fillWidth: true }
-            // The record is on by default, so say so: otherwise the artist finds
-            // out a proof existed only when someone asks for it.
-            Text {
-                visible: controller.recording
-                text: qsTr("REC %1").arg(controller.recordedFrames)
-                color: ThemeManager.themeColor("highlight")
-                font.pixelSize: 11
-            }
-            Text {
-                text: controller.statusInfo
-                color: ThemeManager.themeColor("textDim")
-                font.pixelSize: 11
-            }
-            Item { Layout.fillWidth: true }
-            Text {
-                text: qsTr("%1 ?- %2 px").arg(controller.canvasWidth).arg(controller.canvasHeight)
-                color: ThemeManager.themeColor("textDim")
-                font.pixelSize: 11
-            }
-            Text {
-                text: qsTr("Selection: %1 ?- %2").arg(controller.selectionW).arg(controller.selectionH)
-                visible: controller.hasSelection
-                color: ThemeManager.themeColor("highlight")
-                font.pixelSize: 11
-            }
-            Text {
-                text: qsTr("0.00deg")
-                color: ThemeManager.themeColor("textDim")
-                font.pixelSize: 11
-            }
-            PComboBox {
-                width: 108; height: 20
-                font.pixelSize: 10
-                model: ["Fit View (100%)", "25%", "50%", "100%", "200%", "400%", "800%"]
-                onActivated: {
-                    const z = [1.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
-                    controller.zoom = z[currentIndex]
-                }
-            }
-            PSlider {
-                id: zoomSlider
-                objectName: "zoomSlider"
-                width: 90
-                from: 0.05; to: 8
-                Component.onCompleted: value = controller.zoom
-                Connections {
-                    target: controller
-                    function onViewChanged() {
-                        if (!zoomSlider.pressed)
-                            zoomSlider.value = controller.zoom
-                    }
-                }
-                onMoved: controller.zoom = value
-            }
-        }
         }
     }
 
 
+    QuickControls {
+        id: drawingQuickControls
+        controller: root.controller
+        backdrop: canvasArea
+    }
+
+    Rectangle {
+        z: 150
+        visible: (controller.lastError.length > 0 || root.toastVisible || controller.recordingRepairing || controller.recordingExporting || controller.saving) && !root.pointerDown
+        width: Math.min(480, root.width - 32)
+        height: noticeContent.implicitHeight + 24
+        x: root.pointerInWindow.x < root.width / 2 ? root.width - width - 12 : 12
+        y: root.pointerInWindow.y < root.height / 2 ? root.height - height - 12 : 12
+        radius: ThemeManager.themeColor("radiusPanel")
+        color: ThemeManager.themeColor("popup")
+        border.color: ThemeManager.themeColor("popupBorder")
+        ColumnLayout {
+            id: noticeContent
+            anchors.fill: parent
+            anchors.margins: 12
+            Text {
+                Layout.fillWidth: true
+                text: controller.lastError.length ? controller.lastError : (controller.recordingRepairing || controller.recordingExporting || controller.saving) ? controller.statusMessage : root.toastText
+                wrapMode: Text.WordWrap
+                color: controller.lastError.length ? ThemeManager.themeColor("danger") : ThemeManager.themeColor("text")
+                font.pixelSize: 12
+                Accessible.role: Accessible.AlertMessage
+                Accessible.name: text
+            }
+            RowLayout {
+                visible: controller.lastError.length > 0
+                Button { text: qsTr("Save As…"); implicitHeight: 32; enabled: !controller.saving; onClicked: saveDialog.open() }
+                Button { text: qsTr("Retry autosave"); implicitHeight: 32; onClicked: controller.retryAutosave() }
+                Button { text: qsTr("Dismiss"); implicitHeight: 32; onClicked: controller.dismissError() }
+            }
+        }
+    }
+
     // ---------------- dialogs & popups ----------------
+    Dialog {
+        id: unsavedDialog
+        objectName: "unsavedChangesDialog"
+        title: qsTr("Save changes to %1?").arg(controller.documentName)
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(460, root.width - 40)
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
+        contentItem: ColumnLayout {
+            spacing: 16
+            Label { Layout.fillWidth: true; text: qsTr("Save your project before continuing. Autosave is a recovery copy, not a saved project."); wrapMode: Text.WordWrap; color: ThemeManager.themeColor("text") }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button { objectName: "unsavedCancel"; text: qsTr("Cancel"); implicitHeight: 36; onClicked: { unsavedDialog.close(); controller.resolveUnsavedChanges("cancel") } }
+                Button { objectName: "unsavedDiscard"; text: qsTr("Discard"); implicitHeight: 36; onClicked: { unsavedDialog.close(); controller.resolveUnsavedChanges("discard") } }
+                Button { objectName: "unsavedSave"; text: qsTr("Save"); implicitHeight: 36; onClicked: { unsavedDialog.close(); controller.resolveUnsavedChanges("save") } }
+            }
+        }
+    }
+    Dialog {
+        id: recordingCloseDialog
+        property string detail: ""
+        title: qsTr("Recording could not be completed")
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(460, root.width - 40)
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
+        contentItem: ColumnLayout {
+            Label { Layout.fillWidth: true; text: recordingCloseDialog.detail + "\n" + qsTr("Your saved artwork is separate. Closing keeps the valid recording prefix, but it may be incomplete."); wrapMode: Text.WordWrap; color: ThemeManager.themeColor("text") }
+            RowLayout {
+                Button { text: qsTr("Keep drawing"); implicitHeight: 36; onClicked: { recordingCloseDialog.close(); controller.confirmCloseRecordingError(false) } }
+                Button { text: qsTr("Continue with incomplete recording"); implicitHeight: 36; onClicked: { recordingCloseDialog.close(); controller.confirmCloseRecordingError(true) } }
+            }
+        }
+    }
+    Dialog {
+        id: helpDialog
+        objectName: "helpDialog"
+        title: qsTr("Drawing with Prism")
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(620, root.width - 48)
+        height: Math.min(560, root.height - 60)
+        modal: true
+        standardButtons: Dialog.Close
+        background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
+        contentItem: ScrollView {
+            clip: true
+            Text {
+                width: helpDialog.availableWidth - 24
+                wrapMode: Text.WordWrap
+                color: ThemeManager.themeColor("text")
+                font.pixelSize: 14
+                textFormat: Text.RichText
+                text: qsTr("<h3>Draw</h3><p>B selects the brush, E the eraser. Use Size and Flow in the bottom strip. Q opens Quick Controls near your pen; change that shortcut in Configure Tool Shortcuts. Ctrl+2 opens Brush Lab. HB and 2B use graphite grain; Ink tapers at release.</p><h3>Workspace</h3><p>Tab or the four-corner icon hides the interface. The top-right layout icon restores it. Ctrl+1/2/3 opens Layers, Brush Lab and Colour. These shortcuts wait while drawing and leave text fields alone. Every document opens with the full interface.</p><h3>Save and recover artwork</h3><p>Ctrl+S saves the native .prism project. Ctrl+Shift+S is Save As. Export creates a flat image and does not save your layers. Changes are protected by autosave after 45 seconds, once a stroke is committed. Recover Artwork on the Start Page opens a separate recovery copy; save it as a project. Save/Discard/Cancel protects closing or replacing modified artwork. Discard removes that artwork’s recovery copies.</p><h3>Recordings</h3><p>Recording runs automatically. A storage error is shown and can be retried. Earlier gaps remain marked as incomplete. Normal export waits for the final frame; Partial export explicitly exports the available timeline. .prismrec keeps every stored frame; GIF/MP4 samples the timeline to about four minutes. The hash chain verifies file consistency, not the identity of the artist.</p><h3>Storage</h3><p>Recording Storage lists sessions and disk usage. Recordings remain until you confirm deletion. Active sessions cannot be deleted. Recover Recording is separate from recovering your artwork.</p><h3>History and layers</h3><p>Ctrl+Z undoes and Ctrl+Shift+Z redoes. Layers supports groups, clipping, alpha lock and locking. Resize Canvas is reversible. Fit View fits the available canvas area; 100% shows actual pixel scale.</p>")
+            }
+        }
+    }
+    Dialog {
+        id: storageDialog
+        objectName: "recordingStorageDialog"
+        property var sessions: []
+        property string exportSource: ""
+        title: qsTr("Recording Storage")
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(680, root.width - 48)
+        height: Math.min(520, root.height - 60)
+        modal: true
+        standardButtons: Dialog.Close
+        function refresh() { sessions = controller.recordingStorage() }
+        onOpened: refresh()
+        background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label { Layout.fillWidth: true; text: qsTr("Recordings are kept until you delete them. Artwork recovery is stored separately."); wrapMode: Text.WordWrap; color: ThemeManager.themeColor("text") }
+            Button { text: qsTr("Open folder"); implicitHeight: 36; onClicked: controller.openRecordingFolder() }
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 8
+                model: storageDialog.sessions
+                delegate: Rectangle {
+                    required property var modelData
+                    width: ListView.view.width
+                    height: 88
+                    color: ThemeManager.themeColor("panelRaised")
+                    radius: 8
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        Label { Layout.fillWidth: true; text: modelData.name; elide: Text.ElideRight; color: ThemeManager.themeColor("text") }
+                        RowLayout {
+                            Label { Layout.fillWidth: true; text: modelData.state + (modelData.hasGaps ? qsTr(" · incomplete") : "") + " · " + (modelData.bytes / 1048576).toFixed(1) + " MiB"; color: ThemeManager.themeColor("textDim") }
+                            Button { text: qsTr("Export"); implicitHeight: 32; enabled: !modelData.active && !controller.recordingExporting; onClicked: { storageDialog.exportSource = modelData.url; storedRecordDialog.open() } }
+                            Button { text: qsTr("Delete"); implicitHeight: 32; enabled: !modelData.active && !controller.recordingExporting; onClicked: { deleteRecordDialog.url = modelData.url; deleteRecordDialog.open() } }
+                        }
+                    }
+                }
+                Label { anchors.centerIn: parent; visible: storageDialog.sessions.length === 0; text: qsTr("No recordings stored yet."); color: ThemeManager.themeColor("textDim") }
+            }
+        }
+        Connections { target: controller; function onRecoveryChanged() { if (storageDialog.opened) storageDialog.refresh() } }
+    }
+    Dialog {
+        id: deleteRecordDialog
+        property string url: ""
+        title: qsTr("Delete this recording permanently?")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        onAccepted: { controller.deleteStoredRecording(url); storageDialog.refresh() }
+        background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
+        Label { text: qsTr("This removes its timelapse. Your artwork is kept."); color: ThemeManager.themeColor("text") }
+    }
+    FileDialog {
+        id: storedRecordDialog
+        title: qsTr("Export stored drawing record")
+        fileMode: FileDialog.SaveFile
+        nameFilters: [qsTr("Prism drawing record (*.prismrec)")]
+        onAccepted: controller.exportStoredRecording(storageDialog.exportSource, selectedFile)
+    }
+    Dialog {
+        id: partialRecordDialog
+        title: qsTr("Export an incomplete recording?")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        onAccepted: { recordDialog.partial = true; recordDialog.open() }
+        background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
+        Label { width: 360; wrapMode: Text.WordWrap; text: qsTr("Only stored frames will be exported. Missing time or an unstored final frame cannot be recovered. This export does not prove full coverage."); color: ThemeManager.themeColor("text") }
+    }
     NewDocumentDialog { id: newDocDialog; controller: root.controller }
+
+    Dialog {
+        id: resizeDialog
+        title: qsTr("Resize Canvas")
+        anchors.centerIn: parent
+        modal: true
+        width: 340
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: { resizeWidth.value = controller.canvasWidth; resizeHeight.value = controller.canvasHeight }
+        onAccepted: controller.resizeCanvas(resizeWidth.value, resizeHeight.value)
+        background: Rectangle { color: ThemeManager.themeColor("popup"); border.color: ThemeManager.themeColor("popupBorder"); radius: ThemeManager.themeColor("radius") }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { text: qsTr("Keep artwork anchored to the top left."); color: ThemeManager.themeColor("textDim"); font.pixelSize: 12 }
+            RowLayout {
+                Text { text: qsTr("Width"); color: ThemeManager.themeColor("text"); Layout.preferredWidth: 75 }
+                PSpinBox { id: resizeWidth; Layout.fillWidth: true; from: 1; to: 32768 }
+                Text { text: "px"; color: ThemeManager.themeColor("textDim") }
+            }
+            RowLayout {
+                Text { text: qsTr("Height"); color: ThemeManager.themeColor("text"); Layout.preferredWidth: 75 }
+                PSpinBox { id: resizeHeight; Layout.fillWidth: true; from: 1; to: 32768 }
+                Text { text: "px"; color: ThemeManager.themeColor("textDim") }
+            }
+        }
+    }
+    Dialog {
+        id: canvasInfoDialog
+        title: qsTr("Canvas Information")
+        anchors.centerIn: parent
+        modal: true
+        width: 360
+        standardButtons: Dialog.Close
+        background: Rectangle { color: ThemeManager.themeColor("popup"); border.color: ThemeManager.themeColor("popupBorder"); radius: ThemeManager.themeColor("radius") }
+        contentItem: Column {
+            spacing: 10
+            Text { text: qsTr("Document  %1").arg(controller.documentName); color: ThemeManager.themeColor("text"); font.pixelSize: 13 }
+            Text { text: qsTr("Canvas  %1 × %2 px").arg(controller.canvasWidth).arg(controller.canvasHeight); color: ThemeManager.themeColor("text"); font.pixelSize: 13 }
+            Text { text: qsTr("Resolution  %1 DPI").arg(controller.canvasDpi); color: ThemeManager.themeColor("text"); font.pixelSize: 13 }
+            Text { text: qsTr("Color  RGB/Alpha · 8-bit · sRGB"); color: ThemeManager.themeColor("text"); font.pixelSize: 13 }
+            Text { text: qsTr("Layer memory  %1 MiB").arg(controller.documentMemoryMiB().toFixed(1)); color: ThemeManager.themeColor("textDim"); font.pixelSize: 12 }
+        }
+    }
+    Dialog {
+        id: aboutDialog
+        title: qsTr("About Prism")
+        anchors.centerIn: parent
+        modal: true
+        width: 370
+        standardButtons: Dialog.Close
+        background: Rectangle { color: ThemeManager.themeColor("popup"); border.color: ThemeManager.themeColor("popupBorder"); radius: ThemeManager.themeColor("radius") }
+        contentItem: Column {
+            spacing: 10
+            Text { text: "Prism"; color: ThemeManager.themeColor("text"); font.pixelSize: 25; font.weight: Font.Medium }
+            Text { text: qsTr("Version %1").arg(controller.versionString()); color: ThemeManager.themeColor("textDim"); font.pixelSize: 13 }
+            Text { text: qsTr("A canvas-first drawing studio for digital artists."); color: ThemeManager.themeColor("text"); font.pixelSize: 12; wrapMode: Text.WordWrap; width: 320 }
+            Text { text: qsTr("Artwork stays in local Prism project files."); color: ThemeManager.themeColor("textDim"); font.pixelSize: 12 }
+        }
+    }
 
     // Text tool input (Krita keeps text entry in a small popup).
     Popup {
@@ -1285,7 +1488,7 @@ ApplicationWindow {
         anchors.centerIn: parent
         width: 300; height: 96
         padding: 10
-        background: Rectangle { color: ThemeManager.themeColor("popup"); border.color: ThemeManager.themeColor("popupBorder"); border.width: 1 }
+        background: Rectangle { color: ThemeManager.themeColor("popup"); border.color: ThemeManager.themeColor("popupBorder"); border.width: 1; radius: ThemeManager.themeColor("radiusPanel") }
         Column {
             anchors.fill: parent
             spacing: 6
@@ -1335,9 +1538,10 @@ ApplicationWindow {
         // Formats come from the controller, filtered to what this Qt build can
         // actually write Ã¢â‚¬â€ offering an unsupported format made Save fail with
         // no explanation.
-        nameFilters: controller.imageSaveFilters().concat([qsTr("All files (*)")])
+        nameFilters: [qsTr("Prism document (*.prism)")]
         fileMode: FileDialog.SaveFile
-        onAccepted: if (!controller.saveFile(selectedFile)) console.warn("save failed")
+        onAccepted: if (!controller.saveProjectAsync(selectedFile)) controller.cancelDocumentAction()
+        onRejected: controller.cancelDocumentAction()
     }
     FileDialog {
         id: openDialog
@@ -1346,10 +1550,11 @@ ApplicationWindow {
                       .concat(controller.imageOpenFilters())
                       .concat([qsTr("All files (*)")])
         fileMode: FileDialog.OpenFile
-        onAccepted: if (!controller.openFile(selectedFile)) console.warn("open failed")
+        onAccepted: controller.requestDocumentAction("open", {url: selectedFile.toString()})
     }
     FileDialog {
         id: recordDialog
+        property bool partial: false
         title: qsTr("Export Drawing Record")
         // The suffix picks the format: .prismrec is the verifiable one (hash
         // chain, checked by --check-record), mp4/gif are the shareable timelapse.
@@ -1360,7 +1565,7 @@ ApplicationWindow {
         ]
         fileMode: FileDialog.SaveFile
         defaultSuffix: "prismrec"
-        onAccepted: if (!controller.exportRecording(selectedFile))
+        onAccepted: if (!controller.exportRecordingAsync(selectedFile, partial))
                         console.warn("export record failed: " + controller.lastError)
     }
     FileDialog {
@@ -1384,7 +1589,7 @@ ApplicationWindow {
         width: 420; height: 520
         padding: 0
 
-        background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border"); border.width: 1 }
+        background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border"); border.width: 1; radius: ThemeManager.themeColor("radiusPanel") }
 
         ColumnLayout {
             anchors.fill: parent
@@ -1512,7 +1717,7 @@ ApplicationWindow {
         x: 200; y: 40
         width: 260; height: 300
         padding: 4
-        background: Rectangle { color: ThemeManager.themeColor("windowAlt"); border.color: ThemeManager.themeColor("border") }
+        background: Rectangle { color: ThemeManager.themeColor("windowAlt"); border.color: ThemeManager.themeColor("border"); radius: ThemeManager.themeColor("radiusPanel") }
 
         GridView {
             anchors.fill: parent
@@ -1522,7 +1727,7 @@ ApplicationWindow {
             currentIndex: controller.activePresetIndex
             delegate: Rectangle {
                 width: 48; height: 48
-                color: parent.currentIndex === index ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("panelSunken")
+                color: controller.activePresetIndex === index ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("panelSunken")
                 border.color: ThemeManager.themeColor("border")
                 Image {
                     anchors.fill: parent
@@ -1544,13 +1749,56 @@ ApplicationWindow {
         }
     }
 
+    Popup {
+        id: quickPanel
+        objectName: "focusQuickPanel"
+        property int page: 0
+        x: root.width - width - 20
+        y: 42
+        width: 316
+        height: Math.min(root.height - 90, 570)
+        padding: 6
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: FocusGlassPanel { backdrop: canvasArea }
+        contentItem: ColumnLayout {
+            spacing: 4
+            RowLayout {
+                Layout.fillWidth: true
+                Repeater {
+                    model: [qsTr("Layers"), qsTr("Brush Lab"), qsTr("Colour")]
+                    delegate: Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 28
+                        radius: ThemeManager.themeColor("radiusSmall")
+                        color: quickPanel.page === index ? ThemeManager.themeColor("selection") : "transparent"
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData
+                            color: quickPanel.page === index ? ThemeManager.themeColor("selectionText") : ThemeManager.themeColor("textDim")
+                            font.pixelSize: ThemeManager.themeColor("fontBody")
+                        }
+                        MouseArea { anchors.fill: parent; onClicked: quickPanel.page = index }
+                    }
+                }
+            }
+            StackLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                currentIndex: quickPanel.page
+                LayersDocker { controller: root.controller; embedded: true }
+                BrushPresetsDocker { controller: root.controller; embedded: true }
+                ColorSelector { controller: root.controller }
+            }
+        }
+    }
+
     // compact color popup from the toolbar swatch
     Popup {
         id: colorPopup
         x: root.width - 330; y: 40
         width: 300; height: 420
         padding: 0
-        background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border") }
+        background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border"); radius: ThemeManager.themeColor("radiusPanel") }
         ColorSelector { controller: root.controller; anchors.fill: parent }
     }
 }

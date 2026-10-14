@@ -21,6 +21,9 @@ public:
         BlendModeRole,
         TypeRole,
         LockedRole,
+        ClippedRole,
+        AlphaLockedRole,
+        DepthRole,
     };
     Q_ENUM(Role)
 

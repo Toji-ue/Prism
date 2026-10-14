@@ -1,0 +1,106 @@
+name: Client compatibility
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: client-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      QT_QUICK_BACKEND: software
+      PRISM_RECOVERY_DIR: ${{ github.workspace }}\build-release\ci-recovery
+      PRISM_SETTINGS_DIR: ${{ github.workspace }}\build-release\ci-settings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-declarative
+            mingw-w64-ucrt-x86_64-qt6-imageformats
+            mingw-w64-ucrt-x86_64-gtest
+      - name: Configure and build Release
+        run: |
+          cmake --preset release
+          cmake --build --preset release --parallel 2
+      - name: Core and recorder tests
+        run: ctest --test-dir build-release --output-on-failure
+      - name: Formats, compatibility and real QTest interactions
+        # Software scene graph verifies delivery/behavior, not GPU/tablet acceptance.
+        run: |
+          set -e
+          ./build-release/prism.exe --check-formats
+          ./build-release/prism.exe --selftest
+          ./build-release/prism.exe --demo-ux-beta-test --screenshot-only --screenshot=build-release/ci-beta.png
+          ./build-release/prism.exe --demo-drawing --demo-focus-mode-test --screenshot-only --screenshot=build-release/ci-focus.png
+          ./build-release/prism.exe --demo-drawing --demo-drag-slider=sizeSlider --screenshot-only --screenshot=build-release/ci-size.png
+          ./build-release/prism.exe --demo-drawing --demo-drag-layer=0:1 --screenshot-only --screenshot=build-release/ci-layers.png
+          ./build-release/prism.exe --demo-drawing --demo-focus-undo --screenshot-only --screenshot=build-release/ci-undo.png
+      - name: Packaging integrity fixture
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/package-validation.ps1 -SelfTest
+      - name: Capture diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force build-release/ci-logs | Out-Null
+          $logPath = Join-Path $env:APPDATA 'Prism/Prism/prism.log'
+          if (Test-Path -LiteralPath $logPath) { Copy-Item -LiteralPath $logPath build-release/ci-logs/prism.log }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-client-checks
+          path: |
+            build-release/Testing/Temporary/LastTest.log
+            build-release/ci-*.png
+            build-release/ci-logs/
+          if-no-files-found: warn
+  portable-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtest-dev libgl1-mesa-dev libxkbcommon-dev
+      - name: macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja googletest
+      - uses: jurplel/install-qt-action@v4
+        with:
+          # Matches the current Windows Qt build; this is not a Qt 6.4 minimum gate.
+          version: '6.11.1'
+          cache: true
+      - name: Configure and build native client
+        run: |
+          cmake --preset release
+          cmake --build --preset release --parallel 2
+      - name: Core and recorder compatibility tests
+        # Windows Media Foundation MP4/selftest hooks are deliberately not invoked here.
+        run: ctest --test-dir build-release --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.os }}-client-checks
+          path: build-release/Testing/Temporary/LastTest.log
+          if-no-files-found: warn

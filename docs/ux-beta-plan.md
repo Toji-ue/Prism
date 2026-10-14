@@ -1,0 +1,77 @@
+# UX and closed-beta implementation contract
+
+Approved 2026-10-13. Target: address the five release blockers and substantiate
+all ten UX heuristics. An implemented feature is not a 40/40 score or a release
+sign-off. Physical tablet, eight-hour drawing and clean-machine checks require
+recorded evidence.
+
+## Required behavior
+
+1. Artwork: independent saved-project and autosave revisions; stable history
+   checkpoints; a bounded 45-second autosave deadline unaffected by later edits;
+   committed-only snapshots, newest and previous atomic recovery files; visible
+   I/O failures. Save/Discard/Cancel guards Close/Quit/New/Open/import/recovery.
+   Ctrl+S uses the project path, Ctrl+Shift+S is Save As; flat export is not Save.
+   Save acknowledges the captured revision, never later edits. Discard cleans
+   only this document's recovery after its worker finishes, retaining recordings.
+2. Recording: always enabled, read-only status; failures visible, retry preserves
+   valid prefix/hash/timestamps, gaps stay acknowledged. Normal export requires
+   the final frame to be acknowledged; explicit partial export is labeled.
+   Session metadata distinguishes active/completed/crashed/error/archive states.
+   Storage lists sessions, sizes and status, offers export/open folder/confirmed
+   deletion of inactive sessions. No automatic retention cleanup.
+3. Document setup: pixel/inch/mm conversions and actual DPI (72 default, actual
+   300 for that preset); pixel mode preserves pixels on DPI changes, physical
+   modes preserve physical size. Clipboard retains pixels and alpha. Paint-layer
+   count excludes an optional solid raster background. Remove unsupported
+   description/fill/canvas-color options; RGB/Alpha, 8-bit, sRGB only. Size presets
+   persist width/height/DPI. Validate and stage new documents before replacement.
+   Flat-export DPI metadata matches the document without resampling pixels.
+4. UX: actionable persistent errors and brief success on Start/full/focus screens;
+   progress and duplicate-request protection. Notices avoid the pen; extended
+   notices wait for stroke end. Discoverable Quick Controls/Brush Lab; compact
+   Colour by default, optional persisted pinned picker. At least 32 logical px
+   primary toolbar/layer targets, focus/hover/accessibility; grouped tools. Offline
+   F1 Help covers drawing, saving, recovery, recording and current shortcuts.
+   Keep shared themes/corner tokens, square artwork, usable minimum-size panels.
+5. Candidate: consistent version and build/payload SHA-256 manifest, verify ZIP
+   and installer payload against the tested Release; current tester instructions;
+   runtime licenses/notices/provenance; Windows clean install/upgrade/uninstall
+   protects user data. Windows CI covers compatibility and UI interactions;
+   macOS/Linux build/core-test gates. Do not claim public/platform readiness.
+
+## Verification
+
+Behavioral tests at History, controller/file I/O, recorder/export and real QML
+interaction boundaries. Test sustained edits, save checkpoints/branches/eviction,
+failed/cancelled saves, outgoing worker results, atomic failure/crash recovery,
+storage/encoding faults, final-frame and partial exports, units/DPI/clipboard and
+old formats, notices/keyboard/input conflicts. Native light/dark screenshots at
+1280x780 and 1000x620, Windows scale 100/125/150/200%. Measure 300-point rendering
+benchmarks through 4000x4000 and responsiveness with autosave/export. Record a
+physical-tablet completed illustration and eight-hour recording/recovery/export.
+Run independent Standards and Spec review, then re-score all ten UX heuristics.
+
+## Constraints
+
+Qt/QML and current renderer/brush pipeline; existing file-I/O worker pattern,
+no render/brush threading or GPU dependency change. Native project/brush/record
+formats and old loaders/hash inputs remain compatible. Recordings are retained
+until explicit deletion. Compact shelf with optional pinned picker is the plan's
+default. Commit only task-related work; preserve unrelated workspace files.
+
+## Implementation ledger
+
+- [x] Artwork state, guarded transitions and robust autosave. Local automated coverage; external acceptance remains below.
+- [x] Recorder failure/retry/coverage, final-frame export and Storage. Local automated coverage; external acceptance remains below.
+- [x] Honest document setup and DPI metadata. Local automated coverage; external acceptance remains below.
+- [x] Notifications, accessible controls, colour pinning and offline help. Local automated coverage; external acceptance remains below.
+- [x] Candidate packaging code, notices, CI workflows and local validation documentation. Distribution license approval and actual remote CI remain open.
+- [x] Local automated/pixel/interaction verification and independent Standards/Spec review with focused rechecks. This does not establish a UX score or physical hardware acceptance.
+- [ ] Physical pen, eight-hour real drawing, clean-machine/platform acceptance.
+
+## Continuation after interruption
+
+Async retry and archive recovery use the existing file-I/O worker, with a busy state and no GUI wait for spool scans. Publishing the new index happens through a queued callback. Transitions preserve active pointer grabs and match the final capture to its spool. Cancelling a failed recording close keeps artwork recovery. Completed sessions do not appear as crash recovery, and a clean crash prefix still has incomplete coverage without completion metadata.
+
+Packaging code, runtime notices and CI jobs are implemented. External distribution is blocked by license review; remote CI, physical hardware, eight-hour and clean-machine results are not claimed. Final local Release/hash evidence is recorded separately in `local-candidate-validation.md`.

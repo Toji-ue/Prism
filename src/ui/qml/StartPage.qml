@@ -1,315 +1,208 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Prism.Ui 1.0
+import Prism.Ui 1.0
 import Prism
 
-// Krita-style start page: Start actions on the left, Recent Images in the
-// middle, News/links on the right, and a community/about footer.
 Rectangle {
     id: page
     required property AppController controller
-
+    readonly property bool bothRecoveryTypes: controller.recoverableArtworks.length > 0
+                                              && controller.recoverableRecordings.length > 0
     color: ThemeManager.themeColor("window")
-
     signal requestNew()
     signal requestOpen()
+    signal requestRecordExport()
 
-    // Cover the whole page with a plain-arrow cursor. Areas of the start page
-    // that declare no cursor of their own used to inherit the canvas's blank
-    // painting cursor through the overlay, so the pointer simply vanished.
-    // NoButton keeps this from swallowing the real clicks underneath.
-    MouseArea {
+    MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; cursorShape: Qt.ArrowCursor; hoverEnabled: true }
+
+    ColumnLayout {
         anchors.fill: parent
-        acceptedButtons: Qt.NoButton
-        cursorShape: Qt.ArrowCursor
-        hoverEnabled: true
-    }
+        anchors.leftMargin: Math.max(32, (page.width - 1040) / 2)
+        anchors.rightMargin: Math.max(32, (page.width - 1040) / 2)
+        anchors.topMargin: Math.max(24, (page.height - 610) / 3)
+        anchors.bottomMargin: 16
+        spacing: 0
 
-    RowLayout {
-        anchors.fill: parent
-        anchors.margins: 24
-        spacing: 24
-
-        // ---------------- Hero + primary actions ----------------
-        ColumnLayout {
-            Layout.preferredWidth: 300
-            Layout.fillHeight: true
-            spacing: 6
-
-            Text {
-                text: qsTr("Prism")
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 46
-                font.letterSpacing: -1.5
+        Text {
+            text: qsTr("PRISM")
+            color: ThemeManager.themeColor("highlight")
+            font.pixelSize: 12; font.weight: Font.DemiBold; font.letterSpacing: 3
+        }
+        Text {
+            Layout.topMargin: 12
+            text: qsTr("Make space for the work.")
+            color: ThemeManager.themeColor("text")
+            font.pixelSize: 33; font.weight: Font.Medium; font.letterSpacing: -0.8
+        }
+        Text {
+            Layout.topMargin: 7
+            text: qsTr("Start a canvas or continue where you left off.")
+            color: ThemeManager.themeColor("textDim")
+            font.pixelSize: 13
+        }
+        RowLayout {
+            Layout.fillWidth: true; Layout.topMargin: 32; spacing: 10
+            Rectangle {
+                Layout.preferredWidth: 194; Layout.preferredHeight: 44
+                radius: ThemeManager.themeColor("radiusControl")
+                color: newHover.hovered ? Qt.lighter(ThemeManager.themeColor("highlight"), 1.08) : ThemeManager.themeColor("highlight")
+                Row {
+                    anchors.centerIn: parent; spacing: 10
+                    Icon { width: 17; height: 17; name: "file-new"; color: ThemeManager.themeColor("highlightText") }
+                    Text { text: qsTr("New Document"); color: ThemeManager.themeColor("highlightText"); font.pixelSize: 13; font.weight: Font.DemiBold }
+                }
+                HoverHandler { id: newHover }
+                MouseArea { anchors.fill: parent; onClicked: page.requestNew() }
             }
+            Rectangle {
+                Layout.preferredWidth: 144; Layout.preferredHeight: 44
+                radius: ThemeManager.themeColor("radiusControl")
+                color: openHover.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelRaised")
+                border.color: ThemeManager.themeColor("border")
+                Row {
+                    anchors.centerIn: parent; spacing: 10
+                    Icon { width: 17; height: 17; name: "file-open"; color: ThemeManager.themeColor("text") }
+                    Text { text: qsTr("Open"); color: ThemeManager.themeColor("text"); font.pixelSize: 13 }
+                }
+                HoverHandler { id: openHover }
+                MouseArea { anchors.fill: parent; onClicked: page.requestOpen() }
+            }
+            Item { Layout.fillWidth: true }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true; Layout.topMargin: 24
+            visible: page.controller.recoverableArtworks.length > 0
+            spacing: 8
+            Text { text: qsTr("Recover Artwork"); color: ThemeManager.themeColor("text"); font.pixelSize: 15; font.weight: Font.Medium }
+            ListView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(page.height < 700
+                                                  ? (page.bothRecoveryTypes ? 72 : 108) : 142,
+                                                  count * 50)
+                clip: true
+                spacing: 8
+                model: page.controller.recoverableArtworks
+                delegate: Rectangle {
+                    required property var modelData
+                    width: ListView.view.width; height: 42
+                    color: recoveryHover.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelRaised")
+                    radius: ThemeManager.themeColor("radiusControl")
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
+                        Text { text: modelData.name; color: ThemeManager.themeColor("text"); font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Text { text: modelData.when; color: ThemeManager.themeColor("textDim"); font.pixelSize: 11 }
+                        Text { text: qsTr("Recover"); color: ThemeManager.themeColor("highlight"); font.pixelSize: 12 }
+                    }
+                    HoverHandler { id: recoveryHover }
+                    MouseArea { anchors.fill: parent; onClicked: page.controller.requestDocumentAction("recover", {url: modelData.url}) }
+                }
+            }
+        }
+        ColumnLayout {
+            Layout.fillWidth: true; Layout.topMargin: 15
+            visible: page.controller.recoverableRecordings.length > 0
+            spacing: 8
+            Text { text: qsTr("Recover Recording"); color: ThemeManager.themeColor("text"); font.pixelSize: 15; font.weight: Font.Medium }
+            ListView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(page.height < 700
+                                                  ? (page.bothRecoveryTypes ? 72 : 108) : 142,
+                                                  count * 50)
+                clip: true
+                spacing: 8
+                model: page.controller.recoverableRecordings
+                delegate: Rectangle {
+                    required property var modelData
+                    width: ListView.view.width; height: 42
+                    color: recordingHover.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelRaised")
+                    radius: ThemeManager.themeColor("radiusControl")
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
+                        Text { text: modelData.name; color: ThemeManager.themeColor("text"); font.pixelSize: 12; Layout.fillWidth: true }
+                        Text { text: qsTr("Export timelapse"); color: ThemeManager.themeColor("highlight"); font.pixelSize: 12 }
+                    }
+                    HoverHandler { id: recordingHover }
+                    MouseArea { anchors.fill: parent; enabled: !page.controller.recordingRepairing; onClicked: page.controller.recoverRecordingAsync(modelData.url) }
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: page.controller.recoverableArtworks.length > 0
+                              || page.controller.recoverableRecordings.length > 0 ? 20 : 47
+            Text { text: qsTr("Recent Files"); color: ThemeManager.themeColor("text"); font.pixelSize: 17; font.weight: Font.Medium }
+            Item { Layout.fillWidth: true }
             Text {
-                text: qsTr("Layered painting for digital artists")
+                visible: page.controller.recentFiles.length > 0
+                text: qsTr("Clear list")
+                color: clearHover.hovered ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("textDim")
+                font.pixelSize: 12
+                HoverHandler { id: clearHover }
+                MouseArea { anchors.fill: parent; onClicked: page.controller.clearRecentFiles() }
+            }
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: 100
+            Layout.topMargin: 12
+            radius: ThemeManager.themeColor("radiusPanel")
+            color: ThemeManager.themeColor("panel")
+
+            Text {
+                visible: page.controller.recentFiles.length === 0
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.margins: 18
+                text: qsTr("No recent files yet. Your work will appear here.")
                 color: ThemeManager.themeColor("textDim")
                 font.pixelSize: 13
             }
-
-            Item { Layout.preferredHeight: 26 }
-
-            // Primary action: accent-filled. One obvious next step beats two
-            // identical text rows.
-            Rectangle {
-                Layout.fillWidth: true
-                height: 46
-                radius: ThemeManager.themeColor("radius")
-                color: se.hovered ? Qt.lighter(ThemeManager.themeColor("highlight"), 1.08) : ThemeManager.themeColor("highlight")
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    spacing: 10
-                    Icon {
-                        Layout.preferredWidth: 18
-                        Layout.preferredHeight: 18
-                        name: "file-new"
-                        color: ThemeManager.themeColor("highlightText")
+            ListView {
+                anchors.fill: parent
+                anchors.margins: 8
+                clip: true
+                visible: page.controller.recentFiles.length > 0
+                model: page.controller.recentFiles
+                delegate: Rectangle {
+                    required property var modelData
+                    width: ListView.view.width; height: 62
+                    radius: ThemeManager.themeColor("radiusControl")
+                    color: recentHover.hovered ? ThemeManager.themeColor("panelRaised") : "transparent"
+                    Rectangle {
+                        x: 9; y: 10; width: 42; height: 42
+                        radius: ThemeManager.themeColor("radiusChip")
+                        color: ThemeManager.themeColor("panelSunken")
+                        Image {
+                            id: thumbnail
+                            anchors.fill: parent; anchors.margins: 2
+                            asynchronous: true; fillMode: Image.PreserveAspectFit
+                            sourceSize: Qt.size(42, 42)
+                            source: modelData.exists ? modelData.previewUrl : ""
+                            visible: status === Image.Ready
+                        }
+                        Icon { anchors.centerIn: parent; width: 20; height: 20; visible: thumbnail.status !== Image.Ready; name: "file-open"; color: ThemeManager.themeColor("textDim") }
                     }
-                    Text {
-                        text: qsTr("New Document")
-                        color: ThemeManager.themeColor("highlightText")
-                        font.pixelSize: 15
+                    Column {
+                        x: 66; y: 11; width: parent.width - 82; spacing: 5
+                        Text { width: parent.width; text: modelData.name; color: modelData.exists ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim"); font.pixelSize: 13; elide: Text.ElideMiddle }
+                        Text { width: parent.width; text: modelData.exists ? modelData.path : qsTr("File no longer exists"); color: ThemeManager.themeColor("textDim"); font.pixelSize: 11; elide: Text.ElideMiddle }
                     }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        text: "Ctrl+N"
-                        color: ThemeManager.themeColor("highlightText")
-                        opacity: 0.65
-                        font.pixelSize: 11
-                    }
-                }
-                HoverHandler { id: se }
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: page.requestNew()
-                }
-            }
-
-            // Secondary action: outlined, same size and rhythm.
-            Rectangle {
-                Layout.fillWidth: true
-                height: 46
-                radius: ThemeManager.themeColor("radius")
-                color: so.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
-                border.color: ThemeManager.themeColor("border")
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    spacing: 10
-                    Icon {
-                        Layout.preferredWidth: 18
-                        Layout.preferredHeight: 18
-                        name: "file-open"
-                        color: ThemeManager.themeColor("text")
-                    }
-                    Text {
-                        text: qsTr("Open Image")
-                        color: ThemeManager.themeColor("text")
-                        font.pixelSize: 15
-                    }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        text: "Ctrl+O"
-                        color: ThemeManager.themeColor("textDim")
-                        font.pixelSize: 11
-                    }
-                }
-                HoverHandler { id: so }
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: page.requestOpen()
-                }
-            }
-
-            Item { Layout.fillHeight: true }
-
-            // ---------------- Community / about ----------------
-            Text {
-                text: qsTr("Community")
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 21
-            }
-            Repeater {
-                model: [
-                    { icon: "swatch",       label: qsTr("Support Prism") },
-                    { icon: "duplicate",    label: qsTr("Source Code") },
-                    { icon: "transparency", label: qsTr("Website") }
-                ]
-                delegate: RowLayout {
-                    spacing: 8
-                    Icon {
-                        Layout.preferredWidth: 14
-                        Layout.preferredHeight: 14
-                        name: modelData.icon
-                        color: ThemeManager.themeColor("textDim")
-                    }
-                    Text {
-                        text: modelData.label
-                        color: ThemeManager.themeColor("textDim")
-                        font.pixelSize: 12
-                    }
-                }
-            }
-        }
-
-        // ---------------- Recent Images ----------------
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: 10
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: qsTr("Recent Images")
-                    color: ThemeManager.themeColor("text")
-                    font.pixelSize: 21
-                }
-                Item { Layout.fillWidth: true }
-                Rectangle {
-                    visible: page.controller.recentFiles.length > 0
-                    width: 90; height: 24
-                    color: ch.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
-                    border.color: ThemeManager.themeColor("border")
-                    Text {
-                        anchors.centerIn: parent
-                        text: qsTr("Clear list")
-                        color: ThemeManager.themeColor("textDim")
-                        font.pixelSize: 11
-                    }
-                    HoverHandler { id: ch }
+                    HoverHandler { id: recentHover }
                     MouseArea {
-                        anchors.fill: parent
-                        onClicked: page.controller.clearRecentFiles()
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: ThemeManager.themeColor("windowAlt")
-                border.color: ThemeManager.themeColor("border")
-
-                // empty state, like Krita's
-                Text {
-                    anchors.centerIn: parent
-                    width: parent.width - 40
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                    visible: page.controller.recentFiles.length === 0
-                    text: qsTr("You don't seem to have any recently opened documents")
-                    color: ThemeManager.themeColor("textDim")
-                    font.pixelSize: 12
-                }
-
-                GridView {
-                    id: recents
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    clip: true
-                    cellWidth: 120
-                    cellHeight: 110
-                    model: page.controller.recentFiles
-
-                    delegate: Rectangle {
-                        width: 112; height: 102
-                        color: ThemeManager.themeColor("panelRaised")
-                        radius: ThemeManager.themeColor("radiusSmall")
-                        border.color: rh.hovered ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
-                        border.width: 1
-
-                        Column {
-                            anchors.fill: parent
-                            anchors.margins: 6
-                            spacing: 6
-
-                            Rectangle {
-                                width: parent.width
-                                height: 62
-                                radius: ThemeManager.themeColor("radiusSmall")
-                                color: ThemeManager.themeColor("panelSunken")
-                                // Show the file's own picture. Qt decodes any
-                                // raster format itself, so no provider is
-                                // needed; .prism projects (and anything that
-                                // fails to load) keep the format icon.
-                                Image {
-                                    id: recentThumb
-                                    anchors.fill: parent
-                                    anchors.margins: 3
-                                    asynchronous: true
-                                    fillMode: Image.PreserveAspectFit
-                                    sourceSize.width: 100
-                                    sourceSize.height: 56
-                                    source: modelData.name.endsWith(".prism") ? "" : modelData.url
-                                    visible: status === Image.Ready
-                                }
-                                Icon {
-                                    anchors.centerIn: parent
-                                    width: 28; height: 28
-                                    visible: recentThumb.status !== Image.Ready
-                                    name: modelData.name.endsWith(".prism")
-                                          ? "file-save" : "file-open"
-                                    color: rh.hovered ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("textDim")
-                                }
-                            }
-                            Text {
-                                width: parent.width
-                                text: modelData.name
-                                color: ThemeManager.themeColor("text")
-                                font.pixelSize: 11
-                                elide: Text.ElideMiddle
-                                wrapMode: Text.NoWrap
-                            }
+                        anchors.fill: parent; enabled: modelData.exists
+                        onClicked: {
+                            page.controller.requestDocumentAction("open", {url: modelData.url})
                         }
-
-                        HoverHandler { id: rh }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                const url = modelData.url
-                                if (modelData.name.toLowerCase().endsWith(".prism"))
-                                    page.controller.openProject(url)
-                                else
-                                    page.controller.importImage(url)
-                            }
-                        }
-                        ToolTip.visible: rh.hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: modelData.path
                     }
+                    ToolTip.visible: recentHover.hovered; ToolTip.delay: 500
+                    ToolTip.text: modelData.exists ? modelData.path : qsTr("File no longer exists: %1").arg(modelData.path)
                 }
             }
         }
-    }
-
-    // ---------------- footer ----------------
-    Column {
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 14
-        spacing: 2
-
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: qsTr("Prism is an open drawing application for digital artists.")
-            color: ThemeManager.themeColor("textDim")
-            font.pixelSize: 11
-        }
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: qsTr("Prism %1 Â· canvas painting, brush engine, layered documents")
-                  .arg(page.controller.versionString())
-            color: ThemeManager.themeColor("textDim")
-            font.pixelSize: 10
-        }
+        Text { Layout.topMargin: 15; text: qsTr("Prism %1").arg(page.controller.versionString()); color: ThemeManager.themeColor("textDim"); font.pixelSize: 11 }
     }
 }
-

@@ -1,0 +1,67 @@
+%NAME%
+mingw-w64-ucrt-x86_64-qt6-base
+
+%VERSION%
+6.11.1-1
+
+%BASE%
+mingw-w64-qt6-base
+
+%DESC%
+A cross-platform application and UI framework (mingw-w64)
+
+%URL%
+https://www.qt.io
+
+%ARCH%
+any
+
+%BUILDDATE%
+1780806111
+
+%INSTALLDATE%
+1790512130
+
+%PACKAGER%
+CI (https://github.com/msys2/msys2-autobuild/actions/runs/27082501411/job/79930841594)
+
+%SIZE%
+95368239
+
+%GROUPS%
+mingw-w64-ucrt-x86_64-qt6
+
+%LICENSE%
+spdx:LGPL-3.0-only WITH Qt-GPL-exception-1.0 AND AFL-2.1 AND Apache-2.0 AND BSL-1.0 AND CC0-1.0 AND BSD-3-Clause AND CC-BY-4.0 AND GFDL-1.3-no-invariants-only AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-only AND custom
+
+%VALIDATION%
+sha256
+pgp
+
+%DEPENDS%
+mingw-w64-ucrt-x86_64-double-conversion
+mingw-w64-ucrt-x86_64-dbus
+mingw-w64-ucrt-x86_64-freetype
+mingw-w64-ucrt-x86_64-glib2
+mingw-w64-ucrt-x86_64-harfbuzz
+mingw-w64-ucrt-x86_64-icu
+mingw-w64-ucrt-x86_64-libb2
+mingw-w64-ucrt-x86_64-libjpeg-turbo
+mingw-w64-ucrt-x86_64-libpng
+mingw-w64-ucrt-x86_64-md4c
+mingw-w64-ucrt-x86_64-openssl
+mingw-w64-ucrt-x86_64-pcre2
+mingw-w64-ucrt-x86_64-sqlite3
+mingw-w64-ucrt-x86_64-vulkan-loader
+mingw-w64-ucrt-x86_64-vulkan-headers
+mingw-w64-ucrt-x86_64-zlib
+mingw-w64-ucrt-x86_64-zstd
+
+%OPTDEPENDS%
+mingw-w64-ucrt-x86_64-libmariadbclient: MySQL/MariaDB driver
+mingw-w64-ucrt-x86_64-postgresql: PostgreSQL driver
+mingw-w64-ucrt-x86_64-firebird: Firebird/iBase driver
+
+%XDATA%
+pkgtype=split
+

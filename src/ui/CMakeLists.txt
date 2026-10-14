@@ -5,6 +5,8 @@
 add_library(prism_ui STATIC
     application/AppController.cpp
     application/AppController.h
+    application/ArtworkSession.cpp
+    application/ArtworkSession.h
     application/LayerListModel.cpp
     application/LayerListModel.h
     application/PresetImageProvider.cpp

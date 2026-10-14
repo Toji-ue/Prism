@@ -1,0 +1,47 @@
+%NAME%
+mingw-w64-ucrt-x86_64-lcms2
+
+%VERSION%
+2.19.1-1
+
+%BASE%
+mingw-w64-lcms2
+
+%DESC%
+Small-footprint color management engine, version 2 (mingw-w64)
+
+%URL%
+https://www.littlecms.com/color-engine/
+
+%ARCH%
+any
+
+%BUILDDATE%
+1778082621
+
+%INSTALLDATE%
+1791288062
+
+%PACKAGER%
+CI (msys2/msys2-autobuild/actions/runs/25445834131/job/74649571768)
+
+%SIZE%
+2184881
+
+%REASON%
+1
+
+%LICENSE%
+spdx:MIT AND GPL-3.0-or-later
+
+%VALIDATION%
+sha256
+pgp
+
+%DEPENDS%
+mingw-w64-ucrt-x86_64-libjpeg-turbo
+mingw-w64-ucrt-x86_64-libtiff
+
+%XDATA%
+pkgtype=pkg
+

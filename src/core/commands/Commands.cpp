@@ -3,7 +3,10 @@
 #include "layer/Layer.h"
 #include "raster/Blend.h"
 
+#include <algorithm>
 #include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace prism::core {
 
@@ -89,6 +92,18 @@ void StrokeCommand::redo()
         // partial opacity behave like a real brush.
         px.compositeOver(m_after, m_rectX, m_rectY);
     }
+    if (layer().isAlphaLocked()) {
+        for (int y = 0; y < m_before.height(); ++y)
+            for (int x = 0; x < m_before.width(); ++x) {
+                const auto previous = m_before.at(x, y);
+                const int pxX = m_rectX + x, pxY = m_rectY + y;
+                if (pxX < 0 || pxY < 0 || pxX >= px.width() || pxY >= px.height())
+                    continue;
+                auto now = px.at(pxX, pxY);
+                now.a = previous.a;
+                px.set(pxX, pxY, previous.a ? now : previous);
+            }
+    }
 }
 
 // ---------------------------------------------------------- CutRegionToLayer
@@ -138,12 +153,25 @@ RemoveLayerCommand::RemoveLayerCommand(Document& doc, std::size_t index)
 
 void RemoveLayerCommand::undo()
 {
-    if (m_layer)
+    if (m_layer) {
+        const auto groupId = m_layer->id();
         m_doc.insertLayer(m_index, std::move(m_layer));
+        for (const auto& layer : m_doc.layers())
+            if (std::find(m_childIds.begin(), m_childIds.end(), layer->id()) != m_childIds.end())
+                layer->setParentId(groupId);
+    }
 }
 
 void RemoveLayerCommand::redo()
 {
+    m_childIds.clear();
+    const auto& target = *m_doc.layers().at(m_index);
+    if (target.type() == Layer::Type::Group)
+        for (const auto& layer : m_doc.layers())
+            if (layer->parentId() == target.id()) {
+                m_childIds.push_back(layer->id());
+                layer->setParentId(target.parentId());
+            }
     m_layer = m_doc.takeLayer(m_index);
 }
 
@@ -169,25 +197,43 @@ void MoveLayerCommand::redo()
 // ------------------------------------------------------------- DuplicateLayer
 
 DuplicateLayerCommand::DuplicateLayerCommand(Document& doc, std::size_t index)
-    : m_doc(doc)
-    , m_sourceIndex(index)
-    , m_copy(doc.layers().at(index)->clone())
-{
-}
-
-void DuplicateLayerCommand::undo()
-{
-    m_doc.takeLayer(m_newIndex);
-}
-
-void DuplicateLayerCommand::redo()
-{
-    if (m_copy) {
-        m_newIndex = m_doc.addLayer(m_copy->clone());
-    } else {
-        // First redo was undone: the copy was consumed, re-clone from source.
-        m_newIndex = m_doc.addLayer(m_doc.layers().at(m_sourceIndex)->clone());
+    : m_doc(doc) {
+    const auto& source = *doc.layers().at(index);
+    std::unordered_set<std::uint64_t> included{source.id()};
+    if (source.type() == Layer::Type::Group) {
+        bool added;
+        do {
+            added = false;
+            for (const auto& layer : doc.layers())
+                if (included.contains(layer->parentId()) && included.insert(layer->id()).second)
+                    added = true;
+        } while (added);
     }
+    std::vector<const Layer*> originals{&source};
+    for (const auto& layer : doc.layers())
+        if (layer->id() != source.id() && included.contains(layer->id()))
+            originals.push_back(layer.get());
+    std::unordered_map<std::uint64_t, std::uint64_t> newIds;
+    for (const Layer* layer : originals) {
+        m_copies.push_back(layer->clone());
+        newIds[layer->id()] = m_copies.back()->id();
+    }
+    for (auto& copy : m_copies) {
+        const auto it = newIds.find(copy->parentId());
+        if (it != newIds.end())
+            copy->setParentId(it->second);
+    }
+}
+
+void DuplicateLayerCommand::undo() {
+    for (std::size_t i = m_copies.size(); i-- > 0;)
+        m_copies[i] = m_doc.takeLayer(m_newIndex + i);
+}
+
+void DuplicateLayerCommand::redo() {
+    m_newIndex = m_doc.layers().size();
+    for (auto& copy : m_copies)
+        m_doc.addLayer(std::move(copy));
 }
 
 // -------------------------------------------------------------- ClearLayer
@@ -235,6 +281,49 @@ void CropCommand::undo()
     m_doc.setCanvasSize(m_beforeSize);
     m_doc.setCanvasOrigin(m_beforeOrigin);
 }
+
+ResizeCanvasCommand::ResizeCanvasCommand(Document& doc, CanvasSize size)
+    : m_doc(doc), m_newSize(size), m_oldSize(doc.canvasSize()), m_oldOrigin(doc.canvasOrigin()) {
+    m_oldPixels.reserve(doc.layers().size());
+    for (const auto& layer : doc.layers())
+        m_oldPixels.push_back(layer->type() == Layer::Type::Raster ? layer->pixels()
+                                                                 : raster::RasterBuffer{});
+}
+
+void ResizeCanvasCommand::redo() { m_doc.resizeCanvas(m_newSize); }
+
+void ResizeCanvasCommand::undo() {
+    m_doc.setCanvasSize(m_oldSize);
+    m_doc.setCanvasOrigin(m_oldOrigin);
+    for (std::size_t i = 0; i < m_oldPixels.size(); ++i)
+        if (m_doc.layers()[i]->type() == Layer::Type::Raster)
+            m_doc.layers()[i]->pixels() = m_oldPixels[i];
+}
+
+GroupLayerCommand::GroupLayerCommand(Document& doc, std::size_t index, std::string name)
+    : m_doc(doc), m_index(index), m_oldParent(doc.layers().at(index)->parentId()),
+      m_group(std::make_unique<Layer>(Layer::Type::Group, std::move(name))),
+      m_groupId(m_group->id()) {
+    m_group->setParentId(m_oldParent);
+}
+
+void GroupLayerCommand::redo() {
+    m_doc.layers().at(m_index)->setParentId(m_groupId);
+    m_doc.insertLayer(m_index + 1, std::move(m_group));
+}
+
+void GroupLayerCommand::undo() {
+    m_doc.layers().at(m_index)->setParentId(m_oldParent);
+    m_group = m_doc.takeLayer(m_index + 1);
+}
+
+SetLayerParentCommand::SetLayerParentCommand(Document& doc, std::size_t index,
+                                             std::uint64_t parentId)
+    : m_doc(doc), m_index(index), m_oldParent(doc.layers().at(index)->parentId()),
+      m_newParent(parentId) {}
+
+void SetLayerParentCommand::redo() { m_doc.layers().at(m_index)->setParentId(m_newParent); }
+void SetLayerParentCommand::undo() { m_doc.layers().at(m_index)->setParentId(m_oldParent); }
 
 // ------------------------------------------------------- MoveLayerContent
 
@@ -371,6 +460,8 @@ void SetLayerPropertyCommand::apply(const Value& v)
     case Property::Opacity: layer.setOpacity(v.f); break;
     case Property::BlendMode: layer.setBlendMode(v.blend); break;
     case Property::Locked: layer.setLocked(v.b); break;
+    case Property::Clipped: layer.setClipped(v.b); break;
+    case Property::AlphaLocked: layer.setAlphaLocked(v.b); break;
     }
 }
 

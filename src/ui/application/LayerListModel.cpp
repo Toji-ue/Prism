@@ -4,6 +4,7 @@
 #include "layer/Layer.h"
 
 #include <array>
+#include <algorithm>
 
 LayerListModel::LayerListModel(QObject* parent)
     : QAbstractListModel(parent)
@@ -36,6 +37,21 @@ QVariant LayerListModel::data(const QModelIndex& index, int role) const
     case BlendModeRole: return static_cast<int>(layer.blendMode());
     case TypeRole: return static_cast<int>(layer.type());
     case LockedRole: return layer.isLocked();
+    case ClippedRole: return layer.isClipped();
+    case AlphaLockedRole: return layer.isAlphaLocked();
+    case DepthRole: {
+        int depth = 0;
+        auto parent = layer.parentId();
+        while (parent != 0 && depth < 64) {
+            const auto it = std::find_if(m_doc->layers().begin(), m_doc->layers().end(),
+                                         [parent](const auto& item) { return item->id() == parent; });
+            if (it == m_doc->layers().end())
+                break;
+            ++depth;
+            parent = (*it)->parentId();
+        }
+        return depth;
+    }
     }
     return {};
 }
@@ -49,6 +65,9 @@ QHash<int, QByteArray> LayerListModel::roleNames() const
         { BlendModeRole, "blendMode" },
         { TypeRole, "type" },
         { LockedRole, "locked" },
+        { ClippedRole, "clipped" },
+        { AlphaLockedRole, "alphaLocked" },
+        { DepthRole, "depth" },
     };
 }
 

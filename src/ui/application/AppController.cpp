@@ -9,42 +9,105 @@
 #include "selection/Selection.h"
 #include "shapes/Shapes.h"
 
-#include <QCoreApplication>
 #include <QBuffer>
 #include <QClipboard>
+#include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDesktopServices>
 #include <QDir>
-#include <QFont>
-#include <QPainter>
+#include <QFile>
 #include <QFileInfo>
+#include <QFont>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPainter>
+#include <QPalette>
+#include <QSaveFile>
+#include <QScopeGuard>
 #include <QSettings>
+#include <QStandardPaths>
+#include <QUuid>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstring>
 
 using namespace prism;
 
 namespace {
 
-prism::core::geometry::Rect fullRect(const prism::core::Document& doc)
-{
+QString recoveryRoot() {
+    const QString override = qEnvironmentVariable("PRISM_RECOVERY_DIR");
+    if (!override.isEmpty())
+        return override;
+    const QString settingsDir = qEnvironmentVariable("PRISM_SETTINGS_DIR");
+    if (!settingsDir.isEmpty())
+        return QDir(settingsDir).filePath(QStringLiteral("recovery"));
+    return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
+           QStringLiteral("/recovery");
+}
+
+QString recentPreviewPath(const QString& path) {
+    QString root = qEnvironmentVariable("PRISM_SETTINGS_DIR");
+    if (root.isEmpty())
+        root = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    const QByteArray hash =
+        QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex();
+    return QDir(root).filePath(QStringLiteral("recent-previews/") + QString::fromLatin1(hash) +
+                               QStringLiteral(".png"));
+}
+
+prism::core::geometry::Rect fullRect(const prism::core::Document& doc) {
     const auto s = doc.canvasSize();
-    return prism::core::geometry::Rect{ 0, 0, s.width, s.height };
+    return prism::core::geometry::Rect{0, 0, s.width, s.height};
 }
 
-prism::core::raster::Color toRaster(QColor c)
-{
-    return prism::core::raster::Color{ static_cast<std::uint8_t>(c.red()),
-                                       static_cast<std::uint8_t>(c.green()),
-                                       static_cast<std::uint8_t>(c.blue()), 255 };
+prism::core::geometry::Rect joined(prism::core::geometry::Rect a, prism::core::geometry::Rect b) {
+    if (a.isEmpty())
+        return b;
+    if (b.isEmpty())
+        return a;
+    const int x = std::min(a.x, b.x);
+    const int y = std::min(a.y, b.y);
+    return {x, y, std::max(a.x + a.width, b.x + b.width) - x,
+            std::max(a.y + a.height, b.y + b.height) - y};
 }
 
-QColor toQColor(prism::core::raster::Color c)
-{
-    return QColor(c.r, c.g, c.b, c.a);
+prism::core::raster::Color toRaster(QColor c) {
+    return prism::core::raster::Color{static_cast<std::uint8_t>(c.red()),
+                                      static_cast<std::uint8_t>(c.green()),
+                                      static_cast<std::uint8_t>(c.blue()), 255};
+}
+
+QColor toQColor(prism::core::raster::Color c) { return QColor(c.r, c.g, c.b, c.a); }
+
+void applyThemePalette(const QString& theme) {
+    const bool light = theme == QLatin1String("light");
+    const QColor bg(light ? "#f3f4f5" : "#1c2025");
+    const QColor fg(light ? "#20262c" : "#edf0f2");
+    const QColor raised(light ? "#ffffff" : "#2b3138");
+    const QColor disabled(light ? "#8a939c" : "#818b95");
+    const QColor accent("#e55549");
+    QPalette palette;
+    palette.setColor(QPalette::Window, bg);
+    palette.setColor(QPalette::WindowText, fg);
+    palette.setColor(QPalette::Base, raised);
+    palette.setColor(QPalette::AlternateBase, bg);
+    palette.setColor(QPalette::Text, fg);
+    palette.setColor(QPalette::Button, raised);
+    palette.setColor(QPalette::ButtonText, fg);
+    palette.setColor(QPalette::Highlight, accent);
+    palette.setColor(QPalette::HighlightedText, QColor("#ffffff"));
+    palette.setColor(QPalette::ToolTipBase, raised);
+    palette.setColor(QPalette::ToolTipText, fg);
+    palette.setColor(QPalette::PlaceholderText, disabled);
+    palette.setColor(QPalette::Disabled, QPalette::Text, disabled);
+    palette.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
+    QGuiApplication::setPalette(palette);
 }
 
 /// QML passes file arguments either as a `url` (FileDialog.selectedFile) or as
@@ -52,8 +115,7 @@ QColor toQColor(prism::core::raster::Color c)
 /// Windows path string converted to QUrl is NOT a local file URL â€”
 /// QUrl("C:\\x.png") parses "c" as a scheme â€” so toLocalFile() returns empty
 /// and the operation silently fails with an empty file name. Accept both.
-QString localPathFrom(const QUrl& url)
-{
+QString localPathFrom(const QUrl& url) {
     const QString path = url.toLocalFile();
     if (!path.isEmpty())
         return path;
@@ -72,25 +134,24 @@ QString localPathFrom(const QUrl& url)
 
 /// Human label for a Qt image format, so extensions that mean the same thing
 /// (jpg/jpeg/jfif) collapse into one dialog entry.
-QString formatLabel(const QByteArray& format)
-{
+QString formatLabel(const QByteArray& format) {
     static const QHash<QString, QString> labels = {
-        { QStringLiteral("png"), QStringLiteral("PNG image") },
-        { QStringLiteral("jpg"), QStringLiteral("JPEG image") },
-        { QStringLiteral("jpeg"), QStringLiteral("JPEG image") },
-        { QStringLiteral("jfif"), QStringLiteral("JPEG image") },
-        { QStringLiteral("webp"), QStringLiteral("WebP image") },
-        { QStringLiteral("tif"), QStringLiteral("TIFF image") },
-        { QStringLiteral("tiff"), QStringLiteral("TIFF image") },
-        { QStringLiteral("bmp"), QStringLiteral("Windows BMP image") },
-        { QStringLiteral("gif"), QStringLiteral("GIF image") },
-        { QStringLiteral("ico"), QStringLiteral("Windows icon") },
-        { QStringLiteral("cur"), QStringLiteral("Windows cursor") },
-        { QStringLiteral("ppm"), QStringLiteral("PPM image") },
-        { QStringLiteral("pgm"), QStringLiteral("PGM image") },
-        { QStringLiteral("pbm"), QStringLiteral("PBM image") },
-        { QStringLiteral("xbm"), QStringLiteral("XBM image") },
-        { QStringLiteral("xpm"), QStringLiteral("XPM image") },
+        {QStringLiteral("png"), QStringLiteral("PNG image")},
+        {QStringLiteral("jpg"), QStringLiteral("JPEG image")},
+        {QStringLiteral("jpeg"), QStringLiteral("JPEG image")},
+        {QStringLiteral("jfif"), QStringLiteral("JPEG image")},
+        {QStringLiteral("webp"), QStringLiteral("WebP image")},
+        {QStringLiteral("tif"), QStringLiteral("TIFF image")},
+        {QStringLiteral("tiff"), QStringLiteral("TIFF image")},
+        {QStringLiteral("bmp"), QStringLiteral("Windows BMP image")},
+        {QStringLiteral("gif"), QStringLiteral("GIF image")},
+        {QStringLiteral("ico"), QStringLiteral("Windows icon")},
+        {QStringLiteral("cur"), QStringLiteral("Windows cursor")},
+        {QStringLiteral("ppm"), QStringLiteral("PPM image")},
+        {QStringLiteral("pgm"), QStringLiteral("PGM image")},
+        {QStringLiteral("pbm"), QStringLiteral("PBM image")},
+        {QStringLiteral("xbm"), QStringLiteral("XBM image")},
+        {QStringLiteral("xpm"), QStringLiteral("XPM image")},
     };
     const QString key = QString::fromLatin1(format).toLower();
     return labels.value(key, key.toUpper() + QStringLiteral(" image"));
@@ -98,8 +159,7 @@ QString formatLabel(const QByteArray& format)
 
 /// Builds file-dialog filter strings ("JPEG image (*.jpg *.jpeg)") from the
 /// formats this Qt build actually supports, keeping the given order.
-QStringList filterStringsFor(const QList<QByteArray>& formats)
-{
+QStringList filterStringsFor(const QList<QByteArray>& formats) {
     QList<QPair<QString, QStringList>> groups;
     for (const QByteArray& format : formats) {
         const QString label = formatLabel(format);
@@ -113,7 +173,7 @@ QStringList filterStringsFor(const QList<QByteArray>& formats)
             }
         }
         if (!appended)
-            groups.append({ label, { pattern } });
+            groups.append({label, {pattern}});
     }
 
     QStringList out;
@@ -125,20 +185,53 @@ QStringList filterStringsFor(const QList<QByteArray>& formats)
 } // namespace
 
 AppController::AppController(QObject* parent)
-    : QObject(parent)
-    , m_layersModel(new LayerListModel(this))
-    , m_presets(canvas::builtinBrushPresets())
-{
+    : QObject(parent), m_layersModel(new LayerListModel(this)),
+      m_presets(canvas::builtinBrushPresets()) {
+    for (std::size_t i = 0; i < m_presets.size(); ++i)
+        m_presets[i].id = "builtin:" + std::to_string(i);
+    m_recentColorTimer = new QTimer(this);
+    m_recentColorTimer->setSingleShot(true);
+    m_recentColorTimer->setInterval(300);
+    connect(m_recentColorTimer, &QTimer::timeout, this, [this]() {
+        const QString value = brushColor().name(QColor::HexArgb);
+        m_recentColors.removeAll(value);
+        m_recentColors.prepend(value);
+        while (m_recentColors.size() > 8)
+            m_recentColors.removeLast();
+        if (!m_selfTestMode)
+            QSettings().setValue(QStringLiteral("quickControls/recentColors"), m_recentColors);
+        emit recentColorsChanged();
+    });
+    connect(this, &AppController::brushChanged, this, [this]() {
+        const auto thumb =
+            canvas::renderPresetThumbnail(m_brush, 220, 84, core::raster::kOpaqueBlack);
+        QImage preview(thumb.data(), thumb.width(), thumb.height(), thumb.width() * 4,
+                       QImage::Format_RGBA8888);
+        {
+            QMutexLocker lock(&m_snapshotMutex);
+            m_brushPreview = preview.copy();
+            ++m_brushPreviewRevision;
+        }
+        emit brushPreviewChanged();
+    });
     m_doc.addRasterLayer("Layer 1");
     m_layersModel->setDocument(&m_doc);
     m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
     m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
     loadRecentFiles();
     loadUserPresets();
+    QSettings uiSettings;
+    m_pinnedPresetIds =
+        uiSettings.value(QStringLiteral("quickControls/pinnedPresets")).toStringList();
+    m_recentPresetIds =
+        uiSettings.value(QStringLiteral("quickControls/recentPresets")).toStringList();
+    m_recentColors = uiSettings.value(QStringLiteral("quickControls/recentColors")).toStringList();
     // Restore the persisted theme; the QML ThemeManager applies it on startup.
     m_theme = QSettings().value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
+    applyThemePalette(m_theme);
     // Start on the first preset so the toolbar/status bar read like a real app.
     selectPreset(0);
+    m_uiPreferencesReady = true;
     rebuildFullComposite();
 
     // Image providers run on Qt's pixmap-reader thread and may only read
@@ -149,8 +242,8 @@ AppController::AppController(QObject* parent)
     m_snapshotTimer->setInterval(250);
     connect(m_snapshotTimer, &QTimer::timeout, this, [this]() {
         // Pixels changed, or the selection was cleared (leaving a stale overlay).
-        if (m_snapshotRevision != m_layerRevision
-            || (!m_selectionSnapshot.isNull() && m_selection.isEmpty()))
+        if (m_snapshotRevision != m_layerRevision ||
+            (!m_selectionSnapshot.isNull() && m_selection.isEmpty()))
             refreshSnapshots();
     });
     m_snapshotTimer->start();
@@ -161,41 +254,211 @@ AppController::AppController(QObject* parent)
     // the session without thinking about it while drawing.
     m_recorder = new SessionRecorder(this);
     // The UI's frame counter and the export entries follow every stored frame.
-    connect(m_recorder, &SessionRecorder::frameStored, this, &AppController::recordingChanged);
-    connect(m_recorder, &SessionRecorder::full, this, [this]() {
+    connect(m_recorder, &SessionRecorder::frameStored, this, [this]() {
         emit recordingChanged();
-        setStatusMessage(tr("Recording buffer is full (%1 frames) - export it from File > "
-                            "Export Drawing Record...")
-                             .arg(m_recorder->frameCount()));
+        emit recoveryChanged();
     });
-    connect(this, &AppController::canvasChanged, this,
-            [this](int, int, int, int) { m_recorder->capture(canvasImage(), undoLabel()); });
+    connect(m_recorder, &SessionRecorder::stateChanged, this, [this]() {
+        emit recordingChanged();
+        emit recoveryChanged();
+        if (m_recorder->hasError())
+            setLastError(m_recorder->lastError());
+    });
+    connect(m_recorder, &SessionRecorder::retryFinished, this, [this](bool ok) {
+        if (ok) {
+            setLastError({});
+            setStatusMessage(tr("Recording resumed. Earlier gaps remain marked as incomplete."));
+        } else
+            setLastError(m_recorder->lastError());
+    });
+    connect(m_recorder, &SessionRecorder::archiveLoaded, this,
+            [this](bool ok, const QString& error) {
+                if (ok) {
+                    setLastError({});
+                    setStatusMessage(tr("Recording loaded. Artwork recovery is separate; "
+                                        "incomplete coverage requires partial export."));
+                } else
+                    setLastError(error);
+                emit recordingRecovered(ok);
+                emit recoveryChanged();
+            });
+    connect(this, &AppController::canvasChanged, this, [this](int, int, int, int) {
+        // Most pen ticks are throttled. Avoid a QImage wrapper and a
+        // translated history-label allocation for every rejected tick.
+        if (m_recorder->captureDue())
+            m_recorder->capture(canvasImage(), undoLabel());
+    });
+
+    m_artworkRoot = recoveryRoot();
+    m_artwork = new ArtworkSession(m_doc, m_history, m_artworkRoot, this);
+    m_artwork->beginDocument({}, m_documentName);
+    connect(m_artwork, &ArtworkSession::stateChanged, this, [this]() {
+        emit artworkStateChanged();
+        emit documentNameChanged();
+    });
+    connect(m_artwork, &ArtworkSession::recoveryChanged, this, &AppController::recoveryChanged);
+    connect(m_artwork, &ArtworkSession::errorOccurred, this, &AppController::setLastError);
+    connect(m_artwork, &ArtworkSession::saveFinished, this, [this](bool ok, const QString& path) {
+        if (ok) {
+            addRecentFile(path);
+            cacheRecentPreview(path);
+            setDocumentName(QFileInfo(path).fileName());
+            setLastError({});
+            setStatusMessage(tr("Saved %1.").arg(QFileInfo(path).fileName()));
+            if (!m_pendingDocumentAction.isEmpty()) {
+                if (hasUnsavedChanges())
+                    settleDocumentDecision();
+                else
+                    executeDocumentAction();
+            }
+        } else if (!m_pendingDocumentAction.isEmpty()) {
+            m_awaitingDocumentDecision = true;
+            emit unsavedChangesDecisionRequested();
+        }
+    });
+    connect(this, &AppController::historyChanged, this, [this]() { m_artwork->edited(); });
+    connect(this, &AppController::strokeActiveChanged, this, [this]() {
+        if (m_strokeActive)
+            m_artwork->setStrokeActive(true);
+        else
+            QTimer::singleShot(0, this, [this]() {
+                if (m_strokeActive)
+                    return;
+                m_artwork->setStrokeActive(documentEditing());
+                if (!m_pendingDocumentAction.isEmpty() && !m_awaitingDocumentDecision && !saving())
+                    settleDocumentDecision();
+            });
+    });
+}
+
+AppController::~AppController() {
+    if (m_exportThread)
+        m_exportThread->wait();
+    // References to the document/history must be drained before member destruction.
+    delete m_artwork;
+    m_artwork = nullptr;
 }
 
 bool AppController::recording() const { return m_recorder && m_recorder->isActive(); }
 
-void AppController::forgetRecordedFrames()
-{
+void AppController::forgetRecordedFrames() {
     if (!m_recorder)
         return;
     m_recorder->restart();
     emit recordingChanged();
-}
-
-void AppController::setRecording(bool on)
-{
-    if (!m_recorder || m_recorder->isActive() == on)
-        return;
-    m_recorder->setActive(on);
-    if (on)
-        m_recorder->capture(canvasImage(), tr("Resumed"), true);
-    emit recordingChanged();
+    emit recoveryChanged();
 }
 
 int AppController::recordedFrames() const { return m_recorder ? m_recorder->frameCount() : 0; }
 
-bool AppController::exportRecording(const QUrl& url)
-{
+bool AppController::colourPickerPinned() const {
+    return QSettings().value("colourPickerPinned", false).toBool();
+}
+
+void AppController::setColourPickerPinned(bool pinned) {
+    QSettings().setValue("colourPickerPinned", pinned);
+    emit colourPickerPinnedChanged();
+}
+
+bool AppController::retryRecording() {
+    if (documentEditing() || documentActionPending() || m_recordingExporting)
+        return false;
+    const bool ok = m_recorder->retryAsync();
+    if (ok)
+        setStatusMessage(tr("Repairing recording storage…"));
+    return ok;
+}
+
+QVariantList AppController::recordingStorage() const {
+    QVariantList entries;
+    const QDir root(recoveryRoot() + "/recordings");
+    for (const auto& info : root.entryInfoList({"*.prismrec"}, QDir::Files, QDir::Time)) {
+        QFile metadata(info.absoluteFilePath() + ".meta.json");
+        QJsonObject meta;
+        if (metadata.open(QIODevice::ReadOnly))
+            meta = QJsonDocument::fromJson(metadata.readAll()).object();
+        const bool active = info.absoluteFilePath() == m_recorder->spoolPath();
+        QString state = meta.value("state").toString("crashed");
+        if (!active && state == "recording")
+            state = "crashed";
+        entries.append(QVariantMap{
+            {"url", QUrl::fromLocalFile(info.absoluteFilePath()).toString()},
+            {"name", meta.value("documentName").toString(tr("Drawing session"))},
+            {"bytes", info.size()},
+            {"state", state},
+            {"active", active},
+            {"hasGaps", meta.value("hasGaps").toBool()},
+            {"when", meta.value("created").toString(info.lastModified().toString(Qt::ISODate))}});
+    }
+    return entries;
+}
+
+bool AppController::deleteStoredRecording(const QUrl& url) {
+    const QString path = localPathFrom(url);
+    const QFileInfo info(path);
+    if (info.absolutePath() != QDir(recoveryRoot() + "/recordings").absolutePath() ||
+        !path.endsWith(".prismrec", Qt::CaseInsensitive) || info.isSymLink() ||
+        info.absoluteFilePath() == m_recorder->spoolPath() || m_recordingExporting) {
+        setLastError(tr("This recording is in use or is outside Prism storage."));
+        return false;
+    }
+    if (!QFile::remove(path)) {
+        setLastError(tr("Could not delete the recording. Check storage permissions."));
+        return false;
+    }
+    QFile::remove(path + ".meta.json");
+    emit recoveryChanged();
+    setStatusMessage(tr("Recording deleted."));
+    return true;
+}
+
+void AppController::openRecordingFolder() {
+    const QString path = recoveryRoot() + "/recordings";
+    QDir().mkpath(path);
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+        setLastError(tr("Could not open the recording folder."));
+}
+
+bool AppController::exportStoredRecording(const QUrl& source, const QUrl& destination) {
+    const QString input = localPathFrom(source);
+    QString output = localPathFrom(destination);
+    if (QFileInfo(input).absolutePath() != QDir(recoveryRoot() + "/recordings").absolutePath() ||
+        input == m_recorder->spoolPath() || output.isEmpty() || m_recordingExporting)
+        return false;
+    if (!output.endsWith(".prismrec", Qt::CaseInsensitive))
+        output += ".prismrec";
+    auto error = std::make_shared<QString>();
+    auto ok = std::make_shared<bool>(false);
+    auto* thread = QThread::create([input, output, error, ok]() {
+        *ok = SessionRecorder::exportRecovered(input, output, error.get());
+    });
+    thread->setParent(this);
+    m_exportThread = thread;
+    m_recordingExporting = true;
+    emit recordingExportingChanged();
+    setStatusMessage(tr("Exporting stored recording…"));
+    connect(thread, &QThread::finished, this, [this, thread, error, ok]() {
+        m_exportThread = nullptr;
+        m_recordingExporting = false;
+        emit recordingExportingChanged();
+        if (*ok)
+            setStatusMessage(
+                tr("Stored recording exported; any gaps remain part of its coverage."));
+        else
+            setLastError(*error);
+        thread->deleteLater();
+    });
+    thread->start();
+    return true;
+}
+
+bool AppController::exportRecording(const QUrl& url) {
+    if (documentEditing() || recordingRepairing() || m_recorder->hasError() ||
+        m_recorder->hasGaps()) {
+        setLastError(tr("The recording is incomplete or busy. Use explicit partial export for "
+                        "available frames."));
+        return false;
+    }
     const QString path = localPathFrom(url);
     if (path.isEmpty()) {
         setLastError(tr("No file name specified."));
@@ -203,14 +466,20 @@ bool AppController::exportRecording(const QUrl& url)
     }
     // The current state is the last frame, whatever the throttle says: a client
     // checking the record must see the finished picture.
-    m_recorder->capture(canvasImage(), tr("Final"), true);
+    const quint64 finalId =
+        m_recorder->isActive() ? m_recorder->capture(canvasImage(), tr("Final"), true) : 0;
+    if (!m_recorder->flush() || (finalId && m_recorder->lastStoredCaptureId() < finalId)) {
+        setLastError(tr("The final frame was not stored. Retry or use partial export."));
+        return false;
+    }
 
     QString error;
     const QString suffix = QFileInfo(path).suffix().toLower();
     bool ok = false;
     if (suffix == QLatin1String("gif") || suffix == QLatin1String("mp4")) {
         // A timelapse: the frames are flattened onto paper for the codec.
-        const RecordedFrames frames = m_recorder->recordedFrames();
+        const RecordedFrames frames =
+            m_recorder->recordedFrames(SessionRecorder::kMaxTimelapseFrames);
         ok = suffix == QLatin1String("gif") ? RecordExport::writeGif(path, frames, &error)
                                             : RecordExport::writeMp4(path, frames, &error);
         if (ok) {
@@ -240,15 +509,142 @@ bool AppController::exportRecording(const QUrl& url)
     return true;
 }
 
+bool AppController::exportRecordingAsync(const QUrl& url, bool partial) {
+    const QString path = localPathFrom(url);
+    if (path.isEmpty() || m_recordingExporting || recordingRepairing()) {
+        setLastError(path.isEmpty() ? tr("No file name specified.")
+                                    : tr("A drawing record is already being exported."));
+        return false;
+    }
+
+    if (documentEditing() || ((!partial) && (m_recorder->hasError() || m_recorder->hasGaps()))) {
+        setLastError(tr("The recording is incomplete. Retry recording or explicitly export its "
+                        "partial timeline."));
+        return false;
+    }
+    const quint64 id =
+        m_recorder->isActive() ? m_recorder->capture(canvasImage(), tr("Final"), true) : 0;
+    if (m_recorder->isActive() && !id && !partial) {
+        setLastError(tr("The final recording frame could not be queued."));
+        return false;
+    }
+    m_recordingExporting = true;
+    emit recordingExportingChanged();
+    setStatusMessage(tr("Preparing final recording frame…"));
+    if (m_selfTestMode)
+        m_recorder->flush();
+    awaitRecordingExport(path, id, partial, m_recorder->spoolPath());
+    return true;
+}
+
+void AppController::awaitRecordingExport(const QString& path, quint64 captureId, bool partial,
+                                         const QString& spool) {
+    if (m_recorder->spoolPath() != spool) {
+        m_recordingExporting = false;
+        emit recordingExportingChanged();
+        setLastError(tr("Recording session changed before the final frame was stored. Export the "
+                        "previous session from Storage."));
+        return;
+    }
+    if (m_recorder->hasError() && !partial) {
+        m_recordingExporting = false;
+        emit recordingExportingChanged();
+        setLastError(tr("The final frame was not stored. Retry or export a partial recording."));
+        return;
+    }
+    if (captureId && m_recorder->lastStoredCaptureId() < captureId && !m_recorder->hasError()) {
+        QTimer::singleShot(25, this, [this, path, captureId, partial, spool]() {
+            awaitRecordingExport(path, captureId, partial, spool);
+        });
+        return;
+    }
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    const bool video = suffix == QLatin1String("gif") || suffix == QLatin1String("mp4");
+    RecordedFrames frames;
+    if (video)
+        frames =
+            m_recorder->recordedFrames(SessionRecorder::kMaxTimelapseFrames,
+                                       captureId ? captureId : m_recorder->lastStoredCaptureId());
+    const bool prefixStored = captureId && m_recorder->lastStoredCaptureId() >= captureId;
+    const int frameCount =
+        prefixStored ? m_recorder->frameCountThroughCaptureId(captureId) : m_recorder->frameCount();
+    if (frameCount == 0) {
+        setLastError(tr("Nothing recorded yet - draw something first."));
+        m_recordingExporting = false;
+        emit recordingExportingChanged();
+        return;
+    }
+    const QString spoolPath = m_recorder->spoolPath();
+    const qint64 validBytes =
+        prefixStored ? m_recorder->validBytesThroughCaptureId(captureId) : m_recorder->validBytes();
+    if (QFileInfo(path).absoluteFilePath() == QFileInfo(spoolPath).absoluteFilePath()) {
+        setLastError(tr("Choose a different destination for the record."));
+        m_recordingExporting = false;
+        emit recordingExportingChanged();
+        return;
+    }
+
+    struct Outcome {
+        bool ok = false;
+        QString error;
+    };
+    auto result = std::make_shared<Outcome>();
+    auto* thread = QThread::create([path, suffix, frames = std::move(frames), spoolPath, validBytes,
+                                    result]() {
+        if (suffix == QLatin1String("gif"))
+            result->ok = RecordExport::writeGif(path, frames, &result->error);
+        else if (suffix == QLatin1String("mp4"))
+            result->ok = RecordExport::writeMp4(path, frames, &result->error);
+        else
+            result->ok = SessionRecorder::saveSnapshot(path, spoolPath, validBytes, &result->error);
+        if (result->ok && (suffix == QLatin1String("gif") || suffix == QLatin1String("mp4"))) {
+            int written = 0;
+            result->ok = RecordExport::verifyVideo(path, &written, &result->error);
+        }
+    });
+    thread->setParent(this);
+    m_exportThread = thread;
+    m_recordingExporting = true;
+    emit recordingExportingChanged();
+    setLastError(QString());
+    setStatusMessage(tr("Exporting drawing record…"));
+    connect(thread, &QThread::finished, this, [this, thread, result, path, frameCount, partial]() {
+        m_exportThread = nullptr;
+        m_recordingExporting = false;
+        emit recordingExportingChanged();
+        if (result->ok) {
+            setLastError(QString());
+            setStatusMessage((partial ? tr("Partial drawing record exported: %1 frames (%2).")
+                                      : tr("Drawing record exported: %1 frames (%2)."))
+                                 .arg(frameCount)
+                                 .arg(QFileInfo(path).fileName()));
+        } else {
+            setLastError(result->error);
+            setStatusMessage(tr("Drawing record export failed."));
+        }
+        emit recordingChanged();
+        thread->deleteLater();
+    });
+    thread->start();
+}
+
 // ------------------------------------------------------------------ properties
 
-int AppController::activeLayerIndex() const
-{
+int AppController::activeLayerIndex() const {
     return std::max(0, std::min(m_activeLayer, static_cast<int>(m_doc.layers().size()) - 1));
 }
 
-void AppController::setActiveLayerIndex(int index)
-{
+QVariantMap AppController::activeLayerInfo() const {
+    if (m_doc.layers().empty())
+        return {};
+    const auto& layer = *m_doc.layers()[static_cast<std::size_t>(activeLayerIndex())];
+    return {{"name", QString::fromStdString(layer.name())},
+            {"locked", layer.isLocked()},
+            {"alphaLocked", layer.isAlphaLocked()},
+            {"clipped", layer.isClipped()}};
+}
+
+void AppController::setActiveLayerIndex(int index) {
     if (index >= 0 && index < static_cast<int>(m_doc.layers().size())) {
         m_activeLayer = index;
         emit layersChanged();
@@ -258,29 +654,31 @@ void AppController::setActiveLayerIndex(int index)
 bool AppController::canUndo() const { return m_history.canUndo(); }
 bool AppController::canRedo() const { return m_history.canRedo(); }
 
-QString AppController::undoLabel() const
-{
+QString AppController::undoLabel() const {
     return canUndo() ? QString::fromUtf8(m_history.undoDescription()) : tr("Undo");
 }
 
 int AppController::canvasWidth() const { return m_doc.canvasSize().width; }
 int AppController::canvasHeight() const { return m_doc.canvasSize().height; }
+int AppController::canvasDpi() const { return m_doc.canvasSize().dpi; }
 
 QColor AppController::brushColor() const { return toQColor(m_brush.color); }
 
-void AppController::setBrushColor(const QColor& color)
-{
+void AppController::setBrushColor(const QColor& color) {
+    if (!color.isValid())
+        return;
     m_brush.color = toRaster(color);
     // Keep the current tool's slot in sync so the choice sticks when the artist
     // switches tools and comes back.
     m_colorByTool[m_brush.erase ? 1 : 0] = m_brush.color;
+    if (m_uiPreferencesReady)
+        m_recentColorTimer->start();
     emit brushChanged();
 }
 
 float AppController::brushSize() const { return m_brush.radius; }
 
-void AppController::setBrushSize(float size)
-{
+void AppController::setBrushSize(float size) {
     m_brush.radius = std::clamp(size, 1.0F, 200.0F);
     m_presetIntact = false;
     emit brushChanged();
@@ -288,8 +686,7 @@ void AppController::setBrushSize(float size)
 
 float AppController::brushHardness() const { return m_brush.hardness; }
 
-void AppController::setBrushHardness(float hardness)
-{
+void AppController::setBrushHardness(float hardness) {
     m_brush.hardness = std::clamp(hardness, 0.0F, 1.0F);
     m_presetIntact = false;
     emit brushChanged();
@@ -297,32 +694,81 @@ void AppController::setBrushHardness(float hardness)
 
 float AppController::brushFlow() const { return m_brush.flow; }
 
-void AppController::setBrushFlow(float flow)
-{
+void AppController::setBrushFlow(float flow) {
     m_brush.flow = std::clamp(flow, 0.01F, 1.0F);
     m_presetIntact = false;
     emit brushChanged();
 }
 
-bool AppController::brushTipSquare() const
-{
+float AppController::brushSpacing() const { return m_brush.spacing; }
+void AppController::setBrushSpacing(float spacing) {
+    m_brush.spacing = std::clamp(spacing, 0.02F, 1.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+bool AppController::brushGraphite() const {
+    return m_brush.material == canvas::BrushMaterial::Graphite;
+}
+void AppController::setBrushGraphite(bool enabled) {
+    m_brush.material = enabled ? canvas::BrushMaterial::Graphite : canvas::BrushMaterial::Solid;
+    m_presetIntact = false;
+    emit brushChanged();
+}
+float AppController::brushGrain() const { return m_brush.grain; }
+void AppController::setBrushGrain(float grain) {
+    m_brush.grain = std::clamp(grain, 0.0F, 1.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+float AppController::brushGrainScale() const { return m_brush.grainScale; }
+void AppController::setBrushGrainScale(float scale) {
+    m_brush.grainScale = std::clamp(scale, 0.5F, 4.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+float AppController::brushTiltShading() const { return m_brush.tiltShading; }
+void AppController::setBrushTiltShading(float shading) {
+    m_brush.tiltShading = std::clamp(shading, 0.0F, 1.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+float AppController::brushEndTaper() const { return m_brush.endTaperDiameters; }
+void AppController::setBrushEndTaper(float diameters) {
+    m_brush.endTaperDiameters = std::clamp(diameters, 0.0F, 6.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+float AppController::brushStabilization() const { return m_brush.stabilization; }
+void AppController::setBrushStabilization(float amount) {
+    m_brush.stabilization = std::clamp(amount, 0.0F, 1.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+float AppController::pressureSizeMin() const { return m_brush.pressureSizeMin; }
+void AppController::setPressureSizeMin(float minimum) {
+    m_brush.pressureSizeMin = std::clamp(minimum, 0.05F, 1.0F);
+    m_presetIntact = false;
+    emit brushChanged();
+}
+
+bool AppController::brushTipSquare() const {
     return m_brush.tip.shape == canvas::BrushTip::Shape::Square;
 }
 
-void AppController::setBrushTipSquare(bool square)
-{
+void AppController::setBrushTipSquare(bool square) {
     // Switching to the procedural editor implicitly leaves an image tip.
     m_brush.tip.kind = canvas::BrushTip::Kind::Procedural;
-    m_brush.tip.shape = square ? canvas::BrushTip::Shape::Square
-                               : canvas::BrushTip::Shape::Round;
+    m_brush.tip.shape = square ? canvas::BrushTip::Shape::Square : canvas::BrushTip::Shape::Round;
     m_presetIntact = false;
     emit brushChanged();
 }
 
 float AppController::brushTipRoundness() const { return m_brush.tip.roundness; }
 
-void AppController::setBrushTipRoundness(float roundness)
-{
+void AppController::setBrushTipRoundness(float roundness) {
     m_brush.tip.roundness = std::clamp(roundness, 0.02F, 1.0F);
     m_presetIntact = false;
     emit brushChanged();
@@ -330,8 +776,7 @@ void AppController::setBrushTipRoundness(float roundness)
 
 float AppController::brushTipAngle() const { return m_brush.tip.angle; }
 
-void AppController::setBrushTipAngle(float angle)
-{
+void AppController::setBrushTipAngle(float angle) {
     m_brush.tip.angle = std::fmod(std::fabs(angle), 360.0F);
     m_presetIntact = false;
     emit brushChanged();
@@ -339,20 +784,15 @@ void AppController::setBrushTipAngle(float angle)
 
 bool AppController::pressureOpacity() const { return m_brush.pressureOpacity; }
 
-void AppController::setPressureOpacity(bool on)
-{
+void AppController::setPressureOpacity(bool on) {
     m_brush.pressureOpacity = on;
     m_presetIntact = false;
     emit brushChanged();
 }
 
-bool AppController::tipIsImage() const
-{
-    return m_brush.tip.kind == canvas::BrushTip::Kind::Image;
-}
+bool AppController::tipIsImage() const { return m_brush.tip.kind == canvas::BrushTip::Kind::Image; }
 
-bool AppController::loadTipImage(const QUrl& url)
-{
+bool AppController::loadTipImage(const QUrl& url) {
     const QString path = localPathFrom(url);
     QImage image(path);
     if (image.isNull()) {
@@ -386,41 +826,37 @@ bool AppController::loadTipImage(const QUrl& url)
     return true;
 }
 
-void AppController::clearTipImage()
-{
+void AppController::clearTipImage() {
     m_brush.tip = canvas::BrushTip{};
     m_presetIntact = false;
     emit brushChanged();
 }
 
-qreal AppController::pressureCurve() const { return m_pressureCurve; }
+qreal AppController::pressureCurve() const { return m_brush.pressureCurve; }
 
-void AppController::setPressureCurve(qreal gamma)
-{
-    m_pressureCurve = std::clamp(gamma, 0.3, 3.0);
+void AppController::setPressureCurve(qreal gamma) {
+    m_brush.pressureCurve = static_cast<float>(std::clamp(gamma, 0.3, 3.0));
+    m_presetIntact = false;
     emit brushChanged();
 }
 
 bool AppController::eraser() const { return m_brush.erase; }
 
-void AppController::setEraser(bool erase)
-{
+void AppController::setEraser(bool erase) {
     m_brush.erase = erase;
     emit brushChanged();
 }
 
 qreal AppController::zoom() const { return m_zoom; }
 
-void AppController::setZoom(qreal zoom)
-{
+void AppController::setZoom(qreal zoom) {
     m_zoom = std::clamp(zoom, 0.05, 8.0);
     emit viewChanged();
 }
 
 int AppController::tool() const { return m_tool; }
 
-void AppController::setTool(int tool)
-{
+void AppController::setTool(int tool) {
     // Remember where the eyedropper was invoked from, so a pick can hand the
     // canvas back to the tool the artist was drawing with.
     if (tool == EyedropperTool && m_tool != EyedropperTool)
@@ -440,8 +876,7 @@ void AppController::setTool(int tool)
     emit brushChanged();
 }
 
-void AppController::endEyedropper()
-{
+void AppController::endEyedropper() {
     if (m_tool != EyedropperTool)
         return;
     // Back to the drawing tool, not to whatever happened to be active before
@@ -459,8 +894,7 @@ void AppController::endEyedropper()
     }
 }
 
-QString AppController::brushName() const
-{
+QString AppController::brushName() const {
     if (!m_presetIntact)
         return tr("Custom Brush");
     return presetName(m_activePreset);
@@ -468,18 +902,16 @@ QString AppController::brushName() const
 
 int AppController::activePresetIndex() const { return m_activePreset; }
 
-QString AppController::statusInfo() const
-{
+QString AppController::statusInfo() const {
     const auto s = m_doc.canvasSize();
-    return tr("RGB/Alpha (8-bit integer/channel) - %1 - %2 ?- %3 px - %4 MiB")
+    return tr("RGB/Alpha (8-bit integer/channel) - %1 - %2 × %3 px - %4 MiB")
         .arg(QString::fromStdString(m_doc.colorProfile()))
         .arg(s.width)
         .arg(s.height)
         .arg(documentMemoryMiB(), 0, 'f', 1);
 }
 
-qreal AppController::documentMemoryMiB() const
-{
+qreal AppController::documentMemoryMiB() const {
     const auto s = m_doc.canvasSize();
     const qint64 bytesPerLayer = static_cast<qint64>(s.width) * s.height * 4;
     const qint64 total = bytesPerLayer * static_cast<qint64>(m_doc.layers().size());
@@ -489,21 +921,73 @@ qreal AppController::documentMemoryMiB() const
 // ------------------------------------------------------------- brush presets
 
 int AppController::presetCount() const { return static_cast<int>(m_presets.size()); }
+int AppController::builtinPresetCount() const {
+    return static_cast<int>(canvas::builtinBrushPresets().size());
+}
 
-QString AppController::presetName(int index) const
-{
+QVariantList AppController::quickPresets() const {
+    QVariantList result;
+    QStringList ids = m_pinnedPresetIds;
+    for (const QString& id : m_recentPresetIds)
+        if (!ids.contains(id))
+            ids.append(id);
+    QStringList shownIds;
+    for (const QString& id : ids) {
+        if (shownIds.contains(id))
+            continue;
+        for (int i = 0; i < presetCount(); ++i) {
+            if (QString::fromStdString(m_presets[static_cast<std::size_t>(i)].id) != id)
+                continue;
+            QVariantMap entry;
+            entry["id"] = id;
+            entry["index"] = i;
+            entry["name"] = presetName(i);
+            entry["pinned"] = m_pinnedPresetIds.contains(id);
+            result.append(entry);
+            shownIds.append(id);
+            break;
+        }
+        if (result.size() == 6)
+            break;
+    }
+    for (int i = 0; i < presetCount() && result.size() < 6; ++i) {
+        const QString id = QString::fromStdString(m_presets[static_cast<std::size_t>(i)].id);
+        if (shownIds.contains(id))
+            continue;
+        QVariantMap entry;
+        entry["id"] = id;
+        entry["index"] = i;
+        entry["name"] = presetName(i);
+        entry["pinned"] = false;
+        result.append(entry);
+    }
+    return result;
+}
+
+void AppController::togglePinnedPreset(int index) {
+    if (index < 0 || index >= presetCount())
+        return;
+    const QString id = QString::fromStdString(m_presets[static_cast<std::size_t>(index)].id);
+    if (m_pinnedPresetIds.contains(id))
+        m_pinnedPresetIds.removeAll(id);
+    else
+        m_pinnedPresetIds.prepend(id);
+    if (!m_selfTestMode)
+        QSettings().setValue(QStringLiteral("quickControls/pinnedPresets"), m_pinnedPresetIds);
+    emit quickPresetsChanged();
+}
+
+QString AppController::presetName(int index) const {
     if (index < 0 || index >= presetCount())
         return {};
     return QString::fromStdString(m_presets[static_cast<std::size_t>(index)].name);
 }
 
-QImage AppController::presetThumbnail(int index, int width, int height) const
-{
+QImage AppController::presetThumbnail(int index, int width, int height) const {
     return presetThumbnailRaw(index, width, height);
 }
 
-QImage AppController::presetThumbnailRaw(int index, int width, int height) const
-{
+QImage AppController::presetThumbnailRaw(int index, int width, int height) const {
     if (index < 0 || index >= presetCount())
         return {};
     const auto thumb =
@@ -515,8 +999,7 @@ QImage AppController::presetThumbnailRaw(int index, int width, int height) const
         .copy();
 }
 
-void AppController::selectPreset(int index)
-{
+void AppController::selectPreset(int index) {
     if (index < 0 || index >= presetCount())
         return;
     const auto preset = m_presets[static_cast<std::size_t>(index)];
@@ -524,35 +1007,51 @@ void AppController::selectPreset(int index)
     // The preset carries no color: keep the artist's current one.
     m_brush.color = toRaster(brushColor());
     m_activePreset = index;
+    if (m_uiPreferencesReady) {
+        const QString id = QString::fromStdString(preset.id);
+        m_recentPresetIds.removeAll(id);
+        m_recentPresetIds.prepend(id);
+        while (m_recentPresetIds.size() > 12)
+            m_recentPresetIds.removeLast();
+        if (!m_selfTestMode)
+            QSettings().setValue(QStringLiteral("quickControls/recentPresets"), m_recentPresetIds);
+        emit quickPresetsChanged();
+    }
     m_presetIntact = true;
     m_tool = m_brush.erase ? EraserTool : BrushTool;
     emit brushChanged();
     emit toolChanged();
 }
 
-void AppController::addPreset()
-{
+void AppController::addPreset() {
     canvas::BrushPreset preset;
     preset.name = "Custom " + std::to_string(++m_customPresetCounter);
     preset.brush = m_brush;
+    preset.id = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
     m_presets.push_back(preset);
     m_activePreset = presetCount() - 1;
     m_presetIntact = true;
     saveUserPresets();
     emit presetsChanged();
+    emit quickPresetsChanged();
     emit brushChanged();
 }
 
-bool AppController::exportBrush(const QUrl& url, int index)
-{
+void AppController::resetBrushToPreset() { selectPreset(m_activePreset); }
+
+QImage AppController::activeBrushPreview(int width, int height) const {
+    QMutexLocker lock(&m_snapshotMutex);
+    return m_brushPreview.scaled(width, height, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+}
+
+bool AppController::exportBrush(const QUrl& url, int index) {
     if (index < 0 || index >= presetCount())
         return false;
     const auto& preset = m_presets[static_cast<std::size_t>(index)];
     return io::ProjectIO::exportBrush(preset, localPathFrom(url));
 }
 
-bool AppController::importBrush(const QUrl& url)
-{
+bool AppController::importBrush(const QUrl& url) {
     const auto path = localPathFrom(url);
     QString errorMsg;
     const auto maybePreset = io::ProjectIO::importBrush(path, &errorMsg);
@@ -560,43 +1059,60 @@ bool AppController::importBrush(const QUrl& url)
         setLastError(errorMsg);
         return false;
     }
-    m_presets.push_back(maybePreset.value());
+    auto preset = maybePreset.value();
+    preset.id = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    m_presets.push_back(std::move(preset));
     m_activePreset = presetCount() - 1;
     m_presetIntact = true;
     saveUserPresets();
     emit presetsChanged();
+    emit quickPresetsChanged();
     emit brushChanged();
     return true;
 }
 
-void AppController::removePreset(int index)
-{
+void AppController::removePreset(int index) {
     if (index < 0 || index >= presetCount())
+        return;
+    // Built-ins occupy fixed slots; removing one would shift user presets into
+    // those slots and make the existing user-preset store drop artwork tools.
+    if (index < builtinPresetCount())
         return;
     // Always keep at least one preset - an empty brush list is unusable.
     if (presetCount() <= 1)
         return;
+    const QString id = QString::fromStdString(m_presets[static_cast<std::size_t>(index)].id);
     m_presets.erase(m_presets.begin() + index);
+    m_pinnedPresetIds.removeAll(id);
+    m_recentPresetIds.removeAll(id);
+    if (!m_selfTestMode) {
+        QSettings().setValue(QStringLiteral("quickControls/pinnedPresets"), m_pinnedPresetIds);
+        QSettings().setValue(QStringLiteral("quickControls/recentPresets"), m_recentPresetIds);
+    }
     m_activePreset = std::clamp(m_activePreset, 0, presetCount() - 1);
     saveUserPresets();
     emit presetsChanged();
+    emit quickPresetsChanged();
     emit brushChanged();
 }
 
-void AppController::movePreset(int index, int delta)
-{
+void AppController::movePreset(int index, int delta) {
     const int target = index + delta;
     if (index < 0 || index >= presetCount() || target < 0 || target >= presetCount())
+        return;
+    const int builtinCount = static_cast<int>(canvas::builtinBrushPresets().size());
+    if ((index < builtinCount) != (target < builtinCount))
         return;
     std::swap(m_presets[static_cast<std::size_t>(index)],
               m_presets[static_cast<std::size_t>(target)]);
     m_activePreset = target;
+    saveUserPresets();
     emit presetsChanged();
+    emit quickPresetsChanged();
     emit brushChanged();
 }
 
-QImage AppController::layerThumbnail(int index, int width, int height) const
-{
+QImage AppController::layerThumbnail(int index, int width, int height) const {
     if (index < 0 || width <= 0 || height <= 0)
         return {};
     // Reads the GUI-thread snapshot, never the document: this runs on Qt's
@@ -612,8 +1128,7 @@ QImage AppController::layerThumbnail(int index, int width, int height) const
 
 // -------------------------------------------------------------- canvas tools
 
-void AppController::fillAt(float x, float y)
-{
+void AppController::fillAt(float x, float y) {
     // Layer buffers live in buffer space; the canvas may sit inside them.
     const auto point = toBuffer(x, y);
     const int lx = point.x;
@@ -631,9 +1146,8 @@ void AppController::fillAt(float x, float y)
     // the connected region, so this stays proportional to the area being
     // filled. Copying the whole layer just to discover the rect (64 MB on a
     // 4000x4000 document) was the bucket-fill lag.
-    const auto rect = canvas::floodFillRegion(
-        pixels, lx, ly, 24,
-        [](int, int, prism::core::raster::Color) noexcept {});
+    const auto rect = canvas::floodFillRegion(pixels, lx, ly, 24,
+                                              [](int, int, prism::core::raster::Color) noexcept {});
     if (rect.isEmpty())
         return;
 
@@ -646,14 +1160,13 @@ void AppController::fillAt(float x, float y)
     // The mask is canvas-sized, the patch is in buffer space: pass the offset.
     const auto origin = m_doc.canvasOrigin();
     if (!m_selection.isEmpty()) {
-        canvas::clipToSelection(after, m_selection, &before, rect.x - origin.x,
-                                rect.y - origin.y);
+        canvas::clipToSelection(after, m_selection, &before, rect.x - origin.x, rect.y - origin.y);
         pixels.blit(after, rect.x, rect.y);
     }
 
     m_history.execute(std::make_unique<core::StrokeCommand>(
-        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
-        rect.x, rect.y, "Fill"));
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after), rect.x,
+        rect.y, "Fill"));
 
     emit historyChanged();
     // Only the filled rectangle changed. The compositor takes canvas coordinates.
@@ -662,8 +1175,7 @@ void AppController::fillAt(float x, float y)
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-QColor AppController::pickColorAt(float x, float y, bool apply)
-{
+QColor AppController::pickColorAt(float x, float y, bool apply) {
     const int lx = static_cast<int>(std::floor(x));
     const int ly = static_cast<int>(std::floor(y));
     const auto& result = m_compositor.result();
@@ -678,25 +1190,22 @@ QColor AppController::pickColorAt(float x, float y, bool apply)
     return picked;
 }
 
-void AppController::zoomStep(bool out)
-{
+void AppController::zoomStep(bool out) {
     // The canvas sheet is centred in the viewport, so zooming about the
     // centre keeps the working area in view without scroll bookkeeping.
     setZoom(out ? m_zoom / 1.25 : m_zoom * 1.25);
 }
 
-qreal AppController::zoomAt(qreal anchorX, qreal anchorY, qreal factor)
-{
+qreal AppController::zoomAt(qreal anchorX, qreal anchorY, qreal factor) {
     // Exposes the anchor for the view to keep under the cursor; the sheet is
     // centred, so the value is informational for QML's scrolling.
     setZoom(m_zoom * factor);
     return m_zoom;
 }
 
-void AppController::moveActiveLayer(int dx, int dy)
-{
-    if ((dx == 0 && dy == 0) || m_activeLayer < 0
-        || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+void AppController::moveActiveLayer(int dx, int dy) {
+    if ((dx == 0 && dy == 0) || m_activeLayer < 0 ||
+        m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
     if (layer.isLocked() || layer.pixels().isEmpty())
@@ -709,8 +1218,7 @@ void AppController::moveActiveLayer(int dx, int dy)
 
 // ------------------------------------------------------------- layer drag
 
-void AppController::beginLayerMove()
-{
+void AppController::beginLayerMove() {
     m_movingLayer = false;
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
@@ -731,10 +1239,10 @@ void AppController::beginLayerMove()
     m_moveDx = 0;
     m_moveDy = 0;
     m_movingLayer = true;
+    settleLiveEdit();
 }
 
-core::geometry::Rect AppController::contentBounds(const core::raster::RasterBuffer& buffer)
-{
+core::geometry::Rect AppController::contentBounds(const core::raster::RasterBuffer& buffer) {
     int x0 = buffer.width(), y0 = buffer.height(), x1 = -1, y1 = -1;
     for (int y = 0; y < buffer.height(); ++y) {
         for (int x = 0; x < buffer.width(); ++x) {
@@ -748,16 +1256,14 @@ core::geometry::Rect AppController::contentBounds(const core::raster::RasterBuff
     }
     if (x1 < 0)
         return {};
-    return core::geometry::Rect{ x0, y0, x1 - x0 + 1, y1 - y0 + 1 };
+    return core::geometry::Rect{x0, y0, x1 - x0 + 1, y1 - y0 + 1};
 }
 
 void AppController::restoreOutsideCanvas(const core::geometry::Rect& dirty,
                                          core::raster::RasterBuffer& pixels,
-                                         const core::raster::RasterBuffer& before)
-{
+                                         const core::raster::RasterBuffer& before) {
     const auto canvas = m_doc.canvasRect();
-    if (pixels.width() <= canvas.x + canvas.width
-        && pixels.height() <= canvas.y + canvas.height)
+    if (pixels.width() <= canvas.x + canvas.width && pixels.height() <= canvas.y + canvas.height)
         return; // no hidden margin: nothing can have been touched
     const int x1 = std::min(dirty.x + dirty.width, pixels.width());
     const int y1 = std::min(dirty.y + dirty.height, pixels.height());
@@ -772,31 +1278,27 @@ void AppController::restoreOutsideCanvas(const core::geometry::Rect& dirty,
     }
 }
 
-core::geometry::Point AppController::toBuffer(float x, float y) const
-{
+core::geometry::Point AppController::toBuffer(float x, float y) const {
     const auto origin = m_doc.canvasOrigin();
-    return core::geometry::Point{ static_cast<int>(std::floor(x)) + origin.x,
-                                  static_cast<int>(std::floor(y)) + origin.y };
+    return core::geometry::Point{static_cast<int>(std::floor(x)) + origin.x,
+                                 static_cast<int>(std::floor(y)) + origin.y};
 }
 
-core::geometry::Rect AppController::toBuffer(core::geometry::Rect r) const
-{
+core::geometry::Rect AppController::toBuffer(core::geometry::Rect r) const {
     const auto origin = m_doc.canvasOrigin();
     r.x += origin.x;
     r.y += origin.y;
     return r;
 }
 
-core::geometry::Rect AppController::toCanvas(core::geometry::Rect r) const
-{
+core::geometry::Rect AppController::toCanvas(core::geometry::Rect r) const {
     const auto origin = m_doc.canvasOrigin();
     r.x -= origin.x;
     r.y -= origin.y;
     return r;
 }
 
-void AppController::previewLayerMove(int dx, int dy)
-{
+void AppController::previewLayerMove(int dx, int dy) {
     if (!m_movingLayer || (dx == m_moveDx && dy == m_moveDy))
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
@@ -805,8 +1307,8 @@ void AppController::previewLayerMove(int dx, int dy)
     // Only the content's own rectangle is touched: clearing the old one and
     // re-blitting the snapshot's keeps this O(content), not O(canvas), so a big
     // image stays draggable.
-    const core::geometry::Rect previous{ m_moveBbox.x + m_moveDx, m_moveBbox.y + m_moveDy,
-                                         m_moveBbox.width, m_moveBbox.height };
+    const core::geometry::Rect previous{m_moveBbox.x + m_moveDx, m_moveBbox.y + m_moveDy,
+                                        m_moveBbox.width, m_moveBbox.height};
     for (int y = std::max(0, previous.y);
          y < std::min(pixels.height(), previous.y + previous.height); ++y) {
         const auto row = static_cast<std::size_t>(y) * pixels.width();
@@ -814,25 +1316,25 @@ void AppController::previewLayerMove(int dx, int dy)
              x < std::min(pixels.width(), previous.x + previous.width); ++x)
             pixels.set(x, y, core::raster::kTransparent);
     }
-    pixels.blit(m_moveBefore.copyRect(m_moveBbox.x, m_moveBbox.y, m_moveBbox.width,
-                                      m_moveBbox.height),
-                m_moveBbox.x + dx, m_moveBbox.y + dy);
+    pixels.blit(
+        m_moveBefore.copyRect(m_moveBbox.x, m_moveBbox.y, m_moveBbox.width, m_moveBbox.height),
+        m_moveBbox.x + dx, m_moveBbox.y + dy);
     m_moveDx = dx;
     m_moveDy = dy;
 
-    const core::geometry::Rect next{ m_moveBbox.x + dx, m_moveBbox.y + dy, m_moveBbox.width,
-                                     m_moveBbox.height };
+    const core::geometry::Rect next{m_moveBbox.x + dx, m_moveBbox.y + dy, m_moveBbox.width,
+                                    m_moveBbox.height};
     const int ux = std::min(previous.x, next.x);
     const int uy = std::min(previous.y, next.y);
     const int uw = std::max(previous.x + previous.width, next.x + next.width) - ux;
     const int uh = std::max(previous.y + previous.height, next.y + next.height) - uy;
-    const auto composited = m_compositor.composite(core::geometry::Rect{ ux, uy, uw, uh });
+    const auto composited = m_compositor.composite(core::geometry::Rect{ux, uy, uw, uh});
     ++m_layerRevision;
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-void AppController::endLayerMove()
-{
+void AppController::endLayerMove() {
+    const auto settled = qScopeGuard([this]() { settleLiveEdit(); });
     if (!m_movingLayer)
         return;
     m_movingLayer = false;
@@ -857,8 +1359,7 @@ int AppController::selectionW() const { return m_selection.bounds().width; }
 int AppController::selectionH() const { return m_selection.bounds().height; }
 int AppController::selectionRevision() const { return m_selection.revision(); }
 
-void AppController::notifySelectionChanged()
-{
+void AppController::notifySelectionChanged() {
     // Publish the new overlay BEFORE announcing the change: QML re-fetches the
     // image the moment the revision changes, and Qt serves it on another thread,
     // so emitting first let the request race the new snapshot and render nothing
@@ -867,31 +1368,28 @@ void AppController::notifySelectionChanged()
     emit selectionChanged();
 }
 
-void AppController::setSelection(float x, float y, float w, float h)
-{
+void AppController::setSelection(float x, float y, float w, float h) {
     const auto s = m_doc.canvasSize();
     const int x0 = std::clamp(static_cast<int>(std::floor(std::min(x, x + w))), 0, s.width);
     const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, s.height);
     const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, s.width);
     const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, s.height);
-    m_selection.selectRect(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
+    m_selection.selectRect(core::geometry::Rect{x0, y0, x1 - x0, y1 - y0});
     notifySelectionChanged();
 }
 
-void AppController::setLassoSelection(const QVariantList& points)
-{
+void AppController::setLassoSelection(const QVariantList& points) {
     std::vector<core::geometry::Point> poly;
     poly.reserve(points.size());
     for (const auto& v : points) {
         const QPointF p = v.toPointF();
-        poly.push_back(core::geometry::Point{ static_cast<int>(p.x()), static_cast<int>(p.y()) });
+        poly.push_back(core::geometry::Point{static_cast<int>(p.x()), static_cast<int>(p.y())});
     }
     m_selection.selectPolygon(poly);
     notifySelectionChanged();
 }
 
-void AppController::magicWandAt(float x, float y, int tolerance)
-{
+void AppController::magicWandAt(float x, float y, int tolerance) {
     // Sample the flattened canvas: selecting by what the artist sees is the
     // least surprising behaviour when several layers overlap.
     m_selection.selectSimilar(m_compositor.result(), static_cast<int>(std::floor(x)),
@@ -899,57 +1397,50 @@ void AppController::magicWandAt(float x, float y, int tolerance)
     notifySelectionChanged();
 }
 
-void AppController::clearSelection()
-{
+void AppController::clearSelection() {
     m_selection.clear();
     notifySelectionChanged();
 }
 
-void AppController::selectAll()
-{
+void AppController::selectAll() {
     m_selection.selectAll();
     notifySelectionChanged();
 }
 
-void AppController::invertSelection()
-{
+void AppController::invertSelection() {
     m_selection.invert();
     notifySelectionChanged();
 }
 
-void AppController::selectLayerContent()
-{
+void AppController::selectLayerContent() {
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
     // The mask is canvas-sized; the layer buffer may be larger after a crop, so
     // select from the canvas window of it.
     const auto canvas = m_doc.canvasRect();
-    m_selection.selectFromAlpha(m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]
-                                    ->pixels()
-                                    .copyRect(canvas.x, canvas.y, canvas.width, canvas.height));
+    m_selection.selectFromAlpha(
+        m_doc.layers()[static_cast<std::size_t>(m_activeLayer)]->pixels().copyRect(
+            canvas.x, canvas.y, canvas.width, canvas.height));
     notifySelectionChanged();
 }
 
-void AppController::setEllipseSelection(float x, float y, float w, float h)
-{
+void AppController::setEllipseSelection(float x, float y, float w, float h) {
     const auto s = m_doc.canvasSize();
     const int x0 = std::clamp(static_cast<int>(std::floor(std::min(x, x + w))), 0, s.width);
     const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, s.height);
     const int x1 = std::clamp(static_cast<int>(std::ceil(std::max(x, x + w))), 0, s.width);
     const int y1 = std::clamp(static_cast<int>(std::ceil(std::max(y, y + h))), 0, s.height);
-    m_selection.selectEllipse(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
+    m_selection.selectEllipse(core::geometry::Rect{x0, y0, x1 - x0, y1 - y0});
     notifySelectionChanged();
 }
 
-void AppController::similarColorAt(float x, float y, int tolerance)
-{
+void AppController::similarColorAt(float x, float y, int tolerance) {
     m_selection.selectSimilarGlobal(m_compositor.result(), static_cast<int>(std::floor(x)),
                                     static_cast<int>(std::floor(y)), tolerance);
     notifySelectionChanged();
 }
 
-void AppController::selectOutlineAt(float x, float y)
-{
+void AppController::selectOutlineAt(float x, float y) {
     const auto& flat = m_compositor.result();
     m_selection.selectContiguousOpaque(flat, static_cast<int>(std::floor(x)),
                                        static_cast<int>(std::floor(y)));
@@ -958,32 +1449,29 @@ void AppController::selectOutlineAt(float x, float y)
 
 // ------------------------------------------------------------ shape tools
 
-void AppController::beginShape(float x, float y)
-{
-    m_shapeStart = core::geometry::Point{ static_cast<int>(std::floor(x)),
-                                          static_cast<int>(std::floor(y)) };
+void AppController::beginShape(float x, float y) {
+    m_shapeStart =
+        core::geometry::Point{static_cast<int>(std::floor(x)), static_cast<int>(std::floor(y))};
     m_shapeEnd = m_shapeStart;
     m_shapeActive = true;
     m_preview.fill(core::raster::kTransparent);
     m_strokeDirty = {};
 }
 
-void AppController::updateShape(float x, float y)
-{
+void AppController::updateShape(float x, float y) {
     if (!m_shapeActive)
         return;
     const auto previous = m_strokeDirty;
-    m_shapeEnd = core::geometry::Point{ static_cast<int>(std::floor(x)),
-                                        static_cast<int>(std::floor(y)) };
+    m_shapeEnd =
+        core::geometry::Point{static_cast<int>(std::floor(x)), static_cast<int>(std::floor(y))};
 
     // Redraw the preview from scratch (a shape is replaced, not accumulated),
     // but only clear where the previous shape was: clearing the whole preview
     // buffer every mouse move cost a full-canvas memset.
     clearPreviewRegion(m_strokeDirty);
-    const canvas::ShapeKind kind =
-        m_tool == Tool::LineTool       ? canvas::ShapeKind::Line
-        : m_tool == Tool::RectangleTool ? canvas::ShapeKind::Rectangle
-                                        : canvas::ShapeKind::Ellipse;
+    const canvas::ShapeKind kind = m_tool == Tool::LineTool        ? canvas::ShapeKind::Line
+                                   : m_tool == Tool::RectangleTool ? canvas::ShapeKind::Rectangle
+                                                                   : canvas::ShapeKind::Ellipse;
     const auto shapeRect =
         canvas::rasterizeShape(m_preview, kind, m_shapeStart, m_shapeEnd, m_brush, m_shapeFilled);
 
@@ -993,18 +1481,17 @@ void AppController::updateShape(float x, float y)
     if (!previous.isEmpty()) {
         dirty = core::geometry::Rect{
             std::min(previous.x, shapeRect.x), std::min(previous.y, shapeRect.y),
-            std::max(previous.x + previous.width, shapeRect.x + shapeRect.width)
-                - std::min(previous.x, shapeRect.x),
-            std::max(previous.y + previous.height, shapeRect.y + shapeRect.height)
-                - std::min(previous.y, shapeRect.y) };
+            std::max(previous.x + previous.width, shapeRect.x + shapeRect.width) -
+                std::min(previous.x, shapeRect.x),
+            std::max(previous.y + previous.height, shapeRect.y + shapeRect.height) -
+                std::min(previous.y, shapeRect.y)};
     }
     m_strokeDirty = shapeRect;
-    const auto composited = m_compositor.composite(dirty, &m_preview);
+    const auto composited = m_compositor.composite(dirty, &m_preview, false, m_activeLayer);
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-void AppController::endShape()
-{
+void AppController::endShape() {
     if (!m_shapeActive)
         return;
     m_shapeActive = false;
@@ -1029,17 +1516,17 @@ void AppController::endShape()
 
     const auto origin = m_doc.canvasOrigin();
     const auto offset = [&origin](core::geometry::Point p) {
-        return core::geometry::Point{ p.x + origin.x, p.y + origin.y };
+        return core::geometry::Point{p.x + origin.x, p.y + origin.y};
     };
     core::geometry::Rect rect;
     if (m_tool == Tool::GradientTool) {
         rect = canvas::linearGradient(work, offset(m_shapeStart), offset(m_shapeEnd), m_brush.color,
                                       core::raster::kTransparent);
     } else {
-        const canvas::ShapeKind kind =
-            m_tool == Tool::LineTool       ? canvas::ShapeKind::Line
-            : m_tool == Tool::RectangleTool ? canvas::ShapeKind::Rectangle
-                                            : canvas::ShapeKind::Ellipse;
+        const canvas::ShapeKind kind = m_tool == Tool::LineTool ? canvas::ShapeKind::Line
+                                       : m_tool == Tool::RectangleTool
+                                           ? canvas::ShapeKind::Rectangle
+                                           : canvas::ShapeKind::Ellipse;
         rect = canvas::rasterizeShape(work, kind, offset(m_shapeStart), offset(m_shapeEnd), m_brush,
                                       m_shapeFilled);
     }
@@ -1054,8 +1541,8 @@ void AppController::endShape()
     auto before = layer.pixels().copyRect(rect.x, rect.y, rect.width, rect.height);
     auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
     m_history.execute(std::make_unique<core::StrokeCommand>(
-        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
-        rect.x, rect.y, m_tool == Tool::GradientTool ? "Gradient" : "Shape"));
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after), rect.x,
+        rect.y, m_tool == Tool::GradientTool ? "Gradient" : "Shape"));
 
     emit historyChanged();
     // Only the shape's rectangle changed.
@@ -1064,23 +1551,18 @@ void AppController::endShape()
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-void AppController::setShapeFilled(bool filled)
-{
-    m_shapeFilled = filled;
-}
+void AppController::setShapeFilled(bool filled) { m_shapeFilled = filled; }
 
-QSize AppController::clipboardImageSize() const
-{
+QSize AppController::clipboardImageSize() const {
     const QImage image = QGuiApplication::clipboard()->image();
     return image.isNull() ? QSize() : image.size();
 }
 
 void AppController::commitPatch(const core::raster::RasterBuffer& original,
-                               const core::raster::RasterBuffer& work,
-                               core::geometry::Rect rect, const char* label)
-{
-    if (rect.isEmpty() || m_activeLayer < 0
-        || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
+                                const core::raster::RasterBuffer& work, core::geometry::Rect rect,
+                                const char* label) {
+    if (rect.isEmpty() || m_activeLayer < 0 ||
+        m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
     // `rect` is in the layer buffer's space. Only the canvas is editable: a crop
     // keeps the cropped-away pixels around and they must not collect edits.
@@ -1091,8 +1573,8 @@ void AppController::commitPatch(const core::raster::RasterBuffer& original,
     auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
     auto after = work.copyRect(rect.x, rect.y, rect.width, rect.height);
     m_history.execute(std::make_unique<core::StrokeCommand>(
-        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
-        rect.x, rect.y, label));
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after), rect.x,
+        rect.y, label));
     emit historyChanged();
     // Only the patch changed: recompositing the whole canvas here made every
     // shape, fill and filter cost the canvas size instead of the edit size.
@@ -1103,14 +1585,12 @@ void AppController::commitPatch(const core::raster::RasterBuffer& original,
 
 // -------------------------------------------------------- click-based paths
 
-void AppController::addPathPoint(float x, float y)
-{
-    m_pathPoints.push_back(core::geometry::Point{ static_cast<int>(std::floor(x)),
-                                                  static_cast<int>(std::floor(y)) });
+void AppController::addPathPoint(float x, float y) {
+    m_pathPoints.push_back(
+        core::geometry::Point{static_cast<int>(std::floor(x)), static_cast<int>(std::floor(y))});
 }
 
-void AppController::cancelPath()
-{
+void AppController::cancelPath() {
     m_pathPoints.clear();
     m_freePath.clear();
     m_preview.fill(core::raster::kTransparent);
@@ -1119,8 +1599,7 @@ void AppController::cancelPath()
 
 int AppController::pathPointCount() const { return static_cast<int>(m_pathPoints.size()); }
 
-void AppController::finishPath(int mode)
-{
+void AppController::finishPath(int mode) {
     if (m_pathPoints.size() < 2) {
         cancelPath();
         return;
@@ -1135,7 +1614,7 @@ void AppController::finishPath(int mode)
     // offset by a crop.
     const auto origin = m_doc.canvasOrigin();
     const auto toBufferPoint = [&origin](core::geometry::Point p) {
-        return core::geometry::Point{ p.x + origin.x, p.y + origin.y };
+        return core::geometry::Point{p.x + origin.x, p.y + origin.y};
     };
     switch (mode) {
     case 1: { // Bezier: control handles derived from the middle points
@@ -1145,8 +1624,8 @@ void AppController::finishPath(int mode)
             const auto& a = p[i];
             const auto& b = p[i + 1];
             const auto seg = canvas::bezierPath(
-                a, core::geometry::Point{ (a.x * 2 + b.x) / 3, (a.y * 2 + b.y) / 3 },
-                core::geometry::Point{ (a.x + b.x * 2) / 3, (a.y + b.y * 2) / 3 }, b, 24);
+                a, core::geometry::Point{(a.x * 2 + b.x) / 3, (a.y * 2 + b.y) / 3},
+                core::geometry::Point{(a.x + b.x * 2) / 3, (a.y + b.y * 2) / 3}, b, 24);
             path.insert(path.end(), seg.begin(), seg.end());
         }
         for (auto& point : path) {
@@ -1173,7 +1652,7 @@ void AppController::finishPath(int mode)
         std::vector<canvas::StrokePoint> path;
         for (const auto& p : m_pathPoints) {
             const auto b = toBufferPoint(p);
-            path.push_back({ static_cast<float>(b.x), static_cast<float>(b.y), 1.0F });
+            path.push_back({static_cast<float>(b.x), static_cast<float>(b.y), 1.0F});
         }
         rect = canvas::strokeAlong(work, path, m_brush);
         label = "Polyline";
@@ -1181,8 +1660,7 @@ void AppController::finishPath(int mode)
     }
     }
     m_pathPoints.clear();
-    canvas::clipToSelection(work, m_selection, &original, rect.x - origin.x,
-                            rect.y - origin.y);
+    canvas::clipToSelection(work, m_selection, &original, rect.x - origin.x, rect.y - origin.y);
     commitPatch(original, work, rect, label);
 }
 
@@ -1190,16 +1668,14 @@ void AppController::finishPath(int mode)
 
 // ------------------------------------------------------------- lasso fill
 
-void AppController::beginLassoFill(float x, float y)
-{
+void AppController::beginLassoFill(float x, float y) {
     m_lassoFill.clear();
-    m_lassoFill.push_back(core::geometry::Point{ static_cast<int>(std::floor(x)),
-                                                static_cast<int>(std::floor(y)) });
+    m_lassoFill.push_back(
+        core::geometry::Point{static_cast<int>(std::floor(x)), static_cast<int>(std::floor(y))});
 }
 
-void AppController::extendLassoFill(float x, float y)
-{
-    const core::geometry::Point p{ static_cast<int>(std::floor(x)), static_cast<int>(std::floor(y)) };
+void AppController::extendLassoFill(float x, float y) {
+    const core::geometry::Point p{static_cast<int>(std::floor(x)), static_cast<int>(std::floor(y))};
     // Sample sparsely: the enclosure only needs enough points to describe its
     // outline, and the mask is built from a polygon.
     if (!m_lassoFill.empty()) {
@@ -1210,8 +1686,7 @@ void AppController::extendLassoFill(float x, float y)
     m_lassoFill.push_back(p);
 }
 
-void AppController::endLassoFill()
-{
+void AppController::endLassoFill() {
     const auto points = m_lassoFill;
     m_lassoFill.clear();
     if (points.size() < 3)
@@ -1228,15 +1703,15 @@ void AppController::endLassoFill()
     stencil.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
     stencil.selectPolygon(points);
 
-    core::geometry::Rect rect{ points[0].x, points[0].y, 1, 1 };
+    core::geometry::Rect rect{points[0].x, points[0].y, 1, 1};
     for (const auto& p : points) {
-        rect = core::geometry::Rect{
-            std::min(rect.x, p.x), std::min(rect.y, p.y),
-            std::max(rect.x + rect.width, p.x + 1) - std::min(rect.x, p.x),
-            std::max(rect.y + rect.height, p.y + 1) - std::min(rect.y, p.y) };
+        rect =
+            core::geometry::Rect{std::min(rect.x, p.x), std::min(rect.y, p.y),
+                                 std::max(rect.x + rect.width, p.x + 1) - std::min(rect.x, p.x),
+                                 std::max(rect.y + rect.height, p.y + 1) - std::min(rect.y, p.y)};
     }
-    rect = rect.intersected(core::geometry::Rect{ 0, 0, m_doc.canvasSize().width,
-                                                  m_doc.canvasSize().height });
+    rect = rect.intersected(
+        core::geometry::Rect{0, 0, m_doc.canvasSize().width, m_doc.canvasSize().height});
     if (rect.isEmpty())
         return;
     // The stencil is canvas-sized; the layer patch is in buffer space.
@@ -1263,52 +1738,50 @@ void AppController::endLassoFill()
             const auto ch = [t](std::uint8_t a, std::uint8_t b) {
                 return static_cast<std::uint8_t>(a * (1.0F - t) + b * t + 0.5F);
             };
-            after.set(x, y, core::raster::Color{ ch(dst.r, color.r), ch(dst.g, color.g),
-                                                 ch(dst.b, color.b),
-                                                 std::max(dst.a, color.a) });
+            after.set(x, y,
+                      core::raster::Color{ch(dst.r, color.r), ch(dst.g, color.g),
+                                          ch(dst.b, color.b), std::max(dst.a, color.a)});
         }
     }
     pixels.blit(after, rect.x, rect.y);
 
     m_history.execute(std::make_unique<core::StrokeCommand>(
-        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after),
-        rect.x, rect.y, "Lasso Fill"));
+        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(before), std::move(after), rect.x,
+        rect.y, "Lasso Fill"));
     emit historyChanged();
     const auto composited = m_compositor.composite(toCanvas(rect));
     ++m_layerRevision;
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-void AppController::beginFreePath(float x, float y)
-{
+void AppController::beginFreePath(float x, float y) {
     m_freePath.clear();
-    m_freePath.push_back({ x, y, 1.0F });
+    m_freePath.push_back({x, y, 1.0F});
     m_preview.fill(core::raster::kTransparent);
     m_strokeDirty = {};
 }
 
-void AppController::extendFreePath(float x, float y)
-{
+void AppController::extendFreePath(float x, float y) {
     if (m_freePath.empty())
         return;
     const auto previous = m_strokeDirty;
-    m_freePath.push_back({ x, y, 1.0F });
+    m_freePath.push_back({x, y, 1.0F});
     const auto smoothed = canvas::smoothPath(m_freePath, 1);
     m_preview.fill(core::raster::kTransparent);
     const auto rect = canvas::strokeAlong(m_preview, smoothed, m_brush);
     core::geometry::Rect dirty = rect;
     if (!previous.isEmpty())
-        dirty = core::geometry::Rect{
-            std::min(previous.x, rect.x), std::min(previous.y, rect.y),
-            std::max(previous.x + previous.width, rect.x + rect.width) - std::min(previous.x, rect.x),
-            std::max(previous.y + previous.height, rect.y + rect.height) - std::min(previous.y, rect.y) };
+        dirty = core::geometry::Rect{std::min(previous.x, rect.x), std::min(previous.y, rect.y),
+                                     std::max(previous.x + previous.width, rect.x + rect.width) -
+                                         std::min(previous.x, rect.x),
+                                     std::max(previous.y + previous.height, rect.y + rect.height) -
+                                         std::min(previous.y, rect.y)};
     m_strokeDirty = rect;
-    const auto composited = m_compositor.composite(dirty, &m_preview);
+    const auto composited = m_compositor.composite(dirty, &m_preview, false, m_activeLayer);
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-void AppController::endFreePath()
-{
+void AppController::endFreePath() {
     if (m_freePath.size() < 2) {
         cancelPath();
         return;
@@ -1326,8 +1799,7 @@ void AppController::endFreePath()
     commitPatch(original, work, rect, "Freehand path");
 }
 
-void AppController::offsetToBuffer(std::vector<canvas::StrokePoint>& path) const
-{
+void AppController::offsetToBuffer(std::vector<canvas::StrokePoint>& path) const {
     const auto origin = m_doc.canvasOrigin();
     if (origin.x == 0 && origin.y == 0)
         return;
@@ -1339,36 +1811,34 @@ void AppController::offsetToBuffer(std::vector<canvas::StrokePoint>& path) const
 
 // --------------------------------------------------------------------- arc
 
-void AppController::beginArc(float x, float y)
-{
-    m_shapeStart = core::geometry::Point{ static_cast<int>(x), static_cast<int>(y) };
+void AppController::beginArc(float x, float y) {
+    m_shapeStart = core::geometry::Point{static_cast<int>(x), static_cast<int>(y)};
     m_shapeEnd = m_shapeStart;
     m_shapeActive = true;
     m_preview.fill(core::raster::kTransparent);
 }
 
-void AppController::updateArc(float x, float y)
-{
+void AppController::updateArc(float x, float y) {
     if (!m_shapeActive)
         return;
     const auto previous = m_strokeDirty;
-    m_shapeEnd = core::geometry::Point{ static_cast<int>(x), static_cast<int>(y) };
+    m_shapeEnd = core::geometry::Point{static_cast<int>(x), static_cast<int>(y)};
     m_preview.fill(core::raster::kTransparent);
-    const auto rect = canvas::strokeAlong(m_preview, canvas::arcPath(m_shapeStart, m_shapeEnd),
-                                          m_brush);
+    const auto rect =
+        canvas::strokeAlong(m_preview, canvas::arcPath(m_shapeStart, m_shapeEnd), m_brush);
     core::geometry::Rect dirty = rect;
     if (!previous.isEmpty())
-        dirty = core::geometry::Rect{
-            std::min(previous.x, rect.x), std::min(previous.y, rect.y),
-            std::max(previous.x + previous.width, rect.x + rect.width) - std::min(previous.x, rect.x),
-            std::max(previous.y + previous.height, rect.y + rect.height) - std::min(previous.y, rect.y) };
+        dirty = core::geometry::Rect{std::min(previous.x, rect.x), std::min(previous.y, rect.y),
+                                     std::max(previous.x + previous.width, rect.x + rect.width) -
+                                         std::min(previous.x, rect.x),
+                                     std::max(previous.y + previous.height, rect.y + rect.height) -
+                                         std::min(previous.y, rect.y)};
     m_strokeDirty = rect;
-    const auto composited = m_compositor.composite(dirty, &m_preview);
+    const auto composited = m_compositor.composite(dirty, &m_preview, false, m_activeLayer);
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-void AppController::endArc()
-{
+void AppController::endArc() {
     if (!m_shapeActive) {
         return;
     }
@@ -1387,27 +1857,24 @@ void AppController::endArc()
 
 // ------------------------------------------------------ pattern / crop / etc
 
-void AppController::fillPattern(int kind, int scale)
-{
+void AppController::fillPattern(int kind, int scale) {
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
     if (layer.isLocked())
         return;
     const core::raster::RasterBuffer original = layer.pixels();
     core::raster::RasterBuffer work = original;
     const auto kindEnum = static_cast<canvas::PatternKind>(std::clamp(kind, 0, 2));
-    core::geometry::Rect limit = m_selection.isEmpty()
-                                     ? core::geometry::Rect{}
-                                     : toBuffer(m_selection.bounds());
+    core::geometry::Rect limit =
+        m_selection.isEmpty() ? core::geometry::Rect{} : toBuffer(m_selection.bounds());
     const auto rect = canvas::fillPattern(work, kindEnum, scale, m_brush.color, limit);
     commitPatch(original, work, rect, "Pattern");
 }
 
-bool AppController::cutSelectionToLayer(float x, float y, float w, float h)
-{
+bool AppController::cutSelectionToLayer(float x, float y, float w, float h) {
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return false;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
-    if (layer.isLocked() || layer.pixels().isEmpty()) {
+    if (layer.isLocked() || layer.isAlphaLocked() || layer.pixels().isEmpty()) {
         setStatusMessage(tr("This layer is locked - nothing to cut."));
         return false;
     }
@@ -1424,7 +1891,7 @@ bool AppController::cutSelectionToLayer(float x, float y, float w, float h)
 
     // Nothing but transparency in the frame: say so instead of adding an empty
     // layer the artist then has to hunt for.
-    const auto rect = toBuffer(core::geometry::Rect{ x0, y0, x1 - x0, y1 - y0 });
+    const auto rect = toBuffer(core::geometry::Rect{x0, y0, x1 - x0, y1 - y0});
     if (contentBounds(layer.pixels().copyRect(rect.x, rect.y, rect.width, rect.height)).isEmpty()) {
         setStatusMessage(tr("Nothing to cut there - that area is empty."));
         return false;
@@ -1446,8 +1913,7 @@ bool AppController::cutSelectionToLayer(float x, float y, float w, float h)
     return true;
 }
 
-void AppController::cropTo(float x, float y, float w, float h)
-{
+void AppController::cropTo(float x, float y, float w, float h) {
     const auto size = m_doc.canvasSize();
     const int x0 = std::clamp(static_cast<int>(std::floor(std::min(x, x + w))), 0, size.width);
     const int y0 = std::clamp(static_cast<int>(std::floor(std::min(y, y + h))), 0, size.height);
@@ -1479,26 +1945,38 @@ void AppController::cropTo(float x, float y, float w, float h)
     // the image, and the layer still holds whatever was outside the frame.
     setTool(MoveTool);
     setStatusMessage(
-        tr("Cropped to %1x%2. Drag the layer to bring the cropped part back.")
-            .arg(cw)
-            .arg(ch));
+        tr("Cropped to %1x%2. Drag the layer to bring the cropped part back.").arg(cw).arg(ch));
 }
 
-void AppController::transformLayer(float degrees, float scale)
-{
+void AppController::resizeCanvas(int width, int height) {
+    if (width < 1 || height < 1 || width > 32768 || height > 32768 ||
+        (width == canvasWidth() && height == canvasHeight()))
+        return;
+    m_history.execute(std::make_unique<core::ResizeCanvasCommand>(
+        m_doc, core::CanvasSize{width, height, m_doc.canvasSize().dpi}));
+    m_compositor.canvasResized();
+    m_selection.reset(width, height);
+    m_preview = core::raster::RasterBuffer(width, height);
+    m_previewDirty = {};
+    m_strokeDirty = {};
+    emit historyChanged();
+    notifySelectionChanged();
+    rebuildFullComposite();
+}
+
+void AppController::transformLayer(float degrees, float scale) {
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
     if (layer.isLocked())
         return;
     const core::raster::RasterBuffer original = layer.pixels();
     core::raster::RasterBuffer work = original;
-    const auto rect = canvas::transformBuffer(work, degrees, scale,
-                                              static_cast<float>(work.width()) * 0.5F,
-                                              static_cast<float>(work.height()) * 0.5F);
+    const auto rect =
+        canvas::transformBuffer(work, degrees, scale, static_cast<float>(work.width()) * 0.5F,
+                                static_cast<float>(work.height()) * 0.5F);
     commitPatch(original, work, rect, "Transform");
 }
 
-void AppController::renderText(float x, float y, const QString& text, int pixelSize)
-{
+void AppController::renderText(float x, float y, const QString& text, int pixelSize) {
     if (text.isEmpty())
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(std::max(0, m_activeLayer))];
@@ -1525,26 +2003,23 @@ void AppController::renderText(float x, float y, const QString& text, int pixelS
     }
 
     core::raster::RasterBuffer textLayer(w, h);
-    std::memcpy(textLayer.data(), canvasImage.constBits(),
-                static_cast<std::size_t>(w) * h * 4);
+    std::memcpy(textLayer.data(), canvasImage.constBits(), static_cast<std::size_t>(w) * h * 4);
 
     const core::raster::RasterBuffer original = layer.pixels();
     core::raster::RasterBuffer work = original;
     // Composite the text over the working copy.
     work.compositeOver(textLayer, 0, 0);
-    commitPatch(original, work, core::geometry::Rect{ 0, 0, w, h }, "Text");
+    commitPatch(original, work, core::geometry::Rect{0, 0, w, h}, "Text");
 }
 
-QImage AppController::selectionOverlay() const
-{
+QImage AppController::selectionOverlay() const {
     // Read-only snapshot: this is called from Qt's image-provider thread, so it
     // must not touch the selection or the document.
     QMutexLocker lock(&m_snapshotMutex);
     return m_selectionSnapshot;
 }
 
-void AppController::refreshSnapshots()
-{
+void AppController::refreshSnapshots() {
     // GUI thread only. Builds every image the providers are allowed to serve.
     constexpr int kThumbW = 48;
     constexpr int kThumbH = 32;
@@ -1571,9 +2046,9 @@ void AppController::refreshSnapshots()
                 out.set(x, y, src.at(x0, y0));
             }
         }
-        thumbs.append(QImage(out.data(), out.width(), out.height(), out.width() * 4,
-                             QImage::Format_RGBA8888)
-                          .copy());
+        thumbs.append(
+            QImage(out.data(), out.width(), out.height(), out.width() * 4, QImage::Format_RGBA8888)
+                .copy());
     }
 
     QImage overlay = buildSelectionOverlay();
@@ -1586,8 +2061,7 @@ void AppController::refreshSnapshots()
     }
 }
 
-QImage AppController::buildSelectionOverlay() const
-{
+QImage AppController::buildSelectionOverlay() const {
     QImage overlay;
     const int cw = m_doc.canvasSize().width;
     const int ch = m_doc.canvasSize().height;
@@ -1612,15 +2086,14 @@ QImage AppController::buildSelectionOverlay() const
                 continue;
             // Tint the selected area so any shape (lasso, wand) is visible.
             // Neutral white keeps the overlay inside the two-colour palette.
-            out.set(x, y, core::raster::Color{ 255, 255, 255, static_cast<std::uint8_t>(cov / 5) });
+            out.set(x, y, core::raster::Color{255, 255, 255, static_cast<std::uint8_t>(cov / 5)});
         }
     }
     return QImage(out.data(), out.width(), out.height(), out.width() * 4, QImage::Format_RGBA8888)
         .copy();
 }
 
-void AppController::refreshSelectionOverlay()
-{
+void AppController::refreshSelectionOverlay() {
     QImage overlay = buildSelectionOverlay();
     QMutexLocker lock(&m_snapshotMutex);
     m_selectionSnapshot = std::move(overlay);
@@ -1628,16 +2101,14 @@ void AppController::refreshSelectionOverlay()
 
 // ----------------------------------------------------------------------- view
 
-void AppController::setMirrorHorizontal(bool on)
-{
+void AppController::setMirrorHorizontal(bool on) {
     if (m_mirrorH == on)
         return;
     m_mirrorH = on;
     emit viewChanged();
 }
 
-void AppController::setMirrorVertical(bool on)
-{
+void AppController::setMirrorVertical(bool on) {
     if (m_mirrorV == on)
         return;
     m_mirrorV = on;
@@ -1646,32 +2117,39 @@ void AppController::setMirrorVertical(bool on)
 
 // -------------------------------------------------- start page / recent files
 
-void AppController::setStartPageVisible(bool visible)
-{
+void AppController::setStartPageVisible(bool visible) {
     if (m_startPageVisible == visible)
         return;
+    if (!visible) {
+        setFocusMode(false);
+        // A recovered recording is an archive; returning to the canvas starts
+        // a live session without appending this document to that archive.
+        if (m_recorder && !m_recorder->isActive() && !m_recorder->hasError()) {
+            forgetRecordedFrames();
+            m_recorder->capture(canvasImage(), tr("Document"), true);
+        }
+    }
     m_startPageVisible = visible;
     emit startPageChanged();
 }
 
-void AppController::loadRecentFiles()
-{
+void AppController::loadRecentFiles() {
     QSettings settings;
     m_recentFiles = settings.value(QStringLiteral("recentFiles")).toStringList();
 }
 
-void AppController::loadUserPresets()
-{
+void AppController::loadUserPresets() {
     QSettings settings;
     const auto data = settings.value(QStringLiteral("userPresets")).toByteArray();
     if (data.isEmpty())
         return;
-    
+
     const auto doc = QJsonDocument::fromJson(data);
     if (!doc.isArray())
         return;
-    
+
     const auto arr = doc.array();
+    bool migratedIds = false;
     for (const auto& val : arr) {
         if (!val.isObject())
             continue;
@@ -1684,58 +2162,93 @@ void AppController::loadUserPresets()
         const auto pressureOpacity = obj["pressureOpacity"].toBool(false);
         const auto colorStr = obj["color"].toString("#000000");
         const QColor qc(colorStr);
-        const auto color = core::raster::Color{
-            static_cast<std::uint8_t>(qc.red()),
-            static_cast<std::uint8_t>(qc.green()),
-            static_cast<std::uint8_t>(qc.blue()),
-            255
-        };
-        
+        const auto color = core::raster::Color{static_cast<std::uint8_t>(qc.red()),
+                                               static_cast<std::uint8_t>(qc.green()),
+                                               static_cast<std::uint8_t>(qc.blue()), 255};
+
         canvas::BrushPreset preset;
         preset.name = name;
+        preset.id = obj["id"].toString().toStdString();
+        if (preset.id.empty()) {
+            preset.id = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+            migratedIds = true;
+        }
         preset.brush.radius = std::clamp(radius, 1.0F, 200.0F);
         preset.brush.hardness = std::clamp(hardness, 0.0F, 1.0F);
         preset.brush.flow = std::clamp(flow, 0.01F, 1.0F);
         preset.brush.erase = erase;
         preset.brush.pressureOpacity = pressureOpacity;
+        preset.brush.spacing =
+            std::clamp(static_cast<float>(obj["spacing"].toDouble(0.125)), 0.02F, 1.0F);
+        preset.brush.pressureCurve =
+            std::clamp(static_cast<float>(obj["pressureCurve"].toDouble(1.0)), 0.3F, 3.0F);
+        preset.brush.pressureSizeMin =
+            std::clamp(static_cast<float>(obj["pressureSizeMin"].toDouble(0.5)), 0.05F, 1.0F);
+        preset.brush.stabilization =
+            std::clamp(static_cast<float>(obj["stabilization"].toDouble(0.0)), 0.0F, 1.0F);
+        preset.brush.material = obj["material"].toString() == QLatin1String("graphite")
+                                    ? canvas::BrushMaterial::Graphite
+                                    : canvas::BrushMaterial::Solid;
+        preset.brush.grain = std::clamp(static_cast<float>(obj["grain"].toDouble(0.0)), 0.0F, 1.0F);
+        preset.brush.grainScale =
+            std::clamp(static_cast<float>(obj["grainScale"].toDouble(1.0)), 0.5F, 4.0F);
+        preset.brush.tiltShading =
+            std::clamp(static_cast<float>(obj["tiltShading"].toDouble(0.0)), 0.0F, 1.0F);
+        preset.brush.endTaperDiameters =
+            std::clamp(static_cast<float>(obj["endTaperDiameters"].toDouble(0.0)), 0.0F, 6.0F);
         preset.brush.color = color;
         preset.brush.tip = io::ProjectIO::brushTipFromJson(obj["tip"].toObject());
         m_presets.push_back(preset);
     }
+    if (migratedIds && !m_selfTestMode)
+        saveUserPresets();
 }
 
-void AppController::saveUserPresets()
-{
+void AppController::saveUserPresets() {
+    if (m_selfTestMode)
+        return;
     // Save only the user presets (not the built-ins). The built-ins are
     // always loaded from builtinBrushPresets(), so we save starting from
     // the first preset beyond the built-in count.
     const auto builtinCount = canvas::builtinBrushPresets().size();
-    if (m_presets.size() <= builtinCount)
-        return; // no user presets to save
-    
+    if (m_presets.size() <= builtinCount) {
+        QSettings().remove(QStringLiteral("userPresets"));
+        return;
+    }
+
     QJsonArray arr;
     for (std::size_t i = builtinCount; i < m_presets.size(); ++i) {
         const auto& preset = m_presets[i];
         QJsonObject obj;
+        obj["id"] = QString::fromStdString(preset.id);
         obj["name"] = QString::fromStdString(preset.name);
         obj["radius"] = preset.brush.radius;
         obj["hardness"] = preset.brush.hardness;
         obj["flow"] = preset.brush.flow;
         obj["erase"] = preset.brush.erase;
         obj["pressureOpacity"] = preset.brush.pressureOpacity;
+        obj["spacing"] = preset.brush.spacing;
+        obj["pressureCurve"] = preset.brush.pressureCurve;
+        obj["pressureSizeMin"] = preset.brush.pressureSizeMin;
+        obj["stabilization"] = preset.brush.stabilization;
+        obj["material"] =
+            preset.brush.material == canvas::BrushMaterial::Graphite ? "graphite" : "solid";
+        obj["grain"] = preset.brush.grain;
+        obj["grainScale"] = preset.brush.grainScale;
+        obj["tiltShading"] = preset.brush.tiltShading;
+        obj["endTaperDiameters"] = preset.brush.endTaperDiameters;
         const QColor qc(preset.brush.color.r, preset.brush.color.g, preset.brush.color.b);
         obj["color"] = qc.name();
         obj["tip"] = io::ProjectIO::brushTipToJson(preset.brush.tip);
         arr.append(obj);
     }
-    
+
     const QJsonDocument doc(arr);
     QSettings settings;
     settings.setValue(QStringLiteral("userPresets"), doc.toJson(QJsonDocument::Compact));
 }
 
-void AppController::addRecentFile(const QString& path)
-{
+void AppController::addRecentFile(const QString& path) {
     // The selftest drives these same code paths on throwaway documents. Letting
     // them into the Recent list put a test file ("prism-blend.prism", layer at
     // ColorDodge 60%) on the start page, where opening it made every stroke
@@ -1751,8 +2264,32 @@ void AppController::addRecentFile(const QString& path)
     emit recentFilesChanged();
 }
 
-void AppController::forgetRecentFilesUnder(const QString& directory)
-{
+void AppController::cacheRecentPreview(const QString& path) {
+    if (m_selfTestMode || !path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
+        return;
+    const auto& pixels = m_compositor.result();
+    if (pixels.isEmpty())
+        return;
+    const QImage image(pixels.data(), pixels.width(), pixels.height(), pixels.width() * 4,
+                       QImage::Format_RGBA8888);
+    QImage thumbnail(160, 100, QImage::Format_RGB32);
+    thumbnail.fill(Qt::white);
+    {
+        QPainter painter(&thumbnail);
+        const QImage scaled =
+            image.scaled(thumbnail.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        painter.drawImage((thumbnail.width() - scaled.width()) / 2,
+                          (thumbnail.height() - scaled.height()) / 2, scaled);
+    }
+    const QString filePath = recentPreviewPath(path);
+    if (!QDir().mkpath(QFileInfo(filePath).absolutePath()))
+        return;
+    QSaveFile file(filePath);
+    if (file.open(QIODevice::WriteOnly) && thumbnail.save(&file, "PNG"))
+        file.commit();
+}
+
+void AppController::forgetRecentFilesUnder(const QString& directory) {
     const QString prefix = QDir(directory).absolutePath() + QLatin1Char('/');
     QStringList kept;
     for (const QString& path : m_recentFiles) {
@@ -1767,24 +2304,448 @@ void AppController::forgetRecentFilesUnder(const QString& directory)
     emit recentFilesChanged();
 }
 
-QVariantList AppController::recentFiles() const
-{
+QVariantList AppController::recentFiles() const {
     QVariantList out;
     for (const QString& path : m_recentFiles) {
         const QFileInfo info(path);
-        if (!info.exists())
-            continue; // don't offer files the user deleted
         QVariantMap entry;
         entry["name"] = info.fileName();
         entry["path"] = path;
         entry["url"] = QUrl::fromLocalFile(path).toString();
+        entry["exists"] = info.exists();
+        const QString preview = recentPreviewPath(path);
+        entry["previewUrl"] = info.exists() && QFileInfo::exists(preview)
+                                  ? QUrl::fromLocalFile(preview).toString()
+                                  : (path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive)
+                                         ? QString()
+                                         : entry["url"].toString());
         out.append(entry);
     }
     return out;
 }
 
-void AppController::clearRecentFiles()
-{
+QVariantList AppController::recoverableArtworks() const {
+    QVariantList out;
+    const QDir dir(recoveryRoot() + QStringLiteral("/artwork"));
+    QSettings settings;
+    for (const QFileInfo& info :
+         dir.entryInfoList({QStringLiteral("*.prism")}, QDir::Files, QDir::Time)) {
+        QVariantMap entry;
+        entry["name"] = settings
+                            .value(QStringLiteral("recoveryNames/") + info.completeBaseName(),
+                                   tr("Recovered artwork"))
+                            .toString();
+        entry["url"] = QUrl::fromLocalFile(info.absoluteFilePath()).toString();
+        entry["when"] = info.lastModified().toString(Qt::ISODate);
+        out.append(entry);
+    }
+    return out;
+}
+
+QVariantList AppController::recoverableRecordings() const {
+    QVariantList out;
+    const QDir dir(recoveryRoot() + QStringLiteral("/recordings"));
+    for (const QFileInfo& info :
+         dir.entryInfoList({QStringLiteral("*.prismrec")}, QDir::Files, QDir::Time)) {
+        if (info.size() == 0 || (m_recorder && info.absoluteFilePath() == m_recorder->spoolPath()))
+            continue;
+        QFile metadata(info.absoluteFilePath() + ".meta.json");
+        if (metadata.open(QIODevice::ReadOnly)) {
+            const QString state =
+                QJsonDocument::fromJson(metadata.readAll()).object().value("state").toString();
+            if (state == "completed" || state == "recovered")
+                continue;
+        }
+        QVariantMap entry;
+        entry["name"] = tr("Drawing session %1").arg(info.lastModified().toString(Qt::ISODate));
+        entry["url"] = QUrl::fromLocalFile(info.absoluteFilePath()).toString();
+        out.append(entry);
+    }
+    return out;
+}
+
+bool AppController::recoverRecordingAsync(const QUrl& url) {
+    if (recordingRepairing() || documentEditing() || documentActionPending() ||
+        m_recordingExporting)
+        return false;
+    const QString path = localPathFrom(url);
+    if (QFileInfo(path).absolutePath() != QDir(recoveryRoot() + "/recordings").absolutePath())
+        return false;
+    if (m_recorder->isActive())
+        m_recorder->capture(canvasImage(), tr("Final"), true);
+    const bool accepted = m_recorder->adoptRecoveredAsync(path);
+    if (accepted)
+        setStatusMessage(tr("Reading recording storage…"));
+    return accepted;
+}
+
+bool AppController::recoverRecording(const QUrl& url) {
+    if (recordingRepairing() || documentEditing() || documentActionPending() ||
+        m_recordingExporting)
+        return false;
+    const QString path = localPathFrom(url);
+    const QDir dir(recoveryRoot() + QStringLiteral("/recordings"));
+    if (QFileInfo(path).absolutePath() != dir.absolutePath())
+        return false;
+    QString error;
+    if (!m_recorder->adoptRecovered(path, &error)) {
+        setLastError(error);
+        return false;
+    }
+    setLastError(QString());
+    emit recordingChanged();
+    return true;
+}
+
+bool AppController::recoverArtwork(const QUrl& url) {
+    const QString path = localPathFrom(url);
+    const QDir dir(recoveryRoot() + QStringLiteral("/artwork"));
+    if (QFileInfo(path).absolutePath() != dir.absolutePath() || !QFileInfo::exists(path))
+        return false;
+    const QString name =
+        QSettings()
+            .value(QStringLiteral("recoveryNames/") + QFileInfo(path).completeBaseName(),
+                   tr("Untitled"))
+            .toString();
+    if (!openProject(QUrl::fromLocalFile(path)))
+        return false;
+    m_recentFiles.removeAll(path);
+    QSettings().setValue(QStringLiteral("recentFiles"), m_recentFiles);
+    emit recentFilesChanged();
+    m_artwork->adoptRecovery(path);
+    setDocumentName(tr("Recovered — %1").arg(name));
+    return true;
+}
+
+void AppController::discardRecovery(const QUrl& url) {
+    const QString path = localPathFrom(url);
+    const QDir dir(recoveryRoot() + QStringLiteral("/artwork"));
+    if (QFileInfo(path).absolutePath() != dir.absolutePath())
+        return;
+    QFile::remove(path);
+    QSettings().remove(QStringLiteral("recoveryNames/") + QFileInfo(path).completeBaseName());
+    emit recoveryChanged();
+}
+
+void AppController::autosaveArtwork() { m_artwork->protectNow(); }
+
+void AppController::finishArtworkSession(bool saved) { m_artwork->endDocument(saved); }
+
+void AppController::installDocument(core::Document&& document, const QString& name,
+                                    const QString& path, bool initialContents, int activeLayer) {
+    finishArtworkSession(m_discardDocument);
+    m_discardDocument = false;
+    // Finalize the outgoing session before replacing any canvas pixels.
+    if (m_recorder->isActive() && !m_transitionQueued) {
+        m_recorder->capture(canvasImage(), tr("Final"), true);
+        m_recorder->markFinished();
+    }
+    if (m_transitionQueued)
+        m_recorder->markFinished();
+    m_doc = std::move(document);
+    m_history.clear();
+    m_documentName = name;
+    m_artwork->beginDocument(path, name, initialContents);
+    forgetRecordedFrames();
+    m_recorder->setDocumentName(name);
+    m_compositor.canvasResized();
+    m_activeLayer = activeLayer;
+    const auto size = m_doc.canvasSize();
+    m_preview = core::raster::RasterBuffer(size.width, size.height);
+    m_previewDirty = {};
+    m_selection.reset(size.width, size.height);
+    m_layersModel->setDocument(&m_doc);
+    emit documentNameChanged();
+    emit layersChanged();
+    emit historyChanged();
+    notifySelectionChanged();
+    setFocusMode(false);
+    setStartPageVisible(false);
+    rebuildFullComposite();
+    emit documentReplaced();
+}
+
+QVariantList AppController::documentSizePresets() const {
+    return QSettings().value("documentSizePresets").toList();
+}
+
+void AppController::saveDocumentSizePreset(const QString& name, int width, int height, int dpi) {
+    if (name.trimmed().isEmpty() || width < 1 || height < 1 || dpi < 1)
+        return;
+    auto presets = documentSizePresets();
+    for (qsizetype i = presets.size(); i-- > 0;)
+        if (presets[i].toMap().value("name").toString() == name.trimmed())
+            presets.removeAt(i);
+    presets.append(
+        QVariantMap{{"name", name.trimmed()}, {"width", width}, {"height", height}, {"dpi", dpi}});
+    QSettings().setValue("documentSizePresets", presets);
+}
+
+bool AppController::requestDocumentAction(const QString& action, const QVariantMap& args) {
+    if (!m_pendingDocumentAction.isEmpty() || saving() || m_closePending || recordingRepairing() ||
+        (m_recordingExporting && !m_exportThread))
+        return false;
+    if (action != "close" && action != "new" && action != "open" && action != "recover") {
+        setLastError(tr("Unknown document action."));
+        return false;
+    }
+    std::optional<core::Document> candidate;
+    QString name, path;
+    bool initial = false;
+    try {
+        if (action == "open" || action == "recover") {
+            path = localPathFrom(QUrl(args.value("url").toString()));
+            if (action == "recover" &&
+                QFileInfo(path).absolutePath() != QDir(recoveryRoot() + "/artwork").absolutePath())
+                return false;
+            const bool native = path.endsWith(".prism", Qt::CaseInsensitive);
+            candidate = native ? io::ProjectIO::load(path) : io::ProjectIO::importImage(path);
+            if (!candidate) {
+                setLastError(tr("Could not open %1. The current artwork is still open.")
+                                 .arg(QFileInfo(path).fileName()));
+                return false;
+            }
+            name = QFileInfo(path).fileName();
+            initial = !native || action == "recover";
+        } else if (action == "new") {
+            const bool clipboard = args.value("clipboard").toBool();
+            QImage image =
+                clipboard
+                    ? QGuiApplication::clipboard()->image().convertToFormat(QImage::Format_RGBA8888)
+                    : QImage();
+            if (clipboard && image.isNull()) {
+                setLastError(tr("The clipboard does not contain an image."));
+                return false;
+            }
+            const int width = clipboard ? image.width() : args.value("width").toInt();
+            const int height = clipboard ? image.height() : args.value("height").toInt();
+            const int dpi = args.value("dpi", 72).toInt();
+            const int layers = args.value("layerCount", 1).toInt();
+            if (width < 1 || height < 1 || width > 16384 || height > 16384 || dpi < 1 ||
+                dpi > 2400 || layers < 1 || layers > 100) {
+                setLastError(
+                    tr("Use dimensions from 1 to 16384 px, 1–2400 DPI and 1–100 paint layers."));
+                return false;
+            }
+            candidate.emplace(core::CanvasSize{width, height, dpi});
+            if (args.value("background").toString() == "solid") {
+                const QColor color =
+                    args.value("backgroundColor", QColor(Qt::white)).value<QColor>();
+                if (!color.isValid()) {
+                    setLastError(tr("Choose a valid background colour."));
+                    return false;
+                }
+                candidate->addRasterLayer("Background");
+                candidate->layers().back()->pixels().fill(core::raster::Color{
+                    static_cast<std::uint8_t>(color.red()),
+                    static_cast<std::uint8_t>(color.green()),
+                    static_cast<std::uint8_t>(color.blue()),
+                    static_cast<std::uint8_t>(
+                        std::clamp(args.value("backgroundOpacity", 100).toInt(), 0, 100) * 255 /
+                        100)});
+            }
+            for (int i = 0; i < layers; ++i)
+                candidate->addRasterLayer("Layer " + std::to_string(i + 1));
+            if (clipboard) {
+                auto& pixels = candidate->layers().back()->pixels();
+                for (int y = 0; y < height; ++y)
+                    std::memcpy(pixels.data() + static_cast<std::size_t>(y) * width * 4,
+                                image.constScanLine(y), static_cast<std::size_t>(width) * 4);
+            }
+            name = args.value("name").toString().trimmed();
+            if (name.isEmpty())
+                name = tr("Untitled");
+            initial = true;
+        }
+        if (candidate)
+            m_pendingDocument = std::make_unique<core::Document>(std::move(*candidate));
+    } catch (const std::exception&) {
+        setLastError(tr("Could not prepare the document. Your current artwork is still open; try a "
+                        "smaller canvas."));
+        return false;
+    }
+    m_pendingDocumentName = name;
+    m_pendingProjectPath = path;
+    m_pendingInitialContents = initial;
+    m_pendingRecovery = action == "recover";
+    m_pendingDocumentAction = action;
+    emit artworkStateChanged();
+    settleDocumentDecision();
+    return true;
+}
+
+void AppController::settleDocumentDecision() {
+    if (m_pendingDocumentAction.isEmpty() || documentEditing() || saving())
+        return;
+    if (hasUnsavedChanges()) {
+        m_awaitingDocumentDecision = true;
+        emit artworkStateChanged();
+        emit unsavedChangesDecisionRequested();
+    } else
+        executeDocumentAction();
+}
+
+void AppController::cancelDocumentAction() {
+    m_pendingDocumentAction.clear();
+    m_pendingDocument.reset();
+    m_awaitingDocumentDecision = false;
+    m_discardDocument = false;
+    m_closePending = false;
+    m_transitionQueued = false;
+    m_transitionCaptureId = 0;
+    m_allowIncompleteTransition = false;
+    m_transitionSpool.clear();
+    m_closeSpool.clear();
+    emit artworkStateChanged();
+}
+
+void AppController::resolveUnsavedChanges(const QString& choice) {
+    if (!m_awaitingDocumentDecision)
+        return;
+    m_awaitingDocumentDecision = false;
+    emit artworkStateChanged();
+    if (choice == "save")
+        saveCurrentProject();
+    else if (choice == "discard") {
+        m_discardDocument = true;
+        executeDocumentAction();
+    } else
+        cancelDocumentAction();
+}
+
+void AppController::saveCurrentProject() {
+    if (saving() || documentEditing())
+        return;
+    if (projectPath().isEmpty())
+        emit saveAsRequested();
+    else
+        saveProjectAsync(QUrl::fromLocalFile(projectPath()));
+}
+
+bool AppController::saveProjectAsync(const QUrl& url) {
+    if (documentEditing())
+        return false;
+    QString path = localPathFrom(url);
+    if (path.isEmpty())
+        return false;
+    if (!path.endsWith(".prism", Qt::CaseInsensitive))
+        path += ".prism";
+    return m_artwork->saveAsync(path);
+}
+
+void AppController::retryAutosave() { m_artwork->protectNow(); }
+
+void AppController::settleLiveEdit() {
+    m_artwork->setStrokeActive(documentEditing());
+    emit artworkStateChanged();
+    if (!documentEditing() && !m_pendingDocumentAction.isEmpty() && !m_awaitingDocumentDecision &&
+        !saving())
+        QTimer::singleShot(0, this, &AppController::settleDocumentDecision);
+}
+
+void AppController::executeDocumentAction() {
+    if (m_pendingDocumentAction == "close") {
+        m_closePending = true;
+        m_closeSpool = m_recorder->spoolPath();
+        m_closeCaptureId =
+            m_recorder->isActive() ? m_recorder->capture(canvasImage(), tr("Final"), true) : 0;
+        finishClose();
+        return;
+    }
+    if (!m_pendingDocument)
+        return;
+    if (!m_transitionQueued) {
+        m_transitionQueued = true;
+        m_transitionSpool = m_recorder->spoolPath();
+        m_transitionCaptureId =
+            m_recorder->isActive() ? m_recorder->capture(canvasImage(), tr("Final"), true) : 0;
+    }
+    if (m_recorder->spoolPath() != m_transitionSpool) {
+        setLastError(tr("Recording session changed while preparing the document. The current "
+                        "artwork is still open."));
+        cancelDocumentAction();
+        return;
+    }
+    if (!m_allowIncompleteTransition && m_recorder->hasError()) {
+        emit closeRecordingError(m_recorder->lastError());
+        return;
+    }
+    if (m_transitionCaptureId && !m_recorder->hasError() &&
+        m_recorder->lastStoredCaptureId() < m_transitionCaptureId) {
+        QTimer::singleShot(25, this, [this]() {
+            if (!m_pendingDocumentAction.isEmpty())
+                executeDocumentAction();
+        });
+        return;
+    }
+    const QString action = m_pendingDocumentAction;
+    const QString path = m_pendingProjectPath;
+    const bool recovered = m_pendingRecovery;
+    if (m_pendingDocument) {
+        const int active =
+            action == "new" ? static_cast<int>(m_pendingDocument->layers().size()) - 1 : 0;
+        installDocument(std::move(*m_pendingDocument), m_pendingDocumentName,
+                        m_pendingInitialContents ? QString() : path, m_pendingInitialContents,
+                        active);
+        if (recovered)
+            m_artwork->adoptRecovery(path);
+        else if (!path.isEmpty()) {
+            addRecentFile(path);
+            cacheRecentPreview(path);
+        }
+    }
+    cancelDocumentAction();
+    emit documentActionCompleted(true);
+}
+
+void AppController::finishClose() {
+    if (!m_closePending)
+        return;
+    if (m_recorder->spoolPath() != m_closeSpool) {
+        emit closeRecordingError(
+            tr("Recording session changed before the final frame was stored."));
+        return;
+    }
+    if (m_recorder->hasError()) {
+        emit closeRecordingError(m_recorder->lastError());
+        return;
+    }
+    if (m_artwork->isWriting() || m_recordingExporting ||
+        (m_closeCaptureId && m_recorder->lastStoredCaptureId() < m_closeCaptureId)) {
+        QTimer::singleShot(25, this, &AppController::finishClose);
+        return;
+    }
+    m_artwork->endDocument(m_discardDocument);
+    m_recorder->markFinished();
+    m_closePending = false;
+    emit closeReady();
+}
+
+void AppController::confirmCloseRecordingError(bool close) {
+    if (m_transitionQueued && !m_closePending) {
+        if (close) {
+            m_allowIncompleteTransition = true;
+            executeDocumentAction();
+        } else
+            cancelDocumentAction();
+        return;
+    }
+    if (!m_closePending)
+        return;
+    if (close) {
+        m_closeCaptureId = 0;
+        if (m_artwork->isWriting() || m_recordingExporting) {
+            QTimer::singleShot(25, this, [this]() { confirmCloseRecordingError(true); });
+            return;
+        }
+        m_closePending = false;
+        m_artwork->endDocument(m_discardDocument);
+        emit closeReady();
+    } else
+        cancelDocumentAction();
+}
+
+void AppController::clearRecentFiles() {
     m_recentFiles.clear();
     QSettings settings;
     settings.remove(QStringLiteral("recentFiles"));
@@ -1803,61 +2764,56 @@ struct ToolDefault {
     const char* key;
 };
 
-const std::vector<ToolDefault>& toolDefaults()
-{
+const std::vector<ToolDefault>& toolDefaults() {
     static const std::vector<ToolDefault> defaults = {
-        { 0, "Freehand Brush", "B" },          // BrushTool
-        { 1, "Eraser", "E" },                  // EraserTool
-        { 2, "Line", "L" },                    // LineTool
-        { 3, "Rectangle", "R" },               // RectangleTool
-        { 4, "Ellipse", "O" },                 // EllipseTool
-        { 5, "Gradient", "G" },                // GradientTool
-        { 6, "Fill", "F" },                    // FillTool
-        { 7, "Color Picker", "I" },            // EyedropperTool
-        { 8, "Pan", "" },                      // PanTool
-        { 9, "Zoom", "Z" },                    // ZoomTool
-        { 10, "Rectangular Selection", "M" },  // RectSelectTool
-        { 11, "Elliptical Selection", "" },    // EllipseSelectTool
-        { 12, "Freehand Selection", "" },      // LassoSelectTool
-        { 13, "Polygon Selection", "" },       // PolygonSelectTool
-        { 14, "Contiguous Selection", "W" },   // MagicWandTool
-        { 15, "Similar Color Selection", "" }, // SimilarColorSelectTool
-        { 16, "Move Layer", "V" },             // MoveTool
-        { 17, "Text", "" },                    // TextTool
-        { 18, "Polyline", "" },                // PolylineTool
-        { 19, "Bezier Curve", "" },            // BezierTool
-        { 20, "Freehand Path", "" },           // FreehandPathTool
-        { 21, "Arc", "" },                     // ArcTool
-        { 22, "Multibrush", "" },              // MultiBrushTool
-        { 23, "Dynamic Brush", "" },           // DynamicBrushTool
-        { 24, "Bezier Selection", "" },        // BezierSelectTool
-        { 25, "Magnetic Selection", "" },      // MagneticSelectTool
-        { 26, "Outline Selection", "" },       // OutlineSelectTool
-        { 27, "Contiguous Selection (all)", "" }, // ContiguousSelectTool
-        { 28, "Transform", "" },               // TransformTool
-        { 29, "Crop", "" },                    // CropTool
-        { 30, "Pattern", "" },                 // PatternTool
+        {-1, "Quick Controls", "Q"},
+        {0, "Freehand Brush", "B"},             // BrushTool
+        {1, "Eraser", "E"},                     // EraserTool
+        {2, "Line", "L"},                       // LineTool
+        {3, "Rectangle", "R"},                  // RectangleTool
+        {4, "Ellipse", "O"},                    // EllipseTool
+        {5, "Gradient", "G"},                   // GradientTool
+        {6, "Fill", "F"},                       // FillTool
+        {7, "Color Picker", "I"},               // EyedropperTool
+        {8, "Pan", ""},                         // PanTool
+        {9, "Zoom", "Z"},                       // ZoomTool
+        {10, "Rectangular Selection", "M"},     // RectSelectTool
+        {11, "Elliptical Selection", ""},       // EllipseSelectTool
+        {12, "Freehand Selection", ""},         // LassoSelectTool
+        {13, "Polygon Selection", ""},          // PolygonSelectTool
+        {14, "Contiguous Selection", "W"},      // MagicWandTool
+        {15, "Similar Color Selection", ""},    // SimilarColorSelectTool
+        {16, "Move Layer", "V"},                // MoveTool
+        {17, "Text", ""},                       // TextTool
+        {18, "Polyline", ""},                   // PolylineTool
+        {19, "Bezier Curve", ""},               // BezierTool
+        {20, "Freehand Path", ""},              // FreehandPathTool
+        {21, "Arc", ""},                        // ArcTool
+        {22, "Multibrush", ""},                 // MultiBrushTool
+        {23, "Dynamic Brush", ""},              // DynamicBrushTool
+        {24, "Bezier Selection", ""},           // BezierSelectTool
+        {25, "Magnetic Selection", ""},         // MagneticSelectTool
+        {26, "Outline Selection", ""},          // OutlineSelectTool
+        {27, "Contiguous Selection (all)", ""}, // ContiguousSelectTool
+        {28, "Transform", ""},                  // TransformTool
+        {29, "Crop", ""},                       // CropTool
+        {30, "Pattern", ""},                    // PatternTool
     };
     return defaults;
 }
 
-QString settingsKeyForTool(int tool)
-{
-    return QStringLiteral("shortcuts/%1").arg(tool);
-}
+QString settingsKeyForTool(int tool) { return QStringLiteral("shortcuts/%1").arg(tool); }
 
 } // namespace
 
-QString AppController::defaultToolShortcut(int tool) const
-{
+QString AppController::defaultToolShortcut(int tool) const {
     for (const auto& d : toolDefaults())
         if (d.tool == tool)
             return QString::fromLatin1(d.key);
     return {};
 }
 
-QString AppController::toolShortcut(int tool) const
-{
+QString AppController::toolShortcut(int tool) const {
     QSettings settings;
     // An override exists only when it was explicitly set; otherwise default.
     return settings.contains(settingsKeyForTool(tool))
@@ -1865,8 +2821,7 @@ QString AppController::toolShortcut(int tool) const
                : defaultToolShortcut(tool);
 }
 
-void AppController::setToolShortcut(int tool, const QString& key)
-{
+void AppController::setToolShortcut(int tool, const QString& key) {
     // Normalize: a single character, uppercase; "" is a valid (keyless) value.
     QString normalized = key.trimmed().toUpper();
     if (normalized.size() > 1)
@@ -1887,8 +2842,7 @@ void AppController::setToolShortcut(int tool, const QString& key)
     emit toolShortcutsChanged();
 }
 
-QVariantList AppController::toolShortcutList() const
-{
+QVariantList AppController::toolShortcutList() const {
     QVariantList out;
     for (const auto& d : toolDefaults()) {
         QVariantMap entry;
@@ -1901,14 +2855,12 @@ QVariantList AppController::toolShortcutList() const
     return out;
 }
 
-QString AppController::versionString() const
-{
+QString AppController::versionString() const {
     // Version only: callers add the product name, so it isn't duplicated.
     return QCoreApplication::applicationVersion();
 }
 
-void AppController::setLastError(const QString& error)
-{
+void AppController::setLastError(const QString& error) {
     if (m_lastError == error)
         return;
     m_lastError = error;
@@ -1917,8 +2869,7 @@ void AppController::setLastError(const QString& error)
         qWarning() << "file error:" << error;
 }
 
-void AppController::setStatusMessage(const QString& message)
-{
+void AppController::setStatusMessage(const QString& message) {
     if (m_statusMessage == message)
         return;
     m_statusMessage = message;
@@ -1927,34 +2878,36 @@ void AppController::setStatusMessage(const QString& message)
 
 // ---------------------------------------------------------------- layer state
 
-void AppController::setLayerLocked(int index, bool locked)
-{
+void AppController::setLayerLocked(int index, bool locked) {
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
     m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
-        m_doc, index, core::SetLayerPropertyCommand::Property::Locked, locked,
-        layer.isLocked()));
+        m_doc, index, core::SetLayerPropertyCommand::Property::Locked, locked, layer.isLocked()));
     m_layersModel->refresh();
     emit layersChanged();
     emit historyChanged();
 }
 
-void AppController::previewLayerOpacity(int index, int percent)
-{
+void AppController::previewLayerOpacity(int index, int percent) {
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
+    m_opacityPreview = true;
+    settleLiveEdit();
     // Live feedback only - the history entry is created once, on release.
-    m_doc.layers()[static_cast<std::size_t>(index)]->setOpacity(
-        static_cast<float>(percent) / 100.0F);
+    m_doc.layers()[static_cast<std::size_t>(index)]->setOpacity(static_cast<float>(percent) /
+                                                                100.0F);
     // The row's own "NN%" label reads the model, so without this notification
     // the percentage stayed put until the drag ended.
-    m_layersModel->notifyRow(index, { LayerListModel::OpacityRole });
+    m_layersModel->notifyRow(index, {LayerListModel::OpacityRole});
     rebuildFullComposite();
 }
 
-void AppController::commitLayerOpacity(int index, int percent, int previousPercent)
-{
+void AppController::commitLayerOpacity(int index, int percent, int previousPercent) {
+    const auto settled = qScopeGuard([this]() {
+        m_opacityPreview = false;
+        settleLiveEdit();
+    });
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
     if (percent == previousPercent) {
@@ -1977,8 +2930,7 @@ void AppController::commitLayerOpacity(int index, int percent, int previousPerce
 
 // --------------------------------------------------------------------- actions
 
-void AppController::addLayer()
-{
+void AppController::addLayer() {
     const auto name = QStringLiteral("Layer %1").arg(static_cast<int>(m_doc.layers().size()) + 1);
     m_history.execute(std::make_unique<core::AddLayerCommand>(m_doc, name.toStdString()));
     m_activeLayer = static_cast<int>(m_doc.layers().size()) - 1;
@@ -1987,8 +2939,96 @@ void AppController::addLayer()
     emit historyChanged();
 }
 
-void AppController::deleteLayer()
-{
+void AppController::groupLayer() {
+    const int index = activeLayerIndex();
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    m_history.execute(
+        std::make_unique<core::GroupLayerCommand>(m_doc, static_cast<std::size_t>(index), "Group"));
+    m_activeLayer = index + 1;
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::moveLayerIntoGroupAbove(int index) {
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    const auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    for (int i = index + 1; i < static_cast<int>(m_doc.layers().size()); ++i) {
+        const auto& group = *m_doc.layers()[static_cast<std::size_t>(i)];
+        if (group.type() != core::Layer::Type::Group || group.parentId() != layer.parentId())
+            continue;
+        auto parent = group.parentId();
+        while (parent != 0) {
+            if (parent == layer.id())
+                return;
+            const auto it =
+                std::find_if(m_doc.layers().begin(), m_doc.layers().end(),
+                             [parent](const auto& item) { return item->id() == parent; });
+            if (it == m_doc.layers().end())
+                return;
+            parent = (*it)->parentId();
+        }
+        m_history.execute(std::make_unique<core::SetLayerParentCommand>(m_doc, index, group.id()));
+        m_layersModel->refresh();
+        emit layersChanged();
+        emit historyChanged();
+        rebuildFullComposite();
+        return;
+    }
+}
+
+void AppController::moveLayerOutOfGroup(int index) {
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    const auto parent = m_doc.layers()[static_cast<std::size_t>(index)]->parentId();
+    if (!parent)
+        return;
+    const auto it = std::find_if(m_doc.layers().begin(), m_doc.layers().end(),
+                                 [parent](const auto& item) { return item->id() == parent; });
+    if (it == m_doc.layers().end())
+        return;
+    m_history.execute(
+        std::make_unique<core::SetLayerParentCommand>(m_doc, index, (*it)->parentId()));
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::setLayerClipped(int index, bool clipped) {
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    if (layer.isClipped() == clipped)
+        return;
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::Clipped, clipped,
+        layer.isClipped()));
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::setLayerAlphaLocked(int index, bool locked) {
+    if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
+        return;
+    auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
+    if (layer.isAlphaLocked() == locked)
+        return;
+    m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
+        m_doc, index, core::SetLayerPropertyCommand::Property::AlphaLocked, locked,
+        layer.isAlphaLocked()));
+    m_layersModel->refresh();
+    emit layersChanged();
+    emit historyChanged();
+    rebuildFullComposite();
+}
+
+void AppController::deleteLayer() {
     if (m_doc.layers().size() <= 1)
         return;
     const int idx = activeLayerIndex();
@@ -2000,19 +3040,17 @@ void AppController::deleteLayer()
     rebuildFullComposite();
 }
 
-void AppController::duplicateLayer()
-{
-    m_history.execute(
-        std::make_unique<core::DuplicateLayerCommand>(m_doc, activeLayerIndex()));
-    m_activeLayer = activeLayerIndex() + 1;
+void AppController::duplicateLayer() {
+    const int copyIndex = static_cast<int>(m_doc.layers().size());
+    m_history.execute(std::make_unique<core::DuplicateLayerCommand>(m_doc, activeLayerIndex()));
+    m_activeLayer = copyIndex;
     m_layersModel->refresh();
     emit layersChanged();
     emit historyChanged();
     rebuildFullComposite();
 }
 
-void AppController::moveLayerUp()
-{
+void AppController::moveLayerUp() {
     const int idx = activeLayerIndex();
     if (idx >= static_cast<int>(m_doc.layers().size()) - 1)
         return;
@@ -2024,8 +3062,7 @@ void AppController::moveLayerUp()
     rebuildFullComposite();
 }
 
-void AppController::moveLayerDown()
-{
+void AppController::moveLayerDown() {
     const int idx = activeLayerIndex();
     if (idx <= 0)
         return;
@@ -2037,25 +3074,22 @@ void AppController::moveLayerDown()
     rebuildFullComposite();
 }
 
-QStringList AppController::blendModeNames() const
-{
+QStringList AppController::blendModeNames() const {
     // Order MUST match the BlendMode enum values: the combo box's
     // currentIndex is written straight into the layer's blend mode.
     static const QStringList names = {
-        tr("Normal"),      tr("Multiply"),    tr("Screen"),     tr("Overlay"),
-        tr("Darken"),      tr("Lighten"),     tr("Color Dodge"), tr("Color Burn"),
-        tr("Hard Light"),  tr("Soft Light"),  tr("Difference"), tr("Exclusion"),
-        tr("Add"),         tr("Subtract"),    tr("Divide"),     tr("Hue"),
-        tr("Saturation"),  tr("Color"),       tr("Luminosity"),
+        tr("Normal"),     tr("Multiply"),    tr("Screen"),     tr("Overlay"),    tr("Darken"),
+        tr("Lighten"),    tr("Color Dodge"), tr("Color Burn"), tr("Hard Light"), tr("Soft Light"),
+        tr("Difference"), tr("Exclusion"),   tr("Add"),        tr("Subtract"),   tr("Divide"),
+        tr("Hue"),        tr("Saturation"),  tr("Color"),      tr("Luminosity"),
     };
     return names;
 }
 
-void AppController::moveLayerTo(int fromIndex, int toIndex)
-{
+void AppController::moveLayerTo(int fromIndex, int toIndex) {
     const int count = static_cast<int>(m_doc.layers().size());
-    if (fromIndex < 0 || fromIndex >= count || toIndex < 0 || toIndex >= count
-        || fromIndex == toIndex)
+    if (fromIndex < 0 || fromIndex >= count || toIndex < 0 || toIndex >= count ||
+        fromIndex == toIndex)
         return;
     // Krita-style drag & drop: the dragged layer lands where it was dropped and
     // the layers in between shift by one. Undo restores the previous order.
@@ -2068,8 +3102,7 @@ void AppController::moveLayerTo(int fromIndex, int toIndex)
     rebuildFullComposite();
 }
 
-void AppController::setLayerVisible(int index, bool visible)
-{
+void AppController::setLayerVisible(int index, bool visible) {
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
@@ -2081,22 +3114,19 @@ void AppController::setLayerVisible(int index, bool visible)
     rebuildFullComposite();
 }
 
-void AppController::setLayerOpacity(int index, int percent)
-{
+void AppController::setLayerOpacity(int index, int percent) {
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
     const float value = static_cast<float>(percent) / 100.0F;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
     m_history.execute(std::make_unique<core::SetLayerPropertyCommand>(
-        m_doc, index, core::SetLayerPropertyCommand::Property::Opacity, value,
-        layer.opacity()));
+        m_doc, index, core::SetLayerPropertyCommand::Property::Opacity, value, layer.opacity()));
     m_layersModel->refresh();
     emit historyChanged();
     rebuildFullComposite();
 }
 
-void AppController::setLayerBlendMode(int index, int mode)
-{
+void AppController::setLayerBlendMode(int index, int mode) {
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
@@ -2109,8 +3139,7 @@ void AppController::setLayerBlendMode(int index, int mode)
     rebuildFullComposite();
 }
 
-void AppController::renameLayer(int index, const QString& name)
-{
+void AppController::renameLayer(int index, const QString& name) {
     if (index < 0 || index >= static_cast<int>(m_doc.layers().size()))
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(index)];
@@ -2121,8 +3150,9 @@ void AppController::renameLayer(int index, const QString& name)
     emit historyChanged();
 }
 
-void AppController::undo()
-{
+void AppController::undo() {
+    if (documentEditing())
+        return;
     // History throws when there is nothing to undo (a programming error, not a
     // user error). The menu items are disabled in that state, but the keyboard
     // shortcuts and any scripted caller are not â€” and an escaping exception
@@ -2136,8 +3166,9 @@ void AppController::undo()
     rebuildFullComposite();
 }
 
-void AppController::redo()
-{
+void AppController::redo() {
+    if (documentEditing())
+        return;
     if (!m_history.canRedo())
         return;
     m_history.redo();
@@ -2147,35 +3178,37 @@ void AppController::redo()
     rebuildFullComposite();
 }
 
-void AppController::clearCanvas()
-{
+void AppController::clearCanvas() {
+    if (m_doc.layers().empty())
+        return;
+    const auto& layer = *m_doc.layers()[static_cast<std::size_t>(activeLayerIndex())];
+    if (layer.isLocked() || layer.isAlphaLocked() || layer.type() != core::Layer::Type::Raster)
+        return;
     m_history.execute(std::make_unique<core::ClearLayerCommand>(
         m_doc, static_cast<std::size_t>(activeLayerIndex())));
     emit historyChanged();
     rebuildFullComposite();
 }
 
-core::geometry::Rect AppController::paintSegmentSymmetrical(
-    core::raster::RasterBuffer& buffer, const canvas::BrushSettings& brush,
-    const canvas::StrokePoint& a, const canvas::StrokePoint& b)
-{
-    auto rect = canvas::BrushStroke::paintSegment(buffer, brush, a, b);
+core::geometry::Rect
+AppController::paintSegmentSymmetrical(core::raster::RasterBuffer& buffer,
+                                       const canvas::BrushSettings& brush,
+                                       const canvas::StrokePoint& a, const canvas::StrokePoint& b,
+                                       canvas::BrushStroke::StrokeState* state) {
+    auto rect = canvas::BrushStroke::paintSegment(buffer, brush, a, b, state);
     if (m_tool != Tool::MultiBrushTool || !brush.erase)
         return rect;
 
     // Krita's Multibrush repeats each stroke mirrored about the canvas centre.
     const float w = static_cast<float>(m_doc.canvasSize().width);
     const float h = static_cast<float>(m_doc.canvasSize().height);
-    const canvas::StrokePoint mirrorX[2] = { { w - a.x, a.y, a.pressure },
-                                             { w - b.x, b.y, b.pressure } };
-    const canvas::StrokePoint mirrorY[2] = { { a.x, h - a.y, a.pressure },
-                                             { b.x, h - b.y, b.pressure } };
-    const canvas::StrokePoint mirrorXY[2] = { { w - a.x, h - a.y, a.pressure },
-                                              { w - b.x, h - b.y, b.pressure } };
+    const canvas::StrokePoint mirrorX[2] = {{w - a.x, a.y, a.pressure}, {w - b.x, b.y, b.pressure}};
+    const canvas::StrokePoint mirrorY[2] = {{a.x, h - a.y, a.pressure}, {b.x, h - b.y, b.pressure}};
+    const canvas::StrokePoint mirrorXY[2] = {{w - a.x, h - a.y, a.pressure},
+                                             {w - b.x, h - b.y, b.pressure}};
 
-    const canvas::StrokePoint* variants[3][2] = { { mirrorX, mirrorX + 1 },
-                                                  { mirrorY, mirrorY + 1 },
-                                                  { mirrorXY, mirrorXY + 1 } };
+    const canvas::StrokePoint* variants[3][2] = {
+        {mirrorX, mirrorX + 1}, {mirrorY, mirrorY + 1}, {mirrorXY, mirrorXY + 1}};
     for (auto& v : variants) {
         const auto r = canvas::BrushStroke::paintSegment(buffer, brush, v[0][0], v[1][0]);
         if (r.isEmpty())
@@ -2183,18 +3216,14 @@ core::geometry::Rect AppController::paintSegmentSymmetrical(
         rect = core::geometry::Rect{
             std::min(rect.x, r.x), std::min(rect.y, r.y),
             std::max(rect.x + rect.width, r.x + r.width) - std::min(rect.x, r.x),
-            std::max(rect.y + rect.height, r.y + r.height) - std::min(rect.y, r.y) };
+            std::max(rect.y + rect.height, r.y + r.height) - std::min(rect.y, r.y)};
     }
     return rect;
 }
 
-bool AppController::canMergeDown() const
-{
-    return activeLayerIndex() > 0;
-}
+bool AppController::canMergeDown() const { return activeLayerIndex() > 0; }
 
-void AppController::mergeLayerDown()
-{
+void AppController::mergeLayerDown() {
     if (!canMergeDown())
         return;
     m_history.execute(std::make_unique<core::MergeLayerDownCommand>(
@@ -2206,8 +3235,7 @@ void AppController::mergeLayerDown()
     rebuildFullComposite();
 }
 
-void AppController::applyFilter(const QString& id)
-{
+void AppController::applyFilter(const QString& id) {
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
         return;
     auto& layer = *m_doc.layers()[static_cast<std::size_t>(m_activeLayer)];
@@ -2254,8 +3282,7 @@ void AppController::applyFilter(const QString& id)
 
 // ----------------------------------------------------------------------- file
 
-void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight)
-{
+void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight) {
     const auto s = m_doc.canvasSize();
     if (s.width <= 0 || s.height <= 0 || viewportWidth <= 0 || viewportHeight <= 0)
         return;
@@ -2263,26 +3290,33 @@ void AppController::fitToViewport(qreal viewportWidth, qreal viewportHeight)
     setZoom(std::min(fit, 1.0));
 }
 
-bool AppController::saveProject(const QUrl& url)
-{
+bool AppController::saveProject(const QUrl& url) {
     QString path = localPathFrom(url);
     // A project file without the .prism suffix is invisible to the Open
     // dialog's filter â€” that is why reopened saves appeared to be missing.
+    if (path.isEmpty()) {
+        setLastError(tr("No file name specified."));
+        return false;
+    }
     if (!path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
         path += QStringLiteral(".prism");
 
     const bool ok = io::ProjectIO::save(m_doc, path);
     if (ok) {
+        m_artwork->acceptedSave(path, m_history.stateId());
+        cacheRecentPreview(path);
         addRecentFile(path);
         setDocumentName(QFileInfo(path).fileName());
+        setLastError(QString());
+        setStatusMessage(tr("Saved %1.").arg(QFileInfo(path).fileName()));
     } else {
         qWarning() << "save failed:" << path;
+        setLastError(tr("Could not save %1.").arg(QFileInfo(path).fileName()));
     }
     return ok;
 }
 
-bool AppController::saveFile(const QUrl& url)
-{
+bool AppController::saveFile(const QUrl& url) {
     QString path = localPathFrom(url);
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix.isEmpty() || suffix == QLatin1String("prism"))
@@ -2296,24 +3330,21 @@ bool AppController::saveFile(const QUrl& url)
     return ok;
 }
 
-bool AppController::openFile(const QUrl& url)
-{
+bool AppController::openFile(const QUrl& url) {
     const QString path = localPathFrom(url);
     if (path.endsWith(QStringLiteral(".prism"), Qt::CaseInsensitive))
         return openProject(QUrl::fromLocalFile(path));
     return importImage(QUrl::fromLocalFile(path));
 }
 
-QStringList AppController::writableFormatNames() const
-{
+QStringList AppController::writableFormatNames() const {
     QStringList out;
     for (const QByteArray& f : io::ProjectIO::writableFormats())
         out << QString::fromLatin1(f);
     return out;
 }
 
-QStringList AppController::imageOpenFilters() const
-{
+QStringList AppController::imageOpenFilters() const {
     const QList<QByteArray> formats = io::ProjectIO::readableFormats();
     QStringList out = filterStringsFor(formats);
     // "Everything we can read" goes FIRST, because the first entry is the
@@ -2328,8 +3359,7 @@ QStringList AppController::imageOpenFilters() const
     return out;
 }
 
-QStringList AppController::imageSaveFilters() const
-{
+QStringList AppController::imageSaveFilters() const {
     // A project file is always the first choice when saving; flat image formats
     // follow.
     QStringList out = filterStringsFor(io::ProjectIO::writableFormats());
@@ -2337,75 +3367,51 @@ QStringList AppController::imageSaveFilters() const
     return out;
 }
 
-bool AppController::openProject(const QUrl& url)
-{
+bool AppController::openProject(const QUrl& url) {
+    if (recordingRepairing()) {
+        setLastError(tr("Wait for recording repair before replacing the document."));
+        return false;
+    }
     const QString filePath = localPathFrom(url);
     auto doc = io::ProjectIO::load(filePath);
     if (!doc) {
-        setLastError(tr("Could not open %1 â€” it is not a valid Prism project.")
+        setLastError(tr("Could not open %1 — it is not a valid Prism project.")
                          .arg(QFileInfo(filePath).fileName()));
         return false;
     }
     setLastError(QString());
-    m_doc = std::move(*doc);
-    m_history.clear();
-    forgetRecordedFrames();
-    m_compositor.canvasResized();
-    m_activeLayer = 0;
-    m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
-    m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
-    m_documentName = QFileInfo(filePath).fileName();
-    m_layersModel->setDocument(&m_doc);
+    installDocument(std::move(*doc), QFileInfo(filePath).fileName(), filePath, false);
     addRecentFile(filePath);
-    emit documentNameChanged();
-    emit layersChanged();
-    emit historyChanged();
-    notifySelectionChanged();
-    // The start page was covering the canvas, so a successfully opened file
-    // looked like nothing happened. Opening a document must dismiss it.
-    setStartPageVisible(false);
-    rebuildFullComposite();
+    cacheRecentPreview(filePath);
     return true;
 }
 
-bool AppController::importImage(const QUrl& url)
-{
+bool AppController::importImage(const QUrl& url) {
+    if (recordingRepairing()) {
+        setLastError(tr("Wait for recording repair before replacing the document."));
+        return false;
+    }
     const QString path = localPathFrom(url);
     auto doc = io::ProjectIO::importImage(path);
     if (!doc) {
-        setLastError(tr("Could not open %1 â€” unsupported or unreadable image.")
+        setLastError(tr("Could not open %1 — unsupported or unreadable image.")
                          .arg(QFileInfo(path).fileName()));
         return false;
     }
     setLastError(QString());
-    m_doc = std::move(*doc);
-    m_history.clear();
-    forgetRecordedFrames();
-    m_compositor.canvasResized();
-    m_activeLayer = 0;
-    m_preview = core::raster::RasterBuffer(m_doc.canvasSize().width, m_doc.canvasSize().height);
-    m_selection.reset(m_doc.canvasSize().width, m_doc.canvasSize().height);
-    m_documentName = QFileInfo(path).fileName();
-    m_layersModel->setDocument(&m_doc);
+    installDocument(std::move(*doc), QFileInfo(path).fileName(), {}, true);
     addRecentFile(path);
-    emit documentNameChanged();
-    emit layersChanged();
-    emit historyChanged();
-    notifySelectionChanged();
-    setStartPageVisible(false);
-    rebuildFullComposite();
     return true;
 }
 
-bool AppController::importImageAsLayer(const QUrl& url)
-{
+bool AppController::importImageAsLayer(const QUrl& url) {
     const QString path = localPathFrom(url);
     // No canvas to add to yet: behave like Open image (creates a document).
     if (m_startPageVisible || m_doc.layers().empty())
         return importImage(QUrl::fromLocalFile(path));
     QImage image(path);
     if (image.isNull()) {
-        setLastError(tr("Could not import %1 â€” unsupported or unreadable image.")
+        setLastError(tr("Could not import %1 — unsupported or unreadable image.")
                          .arg(QFileInfo(path).fileName()));
         return false;
     }
@@ -2413,8 +3419,8 @@ bool AppController::importImageAsLayer(const QUrl& url)
 
     const auto cs = m_doc.canvasSize();
     const auto origin = m_doc.canvasOrigin();
-    auto layer = std::make_unique<core::Layer>(
-        core::Layer::Type::Raster, QFileInfo(path).completeBaseName().toStdString());
+    auto layer = std::make_unique<core::Layer>(core::Layer::Type::Raster,
+                                               QFileInfo(path).completeBaseName().toStdString());
     // Canvas-at-origin, like every other layer: a crop moves the canvas window
     // inside the buffers, so a canvas-sized layer would be read at the wrong
     // place. The image is written into the canvas rectangle of that buffer.
@@ -2432,16 +3438,15 @@ bool AppController::importImageAsLayer(const QUrl& url)
     const int y1 = std::min(origin.y + cs.height, dy + image.height());
     for (int y = y0; y < y1; ++y) {
         const auto dstRow = static_cast<std::size_t>(y) * bufferW + static_cast<std::size_t>(x0);
-        const auto srcRow = static_cast<std::size_t>(y - dy) * image.width()
-            + static_cast<std::size_t>(x0 - dx);
+        const auto srcRow =
+            static_cast<std::size_t>(y - dy) * image.width() + static_cast<std::size_t>(x0 - dx);
         std::memcpy(layer->pixels().data() + dstRow * 4, image.constBits() + srcRow * 4,
                     static_cast<std::size_t>(x1 - x0) * 4);
     }
 
     setLastError(QString());
     const std::string name = layer->name();
-    m_history.execute(
-        std::make_unique<core::AddLayerCommand>(m_doc, name, std::move(layer)));
+    m_history.execute(std::make_unique<core::AddLayerCommand>(m_doc, name, std::move(layer)));
     m_activeLayer = static_cast<int>(m_doc.layers().size()) - 1;
     m_layersModel->refresh();
     emit layersChanged();
@@ -2450,14 +3455,13 @@ bool AppController::importImageAsLayer(const QUrl& url)
 
     // Placing without resampling means an oversized image is cropped. Say so
     // instead of leaving the user to wonder where the rest of the photo went.
-    // (Only point at tools that actually exist: Resize Canvas is not
-    // implemented yet, so the advice is the Transform tool or a bigger doc.)
+    // The imported image can be moved or the canvas can be enlarged afterward.
     const int clippedX = std::max(0, image.width() - (x1 - x0));
     const int clippedY = std::max(0, image.height() - (y1 - y0));
     if (clippedX > 0 || clippedY > 0)
         setStatusMessage(tr("Imported \"%1\" as a layer (%2x%3). Canvas is %4x%5, so "
-                            "%6x%7 px were cropped â€” scale the layer with the Transform "
-                            "tool, or start a document large enough for it.")
+                            "%6x%7 px were cropped — undo, resize the canvas, then import "
+                            "again to keep the whole image.")
                              .arg(QString::fromStdString(name))
                              .arg(image.width())
                              .arg(image.height())
@@ -2478,111 +3482,77 @@ bool AppController::importImageAsLayer(const QUrl& url)
     return true;
 }
 
-bool AppController::exportPng(const QUrl& url)
-{
+bool AppController::exportPng(const QUrl& url) {
     return io::ProjectIO::exportPng(m_compositor, localPathFrom(url));
 }
 
-void AppController::newDocument(int width, int height)
-{
+void AppController::newDocument(int width, int height) {
     createDocument(width, height, tr("Untitled"), 1, QColor(255, 255, 255), 100,
                    BackgroundAsRasterLayer);
 }
 
 void AppController::createDocument(int width, int height, const QString& name, int layerCount,
-                                  const QColor& background, int backgroundOpacity,
-                                  int backgroundMode)
-{
-    const int w = std::max(1, width);
-    const int h = std::max(1, height);
-    m_doc = core::Document(core::CanvasSize{ w, h, 72 });
-
+                                   const QColor& background, int backgroundOpacity,
+                                   int backgroundMode) {
+    if (recordingRepairing()) {
+        setLastError(tr("Wait for recording repair before replacing the document."));
+        return;
+    }
+    const int w = std::max(1, width), h = std::max(1, height);
+    core::Document candidate(core::CanvasSize{w, h, 72});
     const int layers = std::max(1, layerCount);
     for (int i = 0; i < layers; ++i)
-        m_doc.addRasterLayer(layers == 1 ? "Layer 1" : ("Layer " + std::to_string(i + 1)));
-
-    auto& bottom = *m_doc.layers().front();
+        candidate.addRasterLayer("Layer " + std::to_string(i + 1));
     const auto fill = core::raster::Color{
-        static_cast<std::uint8_t>(background.red()),
-        static_cast<std::uint8_t>(background.green()),
+        static_cast<std::uint8_t>(background.red()), static_cast<std::uint8_t>(background.green()),
         static_cast<std::uint8_t>(background.blue()),
-        static_cast<std::uint8_t>(std::clamp(backgroundOpacity, 0, 100) * 255 / 100)
-    };
-
-    switch (backgroundMode) {
-    case BackgroundAsCanvasColor:
-        // Krita's "canvas color" lives outside the layer stack; the closest
-        // equivalent here is a filled bottom layer at the given opacity.
-        bottom.setName("Background");
-        bottom.pixels().fill(fill);
-        break;
-    case BackgroundAsFillLayer: {
-        // A separate fill layer beneath the working layers.
-        auto layer = std::make_unique<core::Layer>(core::Layer::Type::Raster, "Fill Layer");
+        static_cast<std::uint8_t>(std::clamp(backgroundOpacity, 0, 100) * 255 / 100)};
+    if (backgroundMode == BackgroundAsCanvasColor) {
+        candidate.layers().front()->setName("Background");
+        candidate.layers().front()->pixels().fill(fill);
+    } else if (backgroundMode == BackgroundAsFillLayer) {
+        auto layer = std::make_unique<core::Layer>(core::Layer::Type::Raster, "Background");
         layer->pixels() = core::raster::RasterBuffer(w, h);
         layer->pixels().fill(fill);
-        m_doc.insertLayer(0, std::move(layer));
-        break;
+        candidate.insertLayer(0, std::move(layer));
     }
-    case BackgroundAsRasterLayer:
-    default:
-        // Leave layer 1 blank; artists usually want to paint from scratch.
-        break;
-    }
-
-    m_documentName = name.isEmpty() ? tr("Untitled") : name;
-    m_history.clear();
-    forgetRecordedFrames();
-    m_compositor.canvasResized();
-    // Select the topmost paint layer so drawing can start immediately.
-    m_activeLayer = layers - 1;
-    m_selection.reset(w, h);
-    m_preview = core::raster::RasterBuffer(w, h);
-    m_layersModel->setDocument(&m_doc);
-    emit layersChanged();
-    emit historyChanged();
-    emit documentNameChanged();
-    notifySelectionChanged();
-    setStartPageVisible(false);
-    rebuildFullComposite();
+    // Legacy tests/demo API keeps its transparent blank baseline. Production
+    // creates a staged candidate through requestDocumentAction and the guard.
+    const int active = static_cast<int>(candidate.layers().size()) - 1;
+    installDocument(std::move(candidate), name.isEmpty() ? tr("Untitled") : name, {}, false,
+                    active);
 }
 
 QString AppController::documentName() const { return m_documentName; }
 
-void AppController::setDocumentName(const QString& name)
-{
+void AppController::setDocumentName(const QString& name) {
     if (m_documentName == name)
         return;
     m_documentName = name;
     emit documentNameChanged();
 }
 
-QString AppController::windowTitle() const
-{
-    return tr("%1 (%2 MiB) - Prism").arg(m_documentName).arg(documentMemoryMiB(), 0, 'f', 1);
+QString AppController::windowTitle() const {
+    return tr("%1%2 (%3 MiB) - Prism")
+        .arg(m_documentName, hasUnsavedChanges() ? QStringLiteral(" *") : QString())
+        .arg(documentMemoryMiB(), 0, 'f', 1);
 }
 
 // ------------------------------------------------------------------- stroking
 
-float AppController::shapedPressure(float pressure) const
-{
-    // Gamma curve: >1 hardens (light presses stay thin/faint), <1 softens.
-    const float p = std::clamp(pressure, 0.0F, 1.0F);
-    return std::pow(p, static_cast<float>(m_pressureCurve));
-}
-
-void AppController::beginStroke(float x, float y, float pressure)
-{
+void AppController::beginStroke(float x, float y, float pressure, float tiltX, float tiltY) {
     m_currentStroke.clear();
+    m_strokeClock.start();
+    m_stampState = {};
     m_smoothedPressure = pressure;
-    m_currentStroke.push_back({ x, y, shapedPressure(pressure) });
+    m_currentStroke.push_back({x, y, pressure, tiltX, tiltY, 0.0F});
     // Only the region the previous stroke touched can still hold preview
     // pixels; clearing the whole canvas here (a full-buffer memset, 64 MB on a
     // 4000x4000 document) was pure overhead on every mouse-down.
     clearPreviewRegion(m_previewDirty);
     m_strokeDirty = {};
     m_previewDirty = {};
-    m_dynamicPos = { x, y, 1.0F };
+    m_dynamicPos = {x, y, 1.0F};
 
     // The eraser edits the ACTIVE layer directly and keeps one snapshot for
     // undo. It used to keep a second full copy of the layer as a write buffer
@@ -2590,9 +3560,25 @@ void AppController::beginStroke(float x, float y, float pressure)
     // 4000x4000 document every time the eraser touched down, to show exactly
     // what editing the layer in place shows anyway.
     auto& activeLayer = *m_doc.layers()[static_cast<std::size_t>(activeLayerIndex())];
-    m_erasing = m_brush.erase && m_activeLayer >= 0
-             && m_activeLayer < static_cast<int>(m_doc.layers().size())
-             && !activeLayer.isLocked();
+    if (activeLayer.type() != core::Layer::Type::Raster || activeLayer.isLocked() ||
+        (activeLayer.isAlphaLocked() && m_brush.erase)) {
+        m_currentStroke.clear();
+        if (m_strokeActive) {
+            m_strokeActive = false;
+            emit strokeActiveChanged();
+        }
+        setStatusMessage(
+            activeLayer.type() != core::Layer::Type::Raster ? tr("Select a raster layer to paint.")
+            : activeLayer.isLocked() ? tr("This layer is locked.")
+                                     : tr("Alpha Lock protects this layer from erasing."));
+        return;
+    }
+    if (!m_strokeActive) {
+        m_strokeActive = true;
+        emit strokeActiveChanged();
+    }
+    m_erasing = m_brush.erase && m_activeLayer >= 0 &&
+                m_activeLayer < static_cast<int>(m_doc.layers().size()) && !activeLayer.isLocked();
     if (m_erasing) {
         m_eraseBefore = activeLayer.pixels();
         m_compositor.clearLayerOverride();
@@ -2606,7 +3592,7 @@ void AppController::beginStroke(float x, float y, float pressure)
     m_blending = m_tool == Tool::BlendTool && !activeLayer.isLocked();
     if (m_blending) {
         m_eraseBefore = activeLayer.pixels();
-        m_carried = core::raster::Color{ 0, 0, 0, 0 }; // picked up on the first stamp
+        m_carried = core::raster::Color{0, 0, 0, 0}; // picked up on the first stamp
     }
 
     // Stamp the first point right away, like Krita: a click paints a dot, and
@@ -2617,7 +3603,8 @@ void AppController::beginStroke(float x, float y, float pressure)
         auto dotPoint = m_currentStroke.front();
         dotPoint.x += static_cast<float>(m_doc.canvasOrigin().x);
         dotPoint.y += static_cast<float>(m_doc.canvasOrigin().y);
-        const auto dot = paintSegmentSymmetrical(activeLayer.pixels(), m_brush, dotPoint, dotPoint);
+        const auto dot = paintSegmentSymmetrical(activeLayer.pixels(), m_brush, dotPoint, dotPoint,
+                                                 &m_stampState);
         if (!dot.isEmpty()) {
             m_strokeDirty = dot;
             const auto composited = m_compositor.composite(toCanvas(dot));
@@ -2627,18 +3614,17 @@ void AppController::beginStroke(float x, float y, float pressure)
         canvas::BrushSettings dotBrush = m_brush;
         dotBrush.erase = false;
         const auto dot = paintSegmentSymmetrical(m_preview, dotBrush, m_currentStroke.front(),
-                                                m_currentStroke.front());
+                                                 m_currentStroke.front(), &m_stampState);
         if (!dot.isEmpty()) {
             m_strokeDirty = dot;
             m_previewDirty = dot;
-            const auto composited = m_compositor.composite(dot, &m_preview, false);
+            const auto composited = m_compositor.composite(dot, &m_preview, false, m_activeLayer);
             emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         }
     }
 }
 
-void AppController::clearPreviewRegion(const core::geometry::Rect& rect)
-{
+void AppController::clearPreviewRegion(const core::geometry::Rect& rect) {
     if (rect.isEmpty() || m_preview.isEmpty())
         return;
     const int x1 = std::min(rect.x + rect.width, m_preview.width());
@@ -2648,25 +3634,33 @@ void AppController::clearPreviewRegion(const core::geometry::Rect& rect)
             m_preview.set(x, y, core::raster::kTransparent);
 }
 
-void AppController::extendStroke(float x, float y, float pressure)
-{
+void AppController::extendStroke(float x, float y, float pressure, float tiltX, float tiltY) {
     if (m_currentStroke.empty())
         return;
     const auto prev = m_currentStroke.back();
     // One bad sample must not spike the stamp: the raw pen signal dips at tip
     // contact and jitters sample to sample, so follow it with a lag.
-    m_smoothedPressure += (pressure - m_smoothedPressure) * 0.4F;
-    const float penPressure = m_smoothedPressure;
+    if (m_brush.material != canvas::BrushMaterial::Graphite)
+        m_smoothedPressure += (pressure - m_smoothedPressure) * 0.4F;
+    const float penPressure =
+        m_brush.material == canvas::BrushMaterial::Graphite ? pressure : m_smoothedPressure;
+    const auto sample = canvas::StrokePoint{
+        x, y, penPressure, tiltX, tiltY, static_cast<float>(m_strokeClock.nsecsElapsed()) / 1.0e6F};
     // Dynamic Brush lags behind the pointer: the painted point eases toward the
     // input instead of jumping to it, which is what gives the tool its weight.
     if (m_tool == Tool::DynamicBrushTool) {
-        constexpr float kFollow = 0.35F;
-        m_dynamicPos.x += (x - m_dynamicPos.x) * kFollow;
-        m_dynamicPos.y += (y - m_dynamicPos.y) * kFollow;
-        m_dynamicPos.pressure = shapedPressure(penPressure);
+        m_dynamicPos.x += (x - m_dynamicPos.x) * 0.35F;
+        m_dynamicPos.y += (y - m_dynamicPos.y) * 0.35F;
+        m_dynamicPos.pressure = penPressure;
+        m_dynamicPos.tiltX = tiltX;
+        m_dynamicPos.tiltY = tiltY;
+        m_dynamicPos.timeMs = sample.timeMs;
+        m_currentStroke.push_back(m_dynamicPos);
+    } else if (m_brush.stabilization > 0.0F) {
+        m_dynamicPos = canvas::BrushStroke::stabilizePoint(m_brush, m_dynamicPos, sample);
         m_currentStroke.push_back(m_dynamicPos);
     } else {
-        m_currentStroke.push_back({ x, y, shapedPressure(penPressure) });
+        m_currentStroke.push_back(sample);
     }
     const auto current = m_currentStroke.back();
 
@@ -2685,15 +3679,15 @@ void AppController::extendStroke(float x, float y, float pressure)
         bufferCurrent.x += static_cast<float>(origin.x);
         bufferCurrent.y += static_cast<float>(origin.y);
         const auto band = canvas::BrushStroke::smudgeSegment(layer.pixels(), m_brush, bufferPrev,
-                                                            bufferCurrent, m_carried);
+                                                             bufferCurrent, m_carried);
         if (band.isEmpty())
             return;
         m_strokeDirty = core::geometry::Rect{
             std::min(m_strokeDirty.x, band.x), std::min(m_strokeDirty.y, band.y),
-            std::max(m_strokeDirty.x + m_strokeDirty.width, band.x + band.width)
-                - std::min(m_strokeDirty.x, band.x),
-            std::max(m_strokeDirty.y + m_strokeDirty.height, band.y + band.height)
-                - std::min(m_strokeDirty.y, band.y) };
+            std::max(m_strokeDirty.x + m_strokeDirty.width, band.x + band.width) -
+                std::min(m_strokeDirty.x, band.x),
+            std::max(m_strokeDirty.y + m_strokeDirty.height, band.y + band.height) -
+                std::min(m_strokeDirty.y, band.y)};
         const auto composited = m_compositor.composite(toCanvas(band));
         emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
@@ -2718,16 +3712,16 @@ void AppController::extendStroke(float x, float y, float pressure)
         bufferPrev.y += static_cast<float>(origin.y);
         bufferCurrent.x += static_cast<float>(origin.x);
         bufferCurrent.y += static_cast<float>(origin.y);
-        const auto segment =
-            paintSegmentSymmetrical(activeLayer.pixels(), m_brush, bufferPrev, bufferCurrent);
+        const auto segment = paintSegmentSymmetrical(activeLayer.pixels(), m_brush, bufferPrev,
+                                                     bufferCurrent, &m_stampState);
         if (segment.isEmpty())
             return;
         m_strokeDirty = core::geometry::Rect{
             std::min(m_strokeDirty.x, segment.x), std::min(m_strokeDirty.y, segment.y),
-            std::max(m_strokeDirty.x + m_strokeDirty.width, segment.x + segment.width)
-                - std::min(m_strokeDirty.x, segment.x),
-            std::max(m_strokeDirty.y + m_strokeDirty.height, segment.y + segment.height)
-                - std::min(m_strokeDirty.y, segment.y) };
+            std::max(m_strokeDirty.x + m_strokeDirty.width, segment.x + segment.width) -
+                std::min(m_strokeDirty.x, segment.x),
+            std::max(m_strokeDirty.y + m_strokeDirty.height, segment.y + segment.height) -
+                std::min(m_strokeDirty.y, segment.y)};
         const auto composited = m_compositor.composite(toCanvas(segment));
         emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
         return;
@@ -2740,36 +3734,42 @@ void AppController::extendStroke(float x, float y, float pressure)
     canvas::BrushSettings previewBrush = m_brush;
     previewBrush.erase = false;
 
-    const auto segment = paintSegmentSymmetrical(m_preview, previewBrush, prev, current);
+    const auto segment =
+        paintSegmentSymmetrical(m_preview, previewBrush, prev, current, &m_stampState);
     if (segment.isEmpty())
         return;
 
     // Track the whole stroke's extent for the final commit,
     m_strokeDirty = core::geometry::Rect{
         std::min(m_strokeDirty.x, segment.x), std::min(m_strokeDirty.y, segment.y),
-        std::max(m_strokeDirty.x + m_strokeDirty.width, segment.x + segment.width)
-            - std::min(m_strokeDirty.x, segment.x),
-        std::max(m_strokeDirty.y + m_strokeDirty.height, segment.y + segment.height)
-            - std::min(m_strokeDirty.y, segment.y) };
+        std::max(m_strokeDirty.x + m_strokeDirty.width, segment.x + segment.width) -
+            std::min(m_strokeDirty.x, segment.x),
+        std::max(m_strokeDirty.y + m_strokeDirty.height, segment.y + segment.height) -
+            std::min(m_strokeDirty.y, segment.y)};
 
     // but only recomposite the band this tick actually painted. Everything
     // else already holds base+preview from previous ticks, so redrawing the
     // entire stroke bbox every mouse move was wasted work.
     m_previewDirty = core::geometry::Rect{
         std::min(m_previewDirty.x, segment.x), std::min(m_previewDirty.y, segment.y),
-        std::max(m_previewDirty.x + m_previewDirty.width, segment.x + segment.width)
-            - std::min(m_previewDirty.x, segment.x),
-        std::max(m_previewDirty.y + m_previewDirty.height, segment.y + segment.height)
-            - std::min(m_previewDirty.y, segment.y) };
+        std::max(m_previewDirty.x + m_previewDirty.width, segment.x + segment.width) -
+            std::min(m_previewDirty.x, segment.x),
+        std::max(m_previewDirty.y + m_previewDirty.height, segment.y + segment.height) -
+            std::min(m_previewDirty.y, segment.y)};
     // The layer-revision counter is deliberately NOT bumped here: doing so
     // made every layer thumbnail re-render on each mouse move, which was the
     // cause of the drawing lag. Thumbnails refresh when the stroke commits.
-    const auto composited = m_compositor.composite(segment, &m_preview, erasing);
+    const auto composited = m_compositor.composite(segment, &m_preview, erasing, m_activeLayer);
     emit canvasChanged(composited.x, composited.y, composited.width, composited.height);
 }
 
-void AppController::endStroke()
-{
+void AppController::endStroke() {
+    // Release recovery/save snapshots only after the final history patch exists.
+    const auto settled = qScopeGuard([this]() { settleLiveEdit(); });
+    if (m_strokeActive) {
+        m_strokeActive = false;
+        emit strokeActiveChanged();
+    }
     if (m_currentStroke.empty())
         return;
     if (m_activeLayer < 0 || m_activeLayer >= static_cast<int>(m_doc.layers().size()))
@@ -2782,6 +3782,82 @@ void AppController::endStroke()
         m_preview.fill(core::raster::kTransparent);
         rebuildFullComposite();
         return;
+    }
+
+    // Finish between-stamp tails before capturing the history patch. The same
+    // operation is used by BrushStroke::paint for offline replay.
+    if (!m_blending && m_stampState.started) {
+        auto endPoint = m_currentStroke.back();
+        core::geometry::Rect tail;
+        if (m_erasing) {
+            endPoint.x += static_cast<float>(m_doc.canvasOrigin().x);
+            endPoint.y += static_cast<float>(m_doc.canvasOrigin().y);
+            tail = canvas::BrushStroke::finishStroke(activeLayer.pixels(), m_brush, endPoint,
+                                                     m_stampState);
+            if (!tail.isEmpty()) {
+                m_strokeDirty = joined(m_strokeDirty, tail);
+                const auto changed = m_compositor.composite(toCanvas(tail));
+                emit canvasChanged(changed.x, changed.y, changed.width, changed.height);
+            }
+        } else {
+            auto previewBrush = m_brush;
+            previewBrush.erase = false;
+            tail =
+                canvas::BrushStroke::finishStroke(m_preview, previewBrush, endPoint, m_stampState);
+            if (!tail.isEmpty()) {
+                m_strokeDirty = joined(m_strokeDirty, tail);
+                m_previewDirty = joined(m_previewDirty, tail);
+                const auto changed =
+                    m_compositor.composite(tail, &m_preview, m_brush.erase, m_activeLayer);
+                emit canvasChanged(changed.x, changed.y, changed.width, changed.height);
+            }
+        }
+    }
+
+    if (!m_blending && !m_erasing && !m_brush.erase && m_brush.endTaperDiameters > 0.0F &&
+        m_currentStroke.size() > 1) {
+        // During the drag the final path length is unknown. Rebuild only the
+        // affected tail at release, with the same offline engine used by
+        // thumbnails and collaboration replay. Earlier stamps may cross this
+        // rectangle (a looping stroke), so replay all points into the patch.
+        const float taperLength = 2.0F * m_brush.radius * m_brush.endTaperDiameters;
+        const float margin = 2.0F * m_brush.radius + 3.0F;
+        float walked = 0.0F;
+        float minX = m_currentStroke.back().x, maxX = minX;
+        float minY = m_currentStroke.back().y, maxY = minY;
+        for (std::size_t i = m_currentStroke.size() - 1; i > 0; --i) {
+            const auto& a = m_currentStroke[i - 1];
+            const auto& b = m_currentStroke[i];
+            walked += std::hypot(b.x - a.x, b.y - a.y);
+            minX = std::min(minX, a.x);
+            maxX = std::max(maxX, a.x);
+            minY = std::min(minY, a.y);
+            maxY = std::max(maxY, a.y);
+            if (walked > taperLength + margin)
+                break;
+        }
+        const int x0 = static_cast<int>(std::floor(minX - margin));
+        const int y0 = static_cast<int>(std::floor(minY - margin));
+        const int x1 = static_cast<int>(std::ceil(maxX + margin));
+        const int y1 = static_cast<int>(std::ceil(maxY + margin));
+        const auto tailRect = core::geometry::Rect{x0, y0, x1 - x0, y1 - y0}.intersected(
+            {0, 0, m_preview.width(), m_preview.height()});
+        if (!tailRect.isEmpty()) {
+            core::raster::RasterBuffer patch(tailRect.width, tailRect.height);
+            std::vector<canvas::StrokePoint> points = m_currentStroke;
+            for (auto& point : points) {
+                point.x -= static_cast<float>(tailRect.x);
+                point.y -= static_cast<float>(tailRect.y);
+            }
+            auto previewBrush = m_brush;
+            previewBrush.erase = false;
+            canvas::BrushStroke::paint(patch, previewBrush, points);
+            m_preview.blit(patch, tailRect.x, tailRect.y);
+            m_strokeDirty = joined(m_strokeDirty, tailRect);
+            m_previewDirty = joined(m_previewDirty, tailRect);
+            const auto changed = m_compositor.composite(tailRect, &m_preview, false, m_activeLayer);
+            emit canvasChanged(changed.x, changed.y, changed.width, changed.height);
+        }
     }
 
     if (m_blending) {
@@ -2876,8 +3952,7 @@ void AppController::endStroke()
             return;
         }
         const auto origin = m_doc.canvasOrigin();
-        canvas::clipToSelection(work, m_selection, &original, rect.x - origin.x,
-                                rect.y - origin.y);
+        canvas::clipToSelection(work, m_selection, &original, rect.x - origin.x, rect.y - origin.y);
         restoreOutsideCanvas(rect, work, original);
 
         auto before = original.copyRect(rect.x, rect.y, rect.width, rect.height);
@@ -2923,9 +3998,9 @@ void AppController::endStroke()
     // The preview is canvas-sized, the layer is not: place the patch at the
     // buffer-space position. The compositor stays in canvas coordinates.
     const auto bufferRect = toBuffer(rect);
-    m_history.execute(std::make_unique<core::StrokeCommand>(
-        m_doc, static_cast<std::size_t>(m_activeLayer), std::move(painted), bufferRect.x,
-        bufferRect.y));
+    m_history.execute(
+        std::make_unique<core::StrokeCommand>(m_doc, static_cast<std::size_t>(m_activeLayer),
+                                              std::move(painted), bufferRect.x, bufferRect.y));
 
     emit historyChanged();
     // Repaint only the stroke's rectangle instead of the whole canvas.
@@ -2936,36 +4011,48 @@ void AppController::endStroke()
 
 // ---------------------------------------------------------------------- internals
 
-QImage AppController::canvasImage() const
-{
+QImage AppController::canvasImage() const {
     const auto& result = m_compositor.result();
     return QImage(result.data(), result.width(), result.height(), result.width() * 4,
                   QImage::Format_RGBA8888);
 }
 
-void AppController::rebuildFullComposite()
-{
+void AppController::rebuildFullComposite() {
+    const auto size = m_doc.canvasSize();
+    if (m_preview.width() != size.width || m_preview.height() != size.height) {
+        m_preview = core::raster::RasterBuffer(size.width, size.height);
+        m_previewDirty = {};
+        m_strokeDirty = {};
+        m_selection.reset(size.width, size.height);
+        notifySelectionChanged();
+    }
     const auto rect = m_compositor.composite(fullRect(m_doc));
     ++m_layerRevision; // thumbnails must re-fetch after a content change
     emit canvasChanged(rect.x, rect.y, rect.width, rect.height);
 }
 
-void AppController::rebuildStrokePreview()
-{
-    const auto rect = m_compositor.composite(m_strokeDirty, &m_preview);
+void AppController::rebuildStrokePreview() {
+    const auto rect = m_compositor.composite(m_strokeDirty, &m_preview, false, m_activeLayer);
     ++m_layerRevision;
     emit canvasChanged(rect.x, rect.y, rect.width, rect.height);
 }
 
 // ---------------------------------------------------------------------- theme
 
-void AppController::setTheme(const QString& theme)
-{
+void AppController::setTheme(const QString& theme) {
     if (theme != QLatin1String("light") && theme != QLatin1String("dark"))
         return;
     if (m_theme == theme)
         return;
     m_theme = theme;
     QSettings().setValue(QStringLiteral("theme"), theme);
+    applyThemePalette(theme);
     emit themeChanged();
+}
+
+void AppController::setFocusMode(bool enabled) {
+    if (m_focusMode == enabled)
+        return;
+    m_focusMode = enabled;
+    emit focusModeChanged();
 }

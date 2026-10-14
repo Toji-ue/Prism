@@ -1,36 +1,39 @@
+#include <QBuffer>
+#include <QDateTime>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QFile>
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QImageWriter>
 #include <QInputDevice>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMouseEvent>
-#include <QPalette>
 #include <QPointingDevice>
 #include <QQmlApplicationEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSaveFile>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QTabletEvent>
 #include <QTest>
 #include <QTimer>
 #include <QVariant>
-#include <QFile>
-#include <QDir>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QSaveFile>
-#include <QBuffer>
-#include <QStandardPaths>
-#include <QDateTime>
-#include <QElapsedTimer>
 
 #include "application/AppController.h"
 #include "application/LayerListModel.h"
 #include "application/PresetImageProvider.h"
-#include "project/ProjectIO.h"
+#include "brush/BrushPresets.h"
 #include "panels/CanvasView.h"
+#include "project/ProjectIO.h"
 
-#include <cstdio>
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -38,15 +41,24 @@ QFile g_logFile;
 
 /// Qt diagnostics go to a log file: the released build is a WIN32 GUI app
 /// with no console, so QML errors would otherwise vanish silently.
-void logToFile(QtMsgType type, const QMessageLogContext&, const QString& msg)
-{
+void logToFile(QtMsgType type, const QMessageLogContext&, const QString& msg) {
     const char* level = "info";
     switch (type) {
-    case QtDebugMsg: level = "debug"; break;
-    case QtInfoMsg: level = "info"; break;
-    case QtWarningMsg: level = "warn"; break;
-    case QtCriticalMsg: level = "critical"; break;
-    case QtFatalMsg: level = "fatal"; break;
+    case QtDebugMsg:
+        level = "debug";
+        break;
+    case QtInfoMsg:
+        level = "info";
+        break;
+    case QtWarningMsg:
+        level = "warn";
+        break;
+    case QtCriticalMsg:
+        level = "critical";
+        break;
+    case QtFatalMsg:
+        level = "fatal";
+        break;
     }
     const QString line = QStringLiteral("[%1] %2: %3\n")
                              .arg(QDateTime::currentDateTime().toString(Qt::ISODate), level, msg);
@@ -65,8 +77,7 @@ void logToFile(QtMsgType type, const QMessageLogContext&, const QString& msg)
 /// delegate) are visual children with no QObject parent, so a toolbar button
 /// built from a model is invisible to findChild â€” which is why the verification
 /// hooks below use this instead.
-QQuickItem* findItemByName(QQuickItem* root, const QString& name)
-{
+QQuickItem* findItemByName(QQuickItem* root, const QString& name) {
     if (!root)
         return nullptr;
     if (root->objectName() == name)
@@ -79,8 +90,7 @@ QQuickItem* findItemByName(QQuickItem* root, const QString& name)
 }
 
 /// Every non-empty objectName in the visual tree, for diagnostics.
-QStringList itemNames(QQuickItem* root, QStringList& into)
-{
+QStringList itemNames(QQuickItem* root, QStringList& into) {
     if (!root)
         return into;
     if (!root->objectName().isEmpty() && !into.contains(root->objectName()))
@@ -90,8 +100,7 @@ QStringList itemNames(QQuickItem* root, QStringList& into)
     return into;
 }
 
-int countOpaquePixels(const QImage& img)
-{
+int countOpaquePixels(const QImage& img) {
     int count = 0;
     for (int y = 0; y < img.height(); ++y)
         for (int x = 0; x < img.width(); ++x)
@@ -109,20 +118,21 @@ int countOpaquePixels(const QImage& img)
 class TabletStrokeFilter : public QObject {
 public:
     explicit TabletStrokeFilter(AppController* controller, bool trace = false)
-        : m_controller(controller), m_trace(trace)
-    {
-    }
+        : m_controller(controller), m_trace(trace) {}
 
-    bool eventFilter(QObject* watched, QEvent* event) override
-    {
+    bool eventFilter(QObject* watched, QEvent* event) override {
         switch (event->type()) {
-        case QEvent::TabletPress: case QEvent::TabletMove: case QEvent::TabletRelease: break;
-        default: return false;
+        case QEvent::TabletPress:
+        case QEvent::TabletMove:
+        case QEvent::TabletRelease:
+            break;
+        default:
+            return false;
         }
         auto* tablet = static_cast<QTabletEvent*>(event);
         const auto pointer = tablet->pointerType();
-        if (pointer != QPointingDevice::PointerType::Pen
-            && pointer != QPointingDevice::PointerType::Eraser)
+        if (pointer != QPointingDevice::PointerType::Pen &&
+            pointer != QPointingDevice::PointerType::Eraser)
             return false;
         auto* window = qobject_cast<QQuickWindow*>(watched);
         if (!window)
@@ -143,10 +153,9 @@ public:
         }
         // Hover moves must not paint, and a pen that is not on the canvas (over
         // a docker, a button) belongs to the UI.
-        if (strokeTool && (m_stroking || event->type() == QEvent::TabletPress)
-            && !m_controller->startPageVisible()) {
-            auto* area = findItemByName(window->contentItem(),
-                                        QStringLiteral("canvasMouseArea"));
+        if (strokeTool && (m_stroking || event->type() == QEvent::TabletPress) &&
+            !m_controller->startPageVisible()) {
+            auto* area = findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea"));
             if (area) {
                 // Window -> mouse-area -> canvas, the same math as QML canvasX/Y.
                 const QPointF local = area->mapFromScene(tablet->position());
@@ -156,8 +165,8 @@ public:
                     x = m_controller->canvasWidth() - x;
                 if (m_controller->mirrorVertical())
                     y = m_controller->canvasHeight() - y;
-                if (x >= 0 && y >= 0 && x < m_controller->canvasWidth()
-                    && y < m_controller->canvasHeight() && strokeEvent(event, tablet, x, y, window))
+                if (x >= 0 && y >= 0 && x < m_controller->canvasWidth() &&
+                    y < m_controller->canvasHeight() && strokeEvent(event, tablet, x, y, window))
                     return true;
             }
         }
@@ -174,8 +183,7 @@ public:
 
 private:
     /// The pressure-aware stroke path.
-    bool strokeEvent(QEvent* event, QTabletEvent* tablet, qreal x, qreal y, QQuickWindow* window)
-    {
+    bool strokeEvent(QEvent* event, QTabletEvent* tablet, qreal x, qreal y, QQuickWindow* window) {
         // --tablet-trace: what the driver actually sends, and where it lands.
         // Drawn strokes coming out angular has three candidate causes — sparse
         // samples, a coordinate/DPI mismatch, or a broken pressure signal — and
@@ -196,31 +204,33 @@ private:
                 // coordinate-space (DPI) mismatch, not a stroke-quality problem.
                 const QPointF cursorLocal = window->mapFromGlobal(QCursor::pos());
                 m_firstDt = now;
-                qInfo().noquote()
-                    << "tablet-trace: press raw" << tablet->position() << "cursor"
-                    << QPointF(cursorLocal) << "devicePixelRatio" << window->devicePixelRatio()
-                    << "zoom" << m_controller->zoom() << "canvas" << QPointF(x, y);
+                qInfo().noquote() << "tablet-trace: press raw" << tablet->position() << "cursor"
+                                  << QPointF(cursorLocal) << "devicePixelRatio"
+                                  << window->devicePixelRatio() << "zoom" << m_controller->zoom()
+                                  << "canvas" << QPointF(x, y);
             } else {
                 qInfo().noquote() << "tablet-trace: move" << m_samples << "raw"
                                   << tablet->position() << "canvas" << QPointF(x, y) << "pressure"
                                   << tablet->pressure() << "dt(ms)" << dt << "gap(px)" << gap;
             }
         }
-        if (x < 0 || y < 0 || x >= m_controller->canvasWidth()
-            || y >= m_controller->canvasHeight())
+        if (x < 0 || y < 0 || x >= m_controller->canvasWidth() || y >= m_controller->canvasHeight())
             return false; // caller falls back to the mouse event
 
-        // Some drivers report 0 pressure at first contact; treat as full.
-        const float pressure = tablet->pressure() > 0.0
-            ? static_cast<float>(tablet->pressure()) : 1.0F;
+        // A zero first sample is a light contact, not a full-pressure spike.
+        const float pressure = std::clamp(static_cast<float>(tablet->pressure()), 0.01F, 1.0F);
         m_minPressure = std::min(m_minPressure, pressure);
         m_maxPressure = std::max(m_maxPressure, pressure);
 
         if (event->type() == QEvent::TabletPress) {
-            m_controller->beginStroke(static_cast<float>(x), static_cast<float>(y), pressure);
+            m_controller->beginStroke(static_cast<float>(x), static_cast<float>(y), pressure,
+                                      static_cast<float>(tablet->xTilt()),
+                                      static_cast<float>(tablet->yTilt()));
             m_stroking = true;
         } else if (event->type() == QEvent::TabletMove) {
-            m_controller->extendStroke(static_cast<float>(x), static_cast<float>(y), pressure);
+            m_controller->extendStroke(static_cast<float>(x), static_cast<float>(y), pressure,
+                                       static_cast<float>(tablet->xTilt()),
+                                       static_cast<float>(tablet->yTilt()));
         } else {
             m_controller->endStroke();
             m_stroking = false;
@@ -228,13 +238,13 @@ private:
                     << m_maxPressure;
             if (m_trace && m_samples > 0) {
                 const qreal seconds = (QDateTime::currentMSecsSinceEpoch() - m_firstDt) / 1000.0;
-                qInfo().noquote()
-                    << "tablet-trace: stroke summary: samples" << m_samples << "in" << seconds
-                    << "s (" << (m_samples / std::max(0.001, seconds)) << "Hz ) path" << m_length
-                    << "px, longest straight run" << m_maxGap << "px"
-                    << (m_maxGap > 0.25 * m_length
-                            ? "  <-- input is starving or jumping"
-                            : "");
+                qInfo().noquote() << "tablet-trace: stroke summary: samples" << m_samples << "in"
+                                  << seconds << "s (" << (m_samples / std::max(0.001, seconds))
+                                  << "Hz ) path" << m_length << "px, longest straight run"
+                                  << m_maxGap << "px"
+                                  << (m_maxGap > 0.25 * m_length
+                                          ? "  <-- input is starving or jumping"
+                                          : "");
             }
             m_minPressure = 1.0F;
             m_maxPressure = 0.0F;
@@ -250,13 +260,12 @@ private:
     /// Replays a pen event as a mouse event on the window, so the QML canvas
     /// handles it exactly as it does for a mouse (one tool-dispatch path, no
     /// second copy of the tool logic in C++).
-    static void synthesizeMouse(QQuickWindow* window, const QPointF& pos, QEvent::Type type)
-    {
+    static void synthesizeMouse(QQuickWindow* window, const QPointF& pos, QEvent::Type type) {
         const Qt::MouseButton button =
             type == QEvent::TabletRelease ? Qt::NoButton : Qt::LeftButton;
         QMouseEvent me(type == QEvent::TabletPress     ? QEvent::MouseButtonPress
-                           : type == QEvent::TabletRelease ? QEvent::MouseButtonRelease
-                                                           : QEvent::MouseMove,
+                       : type == QEvent::TabletRelease ? QEvent::MouseButtonRelease
+                                                       : QEvent::MouseMove,
                        pos, window->mapToGlobal(pos), button, button, Qt::NoModifier,
                        QPointingDevice::primaryPointingDevice());
         QCoreApplication::sendEvent(window, &me);
@@ -283,8 +292,7 @@ private:
 /// through the window filter and checks the painted alpha followed the
 /// pressure. Verifies the tablet path on a machine with no tablet; a real pen
 /// is verified by drawing (every stroke logs its pressure range).
-void runTabletTest(AppController* controller, QQmlApplicationEngine* engine)
-{
+void runTabletTest(AppController* controller, QQmlApplicationEngine* engine) {
     if (engine->rootObjects().isEmpty()) {
         qWarning() << "tablettest: no window";
         QCoreApplication::exit(1);
@@ -297,8 +305,8 @@ void runTabletTest(AppController* controller, QQmlApplicationEngine* engine)
     controller->setBrushSize(24.0F);
 
     auto* window = qobject_cast<QQuickWindow*>(engine->rootObjects().first());
-    auto* area = window ? findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea"))
-                        : nullptr;
+    auto* area =
+        window ? findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea")) : nullptr;
     if (!area) {
         qWarning() << "tablettest: canvasMouseArea not found";
         QCoreApplication::exit(1);
@@ -312,9 +320,9 @@ void runTabletTest(AppController* controller, QQmlApplicationEngine* engine)
     const QPointF start(0.25 * area->width(), 0.5 * area->height());
     const QPointF end(0.75 * area->width(), 0.5 * area->height());
     const auto send = [window, area](QEvent::Type type, const QPointF& p, qreal pressure,
-                                     Qt::MouseButtons buttons) {
+                                     Qt::MouseButtons buttons, float tiltY = 0.0F) {
         const QPointF w = area->mapToScene(p);
-        QTabletEvent ev(type, &pen, w, w, pressure, 0.0F, 0.0F, 0.0F, 0.0, 0.0F, Qt::NoModifier,
+        QTabletEvent ev(type, &pen, w, w, pressure, 0.0F, tiltY, 0.0F, 0.0, 0.0F, Qt::NoModifier,
                         Qt::LeftButton, buttons);
         QCoreApplication::sendEvent(window, &ev);
     };
@@ -354,10 +362,37 @@ void runTabletTest(AppController* controller, QQmlApplicationEngine* engine)
     };
     const int widthLow = widthAt(static_cast<int>(canvasX(start.x() + 30)));
     const int widthHigh = widthAt(static_cast<int>(canvasX(end.x() - 30)));
-    const bool pass = alphaHigh > alphaLow && alphaLow > 0;
+    bool pass = alphaHigh > alphaLow && alphaLow > 0;
     qInfo() << "tablettest:" << (pass ? "PASS" : "FAIL") << "alpha at light end" << alphaLow
             << "at heavy end" << alphaHigh << "(pressure must raise the deposit)"
             << "| width" << widthLow << "->" << widthHigh << "px";
+
+    // Verify the Qt tablet event's tilt reaches the Graphite stamp geometry.
+    controller->newDocument(640, 480);
+    controller->selectPreset(1);
+    controller->setBrushSize(12.0F);
+    const QPointF uprightPoint(0.35 * area->width(), 0.5 * area->height());
+    const QPointF tiltedPoint(0.65 * area->width(), 0.5 * area->height());
+    send(QEvent::TabletPress, uprightPoint, 0.5, Qt::LeftButton);
+    send(QEvent::TabletRelease, uprightPoint, 0.5, Qt::NoButton);
+    send(QEvent::TabletPress, tiltedPoint, 0.5, Qt::LeftButton, 55.0F);
+    send(QEvent::TabletRelease, tiltedPoint, 0.5, Qt::NoButton, 55.0F);
+    const QImage graphite = controller->canvasImage();
+    const auto graphiteWidth = [&](const QPointF& point) {
+        const int x = static_cast<int>(canvasX(point.x()));
+        const int centreY = static_cast<int>(point.y() / zoom);
+        int width = 0;
+        for (int sy = std::max(0, centreY - 40); sy < std::min(graphite.height(), centreY + 40);
+             ++sy)
+            width += qAlpha(graphite.pixel(x, sy)) > 0 ? 1 : 0;
+        return width;
+    };
+    const int graphiteUpright = graphiteWidth(uprightPoint);
+    const int graphiteTilted = graphiteWidth(tiltedPoint);
+    const bool tiltPass = graphiteUpright > 0 && graphiteTilted > graphiteUpright * 1.5F;
+    pass = pass && tiltPass;
+    qInfo() << "tablettest: graphite tilt" << (tiltPass ? "PASS" : "FAIL") << "width"
+            << graphiteUpright << "->" << graphiteTilted << "px";
     QCoreApplication::exit(pass ? 0 : 1);
 }
 
@@ -365,8 +400,9 @@ void runTabletTest(AppController* controller, QQmlApplicationEngine* engine)
 /// undo/redo, fill, color pick, layer ops. Run with --selftest; exits
 /// non-zero on failure so CI (and agents) can verify without a human
 /// clicking through the UI.
-int runSelfTest()
-{
+int runSelfTest() {
+    qputenv("PRISM_RECOVERY_DIR",
+            QDir::current().filePath(QStringLiteral("build/selftest-recovery")).toUtf8());
     AppController controller;
     // This drives the same code paths as the UI on throwaway documents, so keep
     // them out of the Recent list the user sees.
@@ -378,7 +414,25 @@ int runSelfTest()
             ++failures;
     };
 
+    // A preference written by an older Prism must not reopen the drawing
+    // workspace with its controls hidden.
+    {
+        QSettings settings;
+        const bool hadFocusPreference = settings.contains(QStringLiteral("focusMode"));
+        const QVariant oldFocusPreference = settings.value(QStringLiteral("focusMode"));
+        settings.setValue(QStringLiteral("focusMode"), true);
+        {
+            AppController fresh;
+            check(!fresh.focusMode(), "legacy focus preference does not hide the workspace");
+        }
+        if (hadFocusPreference)
+            settings.setValue(QStringLiteral("focusMode"), oldFocusPreference);
+        else
+            settings.remove(QStringLiteral("focusMode"));
+    }
+
     check(countOpaquePixels(controller.canvasImage()) == 0, "new document starts blank");
+    check(controller.recording(), "drawing records automatically at launch");
 
     controller.setBrushColor(QColor(0, 0, 0));
     controller.beginStroke(200.0F, 200.0F);
@@ -415,7 +469,18 @@ int runSelfTest()
     const int presetsBefore = controller.presetCount();
     controller.addPreset();
     check(controller.presetCount() == presetsBefore + 1, "add preset");
-    controller.removePreset(controller.activePresetIndex());
+    controller.togglePinnedPreset(presetsBefore);
+    controller.addPreset();
+    controller.movePreset(presetsBefore, 1);
+    check(controller.quickPresets().first().toMap().value("index").toInt() == presetsBefore + 1,
+          "pinned preset follows reordering");
+    const QString pinnedId = controller.quickPresets().first().toMap().value("id").toString();
+    controller.removePreset(presetsBefore + 1);
+    bool removedPinStillShown = false;
+    for (const QVariant& entry : controller.quickPresets())
+        removedPinStillShown |= entry.toMap().value("id").toString() == pinnedId;
+    check(!removedPinStillShown, "deleting a preset removes its pin");
+    controller.removePreset(presetsBefore);
     check(controller.presetCount() == presetsBefore, "remove preset");
 
     // Selection confines a stroke to its rect.
@@ -445,8 +510,8 @@ int runSelfTest()
     controller.selectAll();
     controller.clearSelection();
     controller.setSelection(10.0F, 10.0F, 50.0F, 50.0F);
-    controller.setLassoSelection({ QVariant(QPointF(12, 12)), QVariant(QPointF(60, 12)),
-                                   QVariant(QPointF(12, 60)) });
+    controller.setLassoSelection(
+        {QVariant(QPointF(12, 12)), QVariant(QPointF(60, 12)), QVariant(QPointF(12, 60))});
     controller.magicWandAt(20.0F, 20.0F, 32);
     check(controller.hasSelection(), "wand/lasso produced a selection");
     controller.selectLayerContent();
@@ -671,8 +736,7 @@ int runSelfTest()
         const QString noExt = QDir::temp().filePath(QStringLiteral("prism-selftest-noext"));
         QFile::remove(noExt + QStringLiteral(".prism"));
         check(controller.saveFile(QUrl::fromLocalFile(noExt)), "save without suffix succeeds");
-        check(QFile::exists(noExt + QStringLiteral(".prism")),
-              "missing .prism suffix is appended");
+        check(QFile::exists(noExt + QStringLiteral(".prism")), "missing .prism suffix is appended");
 
         // Image formats go through the same Save As dialog.
         const QString png = QDir::temp().filePath(QStringLiteral("prism-selftest.png"));
@@ -713,8 +777,7 @@ int runSelfTest()
         }
         check(importExact, "imported layer contributes its pixels to the canvas");
         controller.undo();
-        check(controller.layers()->rowCount() == layersBeforeImport,
-              "import as layer undone");
+        check(controller.layers()->rowCount() == layersBeforeImport, "import as layer undone");
         controller.redo();
         check(controller.layers()->rowCount() == layersBeforeImport + 1,
               "import as layer redone with pixels intact");
@@ -772,11 +835,11 @@ int runSelfTest()
         const QStringList openFilters = controller.imageOpenFilters();
         check(saveFilters.first().contains(QStringLiteral(".prism")),
               "Save As offers the project format first");
-        check(!saveFilters.filter(QStringLiteral("webp")).isEmpty()
-                  == QImageWriter::supportedImageFormats().contains(QByteArray("webp")),
+        check(!saveFilters.filter(QStringLiteral("webp")).isEmpty() ==
+                  QImageWriter::supportedImageFormats().contains(QByteArray("webp")),
               "Save As advertises WebP only when Qt can write it");
-        check(!openFilters.filter(QStringLiteral("jpeg")).isEmpty()
-                  == QImageReader::supportedImageFormats().contains(QByteArray("jpeg")),
+        check(!openFilters.filter(QStringLiteral("jpeg")).isEmpty() ==
+                  QImageReader::supportedImageFormats().contains(QByteArray("jpeg")),
               "Open advertises JPEG only when Qt can read it");
         // The dialog opens with the first filter. If that is a single format, a
         // folder holding only a .jpg shows an empty list and the user reports
@@ -843,8 +906,13 @@ int runSelfTest()
         controller.setToolShortcut(1, QStringLiteral("e"));
         check(controller.toolShortcut(1) == QStringLiteral("E"),
               "shortcut normalizes to a single uppercase character");
-        controller.setToolShortcut(0, QStringLiteral("B"));      // restore defaults
+        controller.setToolShortcut(0, QStringLiteral("B")); // restore defaults
         check(controller.toolShortcut(0) == QStringLiteral("B"), "defaults restore");
+        controller.setToolShortcut(1, QStringLiteral("Q"));
+        check(controller.toolShortcut(-1).isEmpty(), "tool shortcut can claim the quick key");
+        controller.setToolShortcut(-1, QStringLiteral("Q"));
+        check(controller.toolShortcut(1).isEmpty(), "quick key releases the conflicting tool");
+        controller.setToolShortcut(1, QStringLiteral("E"));
         check(controller.toolShortcutList().size() > 0, "shortcut list exposes every tool");
     }
 
@@ -862,8 +930,7 @@ int runSelfTest()
         check(controller.brushColor() == QColor(200, 30, 30),
               "switching brush -> eraser -> brush keeps the brush colour");
         controller.setTool(AppController::EraserTool);
-        check(controller.brushColor() == QColor(30, 200, 90),
-              "the eraser keeps its own colour");
+        check(controller.brushColor() == QColor(30, 200, 90), "the eraser keeps its own colour");
 
         // Eyedropper: picking a colour hands the canvas back to the brush.
         controller.setTool(AppController::BrushTool);
@@ -954,8 +1021,7 @@ int runSelfTest()
         controller.cropTo(20, 20, 100, 80);
         const QString path = QDir::temp().filePath(QStringLiteral("prism-selftest-crop.prism"));
         QFile::remove(path);
-        check(controller.saveFile(QUrl::fromLocalFile(path)) != false,
-              "a cropped document saves");
+        check(controller.saveFile(QUrl::fromLocalFile(path)) != false, "a cropped document saves");
         check(controller.openFile(QUrl::fromLocalFile(path)), "and reopens");
         check(controller.canvasWidth() == 100, "the canvas size round-trips");
         controller.moveActiveLayer(-160, -60);
@@ -967,7 +1033,9 @@ int runSelfTest()
     // as a .prismrec for whoever asks whether the artwork is hand-drawn.
     {
         controller.newDocument(200, 200);
-        controller.setRecording(true);
+        check(controller.recording(), "drawing records automatically on a new document");
+        check(!controller.setProperty("recording", false) && controller.recording(),
+              "the recording status is read-only and cannot be turned off");
         controller.setBrushColor(QColor(0, 0, 0));
         controller.beginStroke(40.0F, 40.0F);
         controller.extendStroke(160.0F, 60.0F);
@@ -981,12 +1049,10 @@ int runSelfTest()
         controller.extendStroke(160.0F, 140.0F);
         controller.endStroke();
 
-        const QString recordPath =
-            QDir::temp().filePath(QStringLiteral("prism-selftest.prismrec"));
+        const QString recordPath = QDir::temp().filePath(QStringLiteral("prism-selftest.prismrec"));
         QFile::remove(recordPath);
+        check(controller.exportRecording(QUrl::fromLocalFile(recordPath)), "the record exports");
         check(controller.recordedFrames() >= 2, "the session recorded frames");
-        check(controller.exportRecording(QUrl::fromLocalFile(recordPath)),
-              "the record exports");
         check(QFile::exists(recordPath), "the record file is on disk");
 
         int frames = 0;
@@ -994,16 +1060,66 @@ int runSelfTest()
         check(SessionRecorder::verify(recordPath, &error, &frames), "the record verifies");
         check(frames >= 2, "and holds the recorded frames");
 
+        // A crash may leave one partially written JSON line. Recovery keeps
+        // the complete hash-checked prefix and never exposes that last line.
+        {
+            const QString crashedPath =
+                QDir::temp().filePath(QStringLiteral("prism-selftest-crashed.prismrec"));
+            QFile::remove(crashedPath);
+            check(QFile::copy(recordPath, crashedPath), "record copy for crash recovery exists");
+            QFile partial(crashedPath);
+            if (partial.open(QIODevice::Append)) {
+                partial.write("{\"ms\":");
+                partial.close();
+            }
+            check(!SessionRecorder::verify(crashedPath, &error),
+                  "strict verifier rejects a truncated frame");
+            SessionRecorder recovered;
+            check(recovered.adoptRecovered(crashedPath, &error),
+                  "crashed record keeps its valid frame prefix");
+            check(recovered.frameCount() == frames, "recovered prefix has all complete frames");
+            QImage finalFrame;
+            qint64 finalMs = 0;
+            check(recovered.frameAt(frames - 1, finalFrame, finalMs) && !finalFrame.isNull(),
+                  "recovered final frame can be exported");
+            recovered.capture(controller.canvasImage(), QStringLiteral("Live canvas"), true);
+            recovered.flush();
+            check(recovered.frameCount() == frames,
+                  "exporting a recovered record does not append the live canvas");
+            recovered.restart();
+            check(recovered.isActive(), "new document resumes recording after recovery");
+            QFile::remove(crashedPath);
+        }
+
+        // The v1 verifier stays available after the v2 streaming writer lands.
+        {
+            QFile v2(recordPath);
+            check(v2.open(QIODevice::ReadOnly), "v2 record can be read for migration check");
+            const QList<QByteArray> lines = v2.readAll().split('\n');
+            QJsonObject legacy;
+            legacy["format"] = QStringLiteral("prism-record");
+            legacy["version"] = 1;
+            legacy["frames"] = QJsonArray{QJsonDocument::fromJson(lines[1]).object()};
+            const QString v1Path =
+                QDir::temp().filePath(QStringLiteral("prism-selftest-v1.prismrec"));
+            QSaveFile old(v1Path);
+            check(old.open(QIODevice::WriteOnly), "legacy record test file opens");
+            old.write(QJsonDocument(legacy).toJson(QJsonDocument::Compact));
+            check(old.commit(), "legacy record test file writes");
+            int oldFrames = 0;
+            check(SessionRecorder::verify(v1Path, &error, &oldFrames) && oldFrames == 1,
+                  "the v1 verifier still accepts an existing record");
+            QFile::remove(v1Path);
+        }
+
         // Tamper with one frame: a proof that cannot fail is not a proof.
         QFile file(recordPath);
         file.open(QIODevice::ReadOnly);
         const QByteArray original = file.readAll();
         file.close();
-        QJsonDocument doc = QJsonDocument::fromJson(original);
-        QJsonObject root = doc.object();
-        QJsonArray frameArray = root["frames"].toArray();
+        QList<QByteArray> lines = original.split('\n');
         // Swap the first frame's image data: that is what a faker would do.
-        QJsonObject first = frameArray[0].toObject();
+        QJsonObject first = QJsonDocument::fromJson(lines[1]).object();
         QImage fake(4, 4, QImage::Format_RGBA8888);
         fake.fill(QColor(255, 0, 0));
         QByteArray fakeBytes;
@@ -1011,11 +1127,10 @@ int runSelfTest()
         fakeBuffer.open(QIODevice::WriteOnly);
         fake.save(&fakeBuffer, "PNG");
         first["png"] = QString::fromLatin1(fakeBytes.toBase64());
-        frameArray[0] = first;
-        root["frames"] = frameArray;
+        lines[1] = QJsonDocument(first).toJson(QJsonDocument::Compact);
         QFile out(recordPath);
         out.open(QIODevice::WriteOnly);
-        out.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+        out.write(lines.join('\n'));
         out.close();
 
         QString tamperError;
@@ -1047,6 +1162,28 @@ int runSelfTest()
             qInfo() << "SKIP mp4 export: no platform encoder in this build";
         }
         QFile::remove(gifPath);
+
+        const QString asyncVideoPath = QDir::temp().filePath(
+            RecordExport::mp4Supported() ? QStringLiteral("prism-selftest-async.mp4")
+                                         : QStringLiteral("prism-selftest-async.gif"));
+        QFile::remove(asyncVideoPath);
+        check(controller.exportRecordingAsync(QUrl::fromLocalFile(asyncVideoPath)),
+              "video export starts without blocking the window");
+        {
+            QElapsedTimer deadline;
+            deadline.start();
+            while (controller.recordingExporting() && deadline.elapsed() < 10000) {
+                QCoreApplication::processEvents();
+                QThread::msleep(10);
+            }
+            int videoFrames = 0;
+            QString asyncError;
+            check(!controller.recordingExporting() &&
+                      RecordExport::verifyVideo(asyncVideoPath, &videoFrames, &asyncError) &&
+                      videoFrames >= 2,
+                  "worker video export completes and reads back");
+        }
+        QFile::remove(asyncVideoPath);
 
         // The GIF encoder is hand-written, and its risky branch is the LZW
         // table reset at 4096 codes. A drawing of a few strokes never reaches
@@ -1092,8 +1229,9 @@ int runSelfTest()
                         const int qb = (qBlue(want[x]) >> 6) * 255 / 3;
                         if (qr != qRed(got[x]) || qg != qGreen(got[x]) || qb != qBlue(got[x])) {
                             if (wrong == 0)
-                                qInfo() << "  first wrong pixel" << x << y << "want" << qr << qg << qb
-                                        << "got" << qRed(got[x]) << qGreen(got[x]) << qBlue(got[x]);
+                                qInfo()
+                                    << "  first wrong pixel" << x << y << "want" << qr << qg << qb
+                                    << "got" << qRed(got[x]) << qGreen(got[x]) << qBlue(got[x]);
                             ++wrong;
                         }
                     }
@@ -1112,19 +1250,19 @@ int runSelfTest()
         controller.newDocument(120, 90);
         controller.beginStroke(20.0F, 20.0F);
         controller.endStroke();
-        const QString freshPath = QDir::temp().filePath(QStringLiteral("prism-selftest-fresh.prismrec"));
+        const QString freshPath =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-fresh.prismrec"));
         QFile::remove(freshPath);
         check(controller.exportRecording(QUrl::fromLocalFile(freshPath)),
               "the new document's record exports");
         {
             QFile fresh(freshPath);
             fresh.open(QIODevice::ReadOnly);
-            const QJsonObject root = QJsonDocument::fromJson(fresh.readAll()).object();
+            const QList<QByteArray> lines = fresh.readAll().split('\n');
+            const QJsonObject root = QJsonDocument::fromJson(lines[0]).object();
             QImage firstFrame;
-            firstFrame.loadFromData(
-                QByteArray::fromBase64(root["frames"].toArray().first().toObject()["png"]
-                                           .toString()
-                                           .toLatin1()));
+            firstFrame.loadFromData(QByteArray::fromBase64(
+                QJsonDocument::fromJson(lines[1]).object()["png"].toString().toLatin1()));
             check(firstFrame.size() == QSize(120, 90), "the record holds this document's frames");
             // The old document was full of black ink; the new one starts blank.
             int ink = 0;
@@ -1141,26 +1279,57 @@ int runSelfTest()
         // even if the recording buffer is full: the export used to stop at the
         // last stored frame, so the video ended mid-drawing.
         controller.newDocument(120, 90);
-        controller.setRecording(true);
-        for (int i = 0; i < 500; ++i) // resume forces a frame: fills the 400 cap
-            controller.setRecording(i % 2 != 0);
+        auto* recorder = controller.findChild<SessionRecorder*>();
+        check(recorder != nullptr, "the document has an automatic recorder");
+        if (recorder) {
+            const QImage blank = controller.canvasImage();
+            for (int i = 0; i < 450; ++i)
+                recorder->capture(blank, QStringLiteral("Long session"), true);
+        }
         controller.beginStroke(10.0F, 80.0F);
         controller.endStroke();
-        const QString fullPath = QDir::temp().filePath(QStringLiteral("prism-selftest-full.prismrec"));
+        const QString fullPath =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-full.prismrec"));
         QFile::remove(fullPath);
         check(controller.exportRecording(QUrl::fromLocalFile(fullPath)),
-              "a record exports with a full buffer");
+              "a record exports beyond the old buffer cap");
         {
             QFile full(fullPath);
             full.open(QIODevice::ReadOnly);
-            const QJsonArray frames = QJsonDocument::fromJson(full.readAll()).object()["frames"].toArray();
+            const QList<QByteArray> lines = full.readAll().split('\n');
             QImage last;
-            last.loadFromData(QByteArray::fromBase64(
-                frames.last().toObject()["png"].toString().toLatin1()));
+            last.loadFromData(
+                QByteArray::fromBase64(QJsonDocument::fromJson(lines[lines.size() - 2])
+                                           .object()["png"]
+                                           .toString()
+                                           .toLatin1()));
+            check(lines.size() > 402, "the record retained more than 400 frames");
             check(last.pixelColor(10, 80).alpha() > 0,
                   "and its last frame is the stroke on the canvas now");
         }
         QFile::remove(fullPath);
+
+        const QString asyncRecordPath =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-async.prismrec"));
+        QFile::remove(asyncRecordPath);
+        check(controller.exportRecordingAsync(QUrl::fromLocalFile(asyncRecordPath)),
+              "large record copy starts without blocking the window");
+        controller.newDocument(120, 90); // export must retain the previous session
+        {
+            QElapsedTimer deadline;
+            deadline.start();
+            while (controller.recordingExporting() && deadline.elapsed() < 10000) {
+                QCoreApplication::processEvents();
+                QThread::msleep(10);
+            }
+            int oldSessionFrames = 0;
+            QString asyncError;
+            check(!controller.recordingExporting() &&
+                      SessionRecorder::verify(asyncRecordPath, &asyncError, &oldSessionFrames) &&
+                      oldSessionFrames > 400,
+                  "worker record copy survives opening another document");
+        }
+        QFile::remove(asyncRecordPath);
     }
     // The Crop tool's cut-and-drag: the framed region leaves the layer and lands
     // on its own layer, where the Move tool can place it. The canvas keeps its
@@ -1176,8 +1345,7 @@ int runSelfTest()
         check(controller.cutSelectionToLayer(45, 45, 30, 30), "cutting a framed region works");
         check(controller.canvasWidth() == 200 && controller.canvasHeight() == 200,
               "cutting keeps the canvas size");
-        check(controller.layers()->rowCount() == layersBefore + 1,
-              "the cut piece is a new layer");
+        check(controller.layers()->rowCount() == layersBefore + 1, "the cut piece is a new layer");
         check(controller.activeLayerIndex() == controller.layers()->rowCount() - 1,
               "the piece becomes the active layer");
         // The piece sits exactly on top, so the canvas looks unchanged...
@@ -1191,8 +1359,7 @@ int runSelfTest()
         check(controller.layers()->rowCount() == layersBefore + 1, "moving the piece works");
         check(qAlpha(controller.canvasImage().pixel(60, 60)) == 0,
               "the source layer no longer has the cut pixels");
-        check(qAlpha(controller.canvasImage().pixel(20, 80)) > 0,
-              "the piece is at its new place");
+        check(qAlpha(controller.canvasImage().pixel(20, 80)) > 0, "the piece is at its new place");
 
         // Undo the move, then the cut: the pixels return and the piece layer goes.
         controller.undo();
@@ -1212,16 +1379,14 @@ int runSelfTest()
     // coloured quadrants make a wrong offset obvious, and cropping twice
     // exercises a non-zero canvas origin.
     {
-        const QString quadPath =
-            QDir::temp().filePath(QStringLiteral("prism-selftest-quad.png"));
+        const QString quadPath = QDir::temp().filePath(QStringLiteral("prism-selftest-quad.png"));
         QFile::remove(quadPath);
         QImage quad(200, 200, QImage::Format_RGBA8888);
         for (int y = 0; y < 200; ++y)
             for (int x = 0; x < 200; ++x)
-                quad.setPixelColor(x, y, x < 100 ? (y < 100 ? QColor(255, 0, 0)
-                                                             : QColor(0, 0, 255))
-                                                  : (y < 100 ? QColor(0, 255, 0)
-                                                             : QColor(255, 255, 0)));
+                quad.setPixelColor(x, y,
+                                   x < 100 ? (y < 100 ? QColor(255, 0, 0) : QColor(0, 0, 255))
+                                           : (y < 100 ? QColor(0, 255, 0) : QColor(255, 255, 0)));
         check(quad.save(quadPath), "quadrant image written");
         controller.newDocument(200, 200);
         check(controller.importImageAsLayer(QUrl::fromLocalFile(quadPath)),
@@ -1233,8 +1398,7 @@ int runSelfTest()
         check(c1.pixelColor(5, 5) == QColor(255, 0, 0), "crop shows the framed top-left");
         check(c1.pixelColor(35, 5) == QColor(0, 255, 0), "crop shows the framed top-right");
         check(c1.pixelColor(5, 35) == QColor(0, 0, 255), "crop shows the framed bottom-left");
-        check(c1.pixelColor(35, 35) == QColor(255, 255, 0),
-              "crop shows the framed bottom-right");
+        check(c1.pixelColor(35, 35) == QColor(255, 255, 0), "crop shows the framed bottom-right");
 
         // Second crop, now with a non-zero origin: the canvas must keep showing
         // the same part of the image, not jump back to the layer's (0,0).
@@ -1259,8 +1423,8 @@ int runSelfTest()
                                     100.0F + static_cast<float>(i));
         controller.endStroke();
         const qint64 ms = timer.elapsed();
-        qInfo() << "stroke latency:" << ms << "ms for 200 move events ("
-                << (ms / 200.0) << "ms per event)";
+        qInfo() << "stroke latency:" << ms << "ms for 200 move events (" << (ms / 200.0)
+                << "ms per event)";
         check(ms < 2000, "200 move events stay under 2s");
     }
 
@@ -1350,15 +1514,15 @@ int runSelfTest()
         controller.addLayer();
         controller.addLayer();
         const int count = controller.layers()->rowCount();
-        const QString top = controller.layers()
-                                ->data(controller.layers()->index(count - 1, 0),
-                                       LayerListModel::NameRole)
-                                .toString();
+        const QString top =
+            controller.layers()
+                ->data(controller.layers()->index(count - 1, 0), LayerListModel::NameRole)
+                .toString();
         controller.moveLayerTo(count - 1, 0);
-        const QString nowBottom = controller.layers()
-                                      ->data(controller.layers()->index(0, 0),
-                                             LayerListModel::NameRole)
-                                      .toString();
+        const QString nowBottom =
+            controller.layers()
+                ->data(controller.layers()->index(0, 0), LayerListModel::NameRole)
+                .toString();
         check(nowBottom == top, "moveLayerTo moves a layer to an arbitrary index");
         check(controller.activeLayerIndex() == 0, "the moved layer becomes active");
         check(controller.layers()->rowCount() == count, "reordering keeps the layer count");
@@ -1367,30 +1531,27 @@ int runSelfTest()
         // docker draws the top layer first, so a raise has to increase the
         // index â€” the opposite mapping made the arrows look swapped.
         controller.setActiveLayerIndex(0);
-        const QString bottomName = controller.layers()
-                                       ->data(controller.layers()->index(0, 0),
-                                              LayerListModel::NameRole)
-                                       .toString();
+        const QString bottomName =
+            controller.layers()
+                ->data(controller.layers()->index(0, 0), LayerListModel::NameRole)
+                .toString();
         controller.moveLayerUp();
         check(controller.layers()
-                      ->data(controller.layers()->index(1, 0), LayerListModel::NameRole)
-                      .toString()
-                  == bottomName
-                  && controller.activeLayerIndex() == 1,
+                          ->data(controller.layers()->index(1, 0), LayerListModel::NameRole)
+                          .toString() == bottomName &&
+                  controller.activeLayerIndex() == 1,
               "Raise layer moves it to a higher index");
         controller.moveLayerDown();
         check(controller.layers()
                       ->data(controller.layers()->index(0, 0), LayerListModel::NameRole)
-                      .toString()
-                  == bottomName,
+                      .toString() == bottomName,
               "Lower layer moves it back down");
         controller.undo();
         controller.undo();
         controller.undo();
         check(controller.layers()
                       ->data(controller.layers()->index(count - 1, 0), LayerListModel::NameRole)
-                      .toString()
-                  == top,
+                      .toString() == top,
               "undo restores the previous layer order");
         controller.undo();
         controller.undo();
@@ -1407,37 +1568,42 @@ int runSelfTest()
 
         const QString tmp = QDir::temp().filePath(QStringLiteral("prism-blend.prism"));
         QFile::remove(tmp);
-        controller.setLayerBlendMode(
-            0, static_cast<int>(prism::core::BlendMode::ColorDodge));
+        controller.setLayerBlendMode(0, static_cast<int>(prism::core::BlendMode::ColorDodge));
         controller.setLayerOpacity(0, 60);
         check(controller.saveFile(QUrl::fromLocalFile(tmp)), "save with a non-default blend mode");
         check(controller.openFile(QUrl::fromLocalFile(tmp)), "reopen the blend-mode project");
-        const int reopened = controller.layers()
-                                 ->data(controller.layers()->index(0, 0),
-                                        LayerListModel::BlendModeRole)
-                                 .toInt();
+        const int reopened =
+            controller.layers()
+                ->data(controller.layers()->index(0, 0), LayerListModel::BlendModeRole)
+                .toInt();
         check(reopened == static_cast<int>(prism::core::BlendMode::ColorDodge),
               "blend mode round-trips through the project file");
-        const int opacity = controller.layers()
-                                ->data(controller.layers()->index(0, 0),
-                                       LayerListModel::OpacityRole)
-                                .toInt();
+        const int opacity =
+            controller.layers()
+                ->data(controller.layers()->index(0, 0), LayerListModel::OpacityRole)
+                .toInt();
         check(opacity == 60, "layer opacity round-trips through the project file");
     }
 
     // Locking the layer blocks painting.
+    controller.setActiveLayerIndex(0);
     controller.setLayerLocked(0, true);
+    const QImage beforeLockedStroke = controller.canvasImage().copy();
+    controller.beginStroke(510.0F, 510.0F);
+    controller.extendStroke(540.0F, 530.0F);
+    controller.endStroke();
+    check(controller.canvasImage() == beforeLockedStroke, "locked layer rejects brush strokes");
     controller.undo(); // undo the lock change; locking is a real history step
     check(true, "layer lock toggled through history");
 
     // Brush import/export round-trip.
     {
-        const QString brushFile = QDir::temp().filePath(QStringLiteral("prism-selftest.prismbrush"));
+        const QString brushFile =
+            QDir::temp().filePath(QStringLiteral("prism-selftest.prismbrush"));
         QFile::remove(brushFile);
         const int presetsBefore = controller.presetCount();
         controller.selectPreset(0);
-        check(controller.exportBrush(QUrl::fromLocalFile(brushFile), 0),
-              "brush export succeeds");
+        check(controller.exportBrush(QUrl::fromLocalFile(brushFile), 0), "brush export succeeds");
         check(QFile::exists(brushFile), "brush file exists on disk");
 
         // Read JSON directly to verify tip field is present
@@ -1446,7 +1612,7 @@ int runSelfTest()
             f.open(QIODevice::ReadOnly);
             const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
             const QJsonObject root = doc.object();
-            check(root["version"].toInt() == 2, "brush file uses version 2");
+            check(root["version"].toInt() == 5, "brush file uses version 5");
             check(root.contains("tip"), "brush file contains tip object");
         }
 
@@ -1462,8 +1628,7 @@ int runSelfTest()
         check(imported->brush.tip.roundness == 1.0F, "imported brush tip roundness is 1.0");
         check(imported->brush.tip.angle == 0.0F, "imported brush tip angle is 0");
 
-        check(controller.importBrush(QUrl::fromLocalFile(brushFile)),
-              "QML brush import succeeds");
+        check(controller.importBrush(QUrl::fromLocalFile(brushFile)), "QML brush import succeeds");
         check(controller.presetCount() == presetsBefore + 1,
               "imported brush appears as a new preset");
         // Clean up.
@@ -1473,7 +1638,8 @@ int runSelfTest()
 
     // Backwards compatibility: import a v1 brush file without tip field
     {
-        const QString brushV1File = QDir::temp().filePath(QStringLiteral("prism-selftest-v1.prismbrush"));
+        const QString brushV1File =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-v1.prismbrush"));
         // Write a v1 file manually (no tip field)
         QJsonObject root;
         root["format"] = "prism-brush";
@@ -1503,11 +1669,13 @@ int runSelfTest()
 
     // Error handling: malformed brush file
     {
-        const QString badFile = QDir::temp().filePath(QStringLiteral("prism-selftest-bad.prismbrush"));
+        const QString badFile =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-bad.prismbrush"));
         {
             QSaveFile f(badFile);
             f.open(QIODevice::WriteOnly);
-            f.write("{ \"format\": \"prism-brush\", \"version\": 2, \"tip\": { \"kind\": \"invalid\" } }");
+            f.write("{ \"format\": \"prism-brush\", \"version\": 2, \"tip\": { \"kind\": "
+                    "\"invalid\" } }");
             f.commit();
         }
 
@@ -1536,7 +1704,8 @@ int runSelfTest()
         p.brush.tip.image.data.assign(png.begin(), png.end());
         p.brush.tip.image.invert = true;
 
-        const QString imgFile = QDir::temp().filePath(QStringLiteral("prism-selftest-imgtip.prismbrush"));
+        const QString imgFile =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-imgtip.prismbrush"));
         QFile::remove(imgFile);
         check(prism::io::ProjectIO::exportBrush(p, imgFile), "image-tip brush export succeeds");
         QString errorMsg;
@@ -1560,14 +1729,16 @@ int runSelfTest()
         big.save(&pngBuf, "PNG");
         const QByteArray b64 = png.toBase64();
 
-        const QString bigFile = QDir::temp().filePath(QStringLiteral("prism-selftest-bigtip.prismbrush"));
+        const QString bigFile =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-bigtip.prismbrush"));
         QSaveFile f(bigFile);
         f.open(QIODevice::WriteOnly);
-        f.write(QStringLiteral("{ \"format\": \"prism-brush\", \"version\": 2, "
-                               "\"tip\": { \"kind\": \"image\", \"image\": { \"mime\": \"image/png\", "
-                               "\"data\": \"%1\" } } }")
-                    .arg(QString::fromLatin1(b64))
-                    .toUtf8());
+        f.write(
+            QStringLiteral("{ \"format\": \"prism-brush\", \"version\": 2, "
+                           "\"tip\": { \"kind\": \"image\", \"image\": { \"mime\": \"image/png\", "
+                           "\"data\": \"%1\" } } }")
+                .arg(QString::fromLatin1(b64))
+                .toUtf8());
         f.commit();
         QString errorMsg;
         check(!prism::io::ProjectIO::importBrush(bigFile, &errorMsg).has_value(),
@@ -1608,8 +1779,7 @@ int runSelfTest()
         controller.beginStroke(100.0F, 100.0F);
         controller.endStroke();
         const QImage rotated = controller.canvasImage();
-        check(qAlpha(rotated.pixel(100 + 34, 100)) == 0
-                  && qAlpha(rotated.pixel(100, 100 - 34)) > 0,
+        check(qAlpha(rotated.pixel(100 + 34, 100)) == 0 && qAlpha(rotated.pixel(100, 100 - 34)) > 0,
               "angle rotates the flattened tip");
         controller.setBrushTipAngle(0.0F);
         controller.setBrushTipRoundness(1.0F);
@@ -1690,8 +1860,7 @@ int runSelfTest()
         // Same probe without the smoothing lag would drop to ~55%: assert the
         // light touch itself keeps at least half the brush.
         const int allLight = strokeWidthAt(0.15F, 0.15F);
-        check(allLight * 2 > steady,
-              "a light pen touch keeps at least half of the brush size");
+        check(allLight * 2 > steady, "a light pen touch keeps at least half of the brush size");
     }
 
     // Leave no trace: earlier runs wrote their documents into the Recent list,
@@ -1700,31 +1869,152 @@ int runSelfTest()
     {
         const QString tempDir = QDir::tempPath();
         controller.forgetRecentFilesUnder(tempDir);
-        for (const char* leftover : { "prism-selftest.prism", "prism-selftest-noext.prism",
-                                      "prism-selftest-crop.prism",
-                                      "prism-selftest.prismrec", "prism-selftest.gif", "prism-selftest.mp4",
-                                      "prism-selftest.png", "prism-selftest.jpg",
-                                      "prism-selftest.webp",
-                                      "prism-blend.prism", "prism-selftest.prismbrush",
-                                      "prism-selftest-v1.prismbrush",
-                                      "prism-selftest-bad.prismbrush",
-                                      "prism-selftest-imgtip.prismbrush",
-                                      "prism-selftest-bigtip.prismbrush",
-                                      "prism-selftest-tip.png" })
+        for (const char* leftover :
+             {"prism-selftest.prism", "prism-selftest-noext.prism", "prism-selftest-crop.prism",
+              "prism-selftest.prismrec", "prism-selftest.gif", "prism-selftest.mp4",
+              "prism-selftest.png", "prism-selftest.jpg", "prism-selftest.webp",
+              "prism-blend.prism", "prism-selftest.prismbrush", "prism-selftest-v1.prismbrush",
+              "prism-selftest-bad.prismbrush", "prism-selftest-imgtip.prismbrush",
+              "prism-selftest-bigtip.prismbrush", "prism-selftest-tip.png"})
             QFile::remove(tempDir + QLatin1Char('/') + QLatin1String(leftover));
         check(true, "selftest leaves no documents behind");
     }
 
-    qInfo() << (failures == 0 ? "selftest: PASS" : "selftest: FAIL") << failures
-            << "failure(s)";
+    // The final taper is only known at pen-up. Its committed pixels must be
+    // identical to painting the saved samples through the offline brush path.
+    {
+        controller.newDocument(200, 80);
+        controller.selectPreset(3); // Clean Ink
+        controller.setBrushStabilization(0.0F);
+        controller.setBrushColor(QColor(0, 0, 0));
+        controller.beginStroke(20.0F, 40.0F);
+        controller.extendStroke(80.0F, 40.0F);
+        controller.extendStroke(140.0F, 40.0F);
+        controller.endStroke();
+        const QImage committed = controller.canvasImage().copy();
+        auto brush = prism::canvas::builtinBrushPresets()[3].brush;
+        brush.stabilization = 0.0F;
+        brush.color = {0, 0, 0, 255};
+        prism::core::raster::RasterBuffer replay(200, 80);
+        const std::vector<prism::canvas::StrokePoint> samples{
+            {20.0F, 40.0F, 1.0F}, {80.0F, 40.0F, 1.0F}, {140.0F, 40.0F, 1.0F}};
+        (void)prism::canvas::BrushStroke::paint(replay, brush, samples);
+        int differences = 0;
+        for (int y = 0; y < committed.height(); ++y)
+            for (int x = 0; x < committed.width(); ++x) {
+                const auto want = replay.at(x, y);
+                const auto got = committed.pixelColor(x, y);
+                differences += got.red() != want.r || got.green() != want.g ||
+                               got.blue() != want.b || got.alpha() != want.a;
+            }
+        check(differences == 0, "Ink commit matches offline taper replay pixel for pixel");
+        controller.undo();
+        controller.redo();
+        check(controller.canvasImage() == committed, "Ink taper survives undo and redo");
+    }
+
+    // Drive the real timer and disk worker, then reopen the snapshot through
+    // the same recovery action as the Start Page.
+    {
+        qputenv("PRISM_AUTOSAVE_INTERVAL_MS", "30");
+        QVariantMap snapshot;
+        const QString artworkPath =
+            QDir::temp().filePath(QStringLiteral("prism-selftest-recovered.prism"));
+        QFile::remove(artworkPath);
+        {
+            AppController artist;
+            artist.newDocument(80, 80);
+            const int before = artist.recoverableArtworks().size();
+            artist.beginStroke(20.0F, 20.0F);
+            artist.endStroke();
+            QElapsedTimer deadline;
+            deadline.start();
+            while (deadline.elapsed() < 5000 && artist.recoverableArtworks().size() <= before) {
+                QCoreApplication::processEvents();
+                QThread::msleep(10);
+            }
+            const auto available = artist.recoverableArtworks();
+            check(available.size() > before, "autosave writes an artwork snapshot");
+            if (available.size() > before)
+                snapshot = available.first().toMap();
+        }
+        if (!snapshot.isEmpty()) {
+            AppController restorer;
+            check(restorer.recoverArtwork(QUrl(snapshot["url"].toString())),
+                  "Start Page recovery opens the snapshot");
+            check(restorer.canvasImage().pixelColor(20, 20).alpha() > 0,
+                  "recovered artwork contains the latest stroke");
+            check(restorer.saveFile(QUrl::fromLocalFile(artworkPath)),
+                  "recovered artwork saves to a normal project");
+            check(!QFile::exists(QUrl(snapshot["url"].toString()).toLocalFile()),
+                  "saving recovered artwork clears its crash snapshot");
+            const auto recent = restorer.recentFiles();
+            const auto savedEntry = recent.isEmpty() ? QVariantMap{} : recent.first().toMap();
+            check(savedEntry["name"].toString() == QFileInfo(artworkPath).fileName() &&
+                      savedEntry["exists"].toBool() &&
+                      QFile::exists(QUrl(savedEntry["previewUrl"].toString()).toLocalFile()),
+                  "Recent Files shows a readable name and cached preview");
+            QFile::remove(artworkPath);
+            const auto missing = restorer.recentFiles();
+            const auto missingEntry = missing.isEmpty() ? QVariantMap{} : missing.first().toMap();
+            check(!missingEntry["exists"].toBool() &&
+                      missingEntry["previewUrl"].toString().isEmpty(),
+                  "Recent Files marks a deleted project as missing");
+            restorer.forgetRecentFilesUnder(QDir::tempPath());
+        }
+        qunsetenv("PRISM_AUTOSAVE_INTERVAL_MS");
+    }
+
+    // Focus is a temporary canvas view. Every route into a drawing document
+    // restores the complete workspace, including when already in a document.
+    controller.setFocusMode(true);
+    controller.setStartPageVisible(true);
+    controller.setStartPageVisible(false);
+    check(!controller.focusMode(), "returning from Start Page shows the workspace");
+    controller.setFocusMode(true);
+    controller.newDocument(40, 32);
+    check(!controller.focusMode(), "new document shows the workspace");
+    const QString focusProject =
+        QDir::temp().filePath(QStringLiteral("prism-selftest-focus-reset.prism"));
+    QFile::remove(focusProject);
+    check(controller.saveFile(QUrl::fromLocalFile(focusProject)),
+          "focus reset project fixture saves");
+    controller.setFocusMode(true);
+    check(controller.openProject(QUrl::fromLocalFile(focusProject)) && !controller.focusMode(),
+          "opening a project shows the workspace");
+    check(controller.recording(), "opening a project starts its automatic record");
+    QFile::remove(focusProject);
+    const QString focusImage =
+        QDir::temp().filePath(QStringLiteral("prism-selftest-focus-reset.png"));
+    QImage focusImagePixels(16, 16, QImage::Format_RGBA8888);
+    focusImagePixels.fill(Qt::red);
+    check(focusImagePixels.save(focusImage), "focus reset image fixture saves");
+    controller.setFocusMode(true);
+    check(controller.importImage(QUrl::fromLocalFile(focusImage)) && !controller.focusMode(),
+          "opening an image shows the workspace");
+    check(controller.recording(), "opening an image starts its automatic record");
+    QFile::remove(focusImage);
+
+    const QString archivePath = qEnvironmentVariable("PRISM_RECOVERY_DIR") +
+                                QStringLiteral("/recordings/selftest-archive.prismrec");
+    QFile::remove(archivePath);
+    check(controller.exportRecording(QUrl::fromLocalFile(archivePath)),
+          "recording recovery fixture exports");
+    controller.setStartPageVisible(true);
+    check(controller.recoverRecording(QUrl::fromLocalFile(archivePath)),
+          "Start Page can select an archived recording for export");
+    controller.setStartPageVisible(false);
+    check(controller.recording(), "returning after record recovery starts automatic recording");
+    QFile::remove(archivePath);
+
+    qInfo() << (failures == 0 ? "selftest: PASS" : "selftest: FAIL") << failures << "failure(s)";
     return failures == 0 ? 0 : 1;
 }
 
 /// Audits every tool for its ACTUAL EFFECT, not just that it can be selected â€”
 /// "all tools selectable without crashing" is what let broken tools ship.
 /// Each tool runs on a fresh document and has to change something observable.
-int runToolAudit()
-{
+int runToolAudit() {
     AppController c;
     c.setSelfTestMode(true);
     int failures = 0;
@@ -1881,10 +2171,9 @@ int runToolAudit()
     fresh();
     c.setTool(AppController::LassoSelectTool);
     // QPointF items, exactly what the QML lasso feeds it.
-    c.setLassoSelection(QVariantList{ QVariant::fromValue(QPointF(60, 60)),
-                                      QVariant::fromValue(QPointF(300, 80)),
-                                      QVariant::fromValue(QPointF(200, 240)),
-                                      QVariant::fromValue(QPointF(80, 200)) });
+    c.setLassoSelection(QVariantList{
+        QVariant::fromValue(QPointF(60, 60)), QVariant::fromValue(QPointF(300, 80)),
+        QVariant::fromValue(QPointF(200, 240)), QVariant::fromValue(QPointF(80, 200))});
     check(c.hasSelection(), "Freehand Selection selects");
 
     fresh();
@@ -1936,45 +2225,25 @@ int runToolAudit()
 
 } // namespace
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("Prism"));
     QGuiApplication::setOrganizationName(QStringLiteral("Prism"));
-    QGuiApplication::setApplicationVersion(QStringLiteral("0.3"));
-
-    // Dark application palette. The Basic style colours its popups (menu
-    // dropdowns, tooltips, dialog frames) from the palette, which is why they
-    // stayed light while the QML-styled widgets around them were dark.
-    // Everything here is derived from the same two colours as Theme.js:
-    // #ffffff foreground on #1f1f1f background.
-    {
-        const QColor bg(0x1f, 0x1f, 0x1f);
-        const QColor fg(0xff, 0xff, 0xff);
-        const QColor raised(0x33, 0x33, 0x33);
-        const QColor disabled(0x6b, 0x6b, 0x6b);
-        QPalette pal;
-        pal.setColor(QPalette::Window, bg);
-        pal.setColor(QPalette::WindowText, fg);
-        pal.setColor(QPalette::Base, bg);
-        pal.setColor(QPalette::AlternateBase, raised);
-        pal.setColor(QPalette::Text, fg);
-        pal.setColor(QPalette::Button, raised);
-        pal.setColor(QPalette::ButtonText, fg);
-        pal.setColor(QPalette::BrightText, fg);
-        pal.setColor(QPalette::Highlight, fg);
-        pal.setColor(QPalette::HighlightedText, bg);
-        pal.setColor(QPalette::ToolTipBase, raised);
-        pal.setColor(QPalette::ToolTipText, fg);
-        pal.setColor(QPalette::PlaceholderText, disabled);
-        pal.setColor(QPalette::Disabled, QPalette::Text, disabled);
-        pal.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
-        pal.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
-        pal.setColor(QPalette::Disabled, QPalette::HighlightedText, disabled);
-        app.setPalette(pal);
+    QGuiApplication::setApplicationVersion(QStringLiteral(PRISM_VERSION));
+    if (app.arguments().contains(QStringLiteral("--version"))) {
+        std::fprintf(stdout, "%s\n", PRISM_VERSION);
+        return 0;
+    }
+    // Screenshot and benchmark runs can isolate preferences from the artist's
+    // real profile by setting PRISM_SETTINGS_DIR to a writable test folder.
+    if (qEnvironmentVariableIsSet("PRISM_SETTINGS_DIR")) {
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           qEnvironmentVariable("PRISM_SETTINGS_DIR"));
     }
 
-    const QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString logDir = qEnvironmentVariable(
+        "PRISM_LOG_DIR", QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
     QDir().mkpath(logDir);
     g_logFile.setFileName(logDir + QStringLiteral("/prism.log"));
     g_logFile.open(QIODevice::WriteOnly | QIODevice::Truncate);
@@ -2006,13 +2275,12 @@ int main(int argc, char* argv[])
         qInfo().noquote() << "writable:" << writeList.join(QLatin1Char(' '));
 
         QStringList missing;
-        for (const char* required : { "png", "jpg", "jpeg", "webp", "tiff" })
+        for (const char* required : {"png", "jpg", "jpeg", "webp", "tiff"})
             if (!readable.contains(QByteArray(required)))
                 missing << QString::fromLatin1(required);
         if (!missing.isEmpty()) {
-            qCritical().noquote()
-                << "MISSING image formats:" << missing.join(QLatin1Char(' '))
-                << "- deploy plugins\\imageformats (see tools/deploy.ps1)";
+            qCritical().noquote() << "MISSING image formats:" << missing.join(QLatin1Char(' '))
+                                  << "- deploy plugins\\imageformats (see tools/deploy.ps1)";
             return 1;
         }
         qInfo().noquote() << "format check: OK";
@@ -2047,14 +2315,11 @@ int main(int argc, char* argv[])
     // Image providers need the live controller: preset thumbnails include
     // user presets, and layer rows show their own pixels.
     auto* controller = new AppController(&engine);
-    engine.addImageProvider(QStringLiteral("preset"),
-                            new PresetImageProvider(controller));
-    engine.addImageProvider(QStringLiteral("layerthumb"),
-                            new LayerThumbnailProvider(controller));
-    engine.addImageProvider(QStringLiteral("selection"),
-                            new SelectionOverlayProvider(controller));
+    engine.addImageProvider(QStringLiteral("preset"), new PresetImageProvider(controller));
+    engine.addImageProvider(QStringLiteral("layerthumb"), new LayerThumbnailProvider(controller));
+    engine.addImageProvider(QStringLiteral("selection"), new SelectionOverlayProvider(controller));
     engine.setInitialProperties(
-        { { QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject*>(controller)) } });
+        {{QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject*>(controller))}});
 
     const QUrl url(QStringLiteral("qrc:/Prism/src/ui/qml/Main.qml"));
     QObject::connect(
@@ -2069,7 +2334,8 @@ int main(int argc, char* argv[])
     // --tablettest runs on its own timer: it must not sit behind the
     // --screenshot gate, or invoking it alone leaves the app up doing nothing.
     if (app.arguments().contains(QStringLiteral("--tablettest"))) {
-        QTimer::singleShot(1500, &app, [controller, &engine]() { runTabletTest(controller, &engine); });
+        QTimer::singleShot(1500, &app,
+                           [controller, &engine]() { runTabletTest(controller, &engine); });
         QTimer::singleShot(30000, &app, []() {
             qWarning() << "tablettest: timed out";
             QCoreApplication::exit(1);
@@ -2095,6 +2361,7 @@ int main(int argc, char* argv[])
     QString shotPath;
     bool shotOnly = false;
     int shotDelayMs = 2500;
+    QSize demoWindowSize;
     for (const QString& arg : app.arguments()) {
         if (arg.startsWith(QStringLiteral("--screenshot=")))
             shotPath = arg.section('=', 1);
@@ -2102,14 +2369,32 @@ int main(int argc, char* argv[])
             shotOnly = true;
         else if (arg.startsWith(QStringLiteral("--screenshot-delay=")))
             shotDelayMs = arg.section('=', 1).toInt();
+        else if (arg.startsWith(QStringLiteral("--demo-window-size="))) {
+            const QString size = arg.section('=', 1);
+            demoWindowSize =
+                QSize(size.section('x', 0, 0).toInt(), size.section('x', 1, 1).toInt());
+        }
     }
     if (!shotPath.isEmpty()) {
+        if (demoWindowSize.isValid()) {
+            QTimer::singleShot(250, &app, [&engine, demoWindowSize]() {
+                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0))) {
+                    window->showNormal();
+                    window->resize(demoWindowSize);
+                }
+            });
+        }
         // --demo-drawing paints a known test pattern before the shot so the
         // canvas mapping (zoom / offset) can be verified from the image.
         const bool demo = app.arguments().contains(QStringLiteral("--demo-drawing"));
         const bool demoDialog = app.arguments().contains(QStringLiteral("--demo-new-dialog"));
-        const bool demoToolOptions = app.arguments().contains(QStringLiteral("--demo-tool-options"));
+        const bool demoToolOptions =
+            app.arguments().contains(QStringLiteral("--demo-tool-options"));
         const bool demoCursor = app.arguments().contains(QStringLiteral("--demo-cursor"));
+        QString demoQuickControls;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-quick-controls=")))
+                demoQuickControls = a.section(QLatin1Char('='), 1);
         const bool demoMenu = app.arguments().contains(QStringLiteral("--demo-menu"));
         // --demo-import-layer=<png> drives the SAME QML -> controller call the
         // menu uses, without a human clicking a native file dialog. This is
@@ -2155,6 +2440,13 @@ int main(int argc, char* argv[])
         // own text undo), then clicks the canvas and checks the same keystroke
         // now reaches the document.
         const bool demoFocusUndo = app.arguments().contains(QStringLiteral("--demo-focus-undo"));
+        const bool demoFocusMode =
+            app.arguments().contains(QStringLiteral("--demo-focus-mode-test"));
+        const bool demoUxBeta = app.arguments().contains(QStringLiteral("--demo-ux-beta-test"));
+        QString demoFocusHover;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-focus-hover=")))
+                demoFocusHover = a.section(QLatin1Char('='), 1);
         // --demo-right-pan: holds the right button and drags, which must scroll
         // the canvas and leave no stroke behind.
         const bool demoRightPan = app.arguments().contains(QStringLiteral("--demo-right-pan"));
@@ -2189,8 +2481,7 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-record=")))
                 demoRecord = a.section(QLatin1Char('='), 1);
-        const bool demoEyedropper =
-            app.arguments().contains(QStringLiteral("--demo-eyedropper"));
+        const bool demoEyedropper = app.arguments().contains(QStringLiteral("--demo-eyedropper"));
         // --demo-pen-tool=crop|rectselect|move: drives a drag with the PEN
         // (synthetic QTabletEvents) instead of the mouse. Every hook above uses
         // QTest's mouse input, so a tool that only reacts to synthesized mouse
@@ -2207,6 +2498,11 @@ int main(int argc, char* argv[])
         for (const QString& a : app.arguments())
             if (a.startsWith(QStringLiteral("--demo-stroke-bench=")))
                 demoStrokeBench = a.section(QLatin1Char('='), 1).toInt();
+        int demoBenchPreset = 0;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-bench-preset=")))
+                demoBenchPreset = a.section(QLatin1Char('='), 1).toInt();
+        const bool demoBrushLab = app.arguments().contains(QStringLiteral("--demo-brush-lab"));
         // --demo-mirror=h|v: flips the canvas view, which is mirrored per tile
         // in the tiled renderer and therefore worth an explicit visual check.
         QString demoMirror;
@@ -2241,610 +2537,992 @@ int main(int argc, char* argv[])
         // through the window filter and verifies the painted alpha follows the
         // pressure. Proves the tablet path without hardware; the real pen is
         // then verified by just drawing (each stroke logs its pressure range).
-        QTimer::singleShot(1200, &app, [controller, demo, demoDialog, demoToolOptions, demoCursor,
-                                       demoMenu, demoImport, demoDragSlider, demoDragLayer,
-                                       demoClick, demoActive, demoClickLayer, demoFocusUndo,
-                                       demoRightPan, demoCrop, demoMove, demoSliderInput, demoRecord,
-                                       demoSliderTab, demoEyedropper, demoPenTool,
-                                       demoStrokeBench, demoDocW, demoDocH,
-                                       demoMirror, demoStress, demoStressOps, &engine]() {
-            if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* canvas = window ? findItemByName(window->contentItem(),
-                                                       QStringLiteral("canvasItem"))
-                                      : nullptr;
-                struct Rng {
-                    quint32 state = 12345;
-                    quint32 next() { state = state * 1664525u + 1013904223u; return state >> 8; }
-                    int range(int lo, int hi) { return lo + static_cast<int>(next() % static_cast<quint32>(hi - lo + 1)); }
-                } rng;
-                const QSize sizes[] = { { 640, 480 }, { 1280, 800 }, { 2048, 1536 },
-                                        { 3000, 2000 }, { 1024, 1024 } };
-                // Index == op id: 0 newDocument, 1-2 paintStroke, 3 eraseStroke,
-                // 4 bucketFill, 5 layerChurn, 6 undoRedo, 7 mirror, 8 zoom,
-                // 9 layerProps.
-                static const char* const kOpNames[10] = {
-                    "newDocument",  "paintStroke", "paintStroke", "eraseStroke",
-                    "bucketFill",   "layerChurn",  "undoRedo",    "mirror",
-                    "zoom",         "layerProps",
-                };
-                const QStringList allowed =
-                    demoStressOps.isEmpty() ? QStringList()
-                                            : demoStressOps.split(QLatin1Char(','));
-                int lastPercent = -1;
-                for (int i = 0; i < demoStress; ++i) {
-                    int op = rng.range(0, 9);
-                    if (!allowed.isEmpty()) {
-                        // Walk forward until an allowed operation is found.
-                        for (int tries = 0; tries < 10; ++tries) {
-                            if (allowed.contains(QLatin1String(kOpNames[op])))
-                                break;
-                            op = (op + 1) % 10;
+        QTimer::singleShot(
+            1200, &app,
+            [controller, demo, demoDialog, demoToolOptions, demoCursor, demoQuickControls, demoMenu,
+             demoImport, demoDragSlider, demoDragLayer, demoClick, demoActive, demoClickLayer,
+             demoFocusUndo, demoFocusMode, demoUxBeta, demoFocusHover, demoRightPan, demoCrop,
+             demoMove, demoSliderInput, demoRecord, demoSliderTab, demoEyedropper, demoPenTool,
+             demoStrokeBench, demoBenchPreset, demoBrushLab, demoDocW, demoDocH, demoMirror,
+             demoStress, demoStressOps, &engine]() {
+                if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* canvas =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("canvasItem"))
+                               : nullptr;
+                    struct Rng {
+                        quint32 state = 12345;
+                        quint32 next() {
+                            state = state * 1664525u + 1013904223u;
+                            return state >> 8;
+                        }
+                        int range(int lo, int hi) {
+                            return lo +
+                                   static_cast<int>(next() % static_cast<quint32>(hi - lo + 1));
+                        }
+                    } rng;
+                    const QSize sizes[] = {
+                        {640, 480}, {1280, 800}, {2048, 1536}, {3000, 2000}, {1024, 1024}};
+                    // Index == op id: 0 newDocument, 1-2 paintStroke, 3 eraseStroke,
+                    // 4 bucketFill, 5 layerChurn, 6 undoRedo, 7 mirror, 8 zoom,
+                    // 9 layerProps.
+                    static const char* const kOpNames[10] = {
+                        "newDocument", "paintStroke", "paintStroke", "eraseStroke", "bucketFill",
+                        "layerChurn",  "undoRedo",    "mirror",      "zoom",        "layerProps",
+                    };
+                    const QStringList allowed = demoStressOps.isEmpty()
+                                                    ? QStringList()
+                                                    : demoStressOps.split(QLatin1Char(','));
+                    int lastPercent = -1;
+                    for (int i = 0; i < demoStress; ++i) {
+                        int op = rng.range(0, 9);
+                        if (!allowed.isEmpty()) {
+                            // Walk forward until an allowed operation is found.
+                            for (int tries = 0; tries < 10; ++tries) {
+                                if (allowed.contains(QLatin1String(kOpNames[op])))
+                                    break;
+                                op = (op + 1) % 10;
+                            }
+                        }
+                        const char* opName = kOpNames[op];
+                        // Logged BEFORE the operation: if the app dies, the last
+                        // line in prism.log names what killed it.
+                        qInfo() << "stress: op" << i << opName << "canvas"
+                                << controller->canvasWidth() << "x" << controller->canvasHeight()
+                                << "layers" << controller->layers()->rowCount();
+                        switch (op) {
+                        case 0: { // document swap: reallocates the compositor buffer
+                            const QSize s = sizes[rng.range(0, 4)];
+                            controller->newDocument(s.width(), s.height());
+                            break;
+                        }
+                        case 1:
+                        case 2: { // paint stroke
+                            const qreal w = controller->canvasWidth(),
+                                        h = controller->canvasHeight();
+                            const qreal x = rng.range(0, static_cast<int>(w) - 1);
+                            const qreal y = rng.range(0, static_cast<int>(h) - 1);
+                            controller->beginStroke(x, y);
+                            for (int k = 0; k < 12; ++k)
+                                controller->extendStroke(x + k * 6, y + rng.range(-8, 8));
+                            controller->endStroke();
+                            break;
+                        }
+                        case 3: { // erase stroke
+                            const qreal w = controller->canvasWidth(),
+                                        h = controller->canvasHeight();
+                            const qreal x = rng.range(0, static_cast<int>(w) - 1);
+                            const qreal y = rng.range(0, static_cast<int>(h) - 1);
+                            controller->setEraser(true);
+                            controller->beginStroke(x, y);
+                            for (int k = 0; k < 10; ++k)
+                                controller->extendStroke(x + k * 8, y + k * 3);
+                            controller->endStroke();
+                            controller->setEraser(false);
+                            break;
+                        }
+                        case 4: // bucket fill
+                            controller->fillAt(rng.range(0, 400), rng.range(0, 300));
+                            break;
+                        case 5: // layer churn
+                            if (rng.range(0, 1) == 0)
+                                controller->addLayer();
+                            else if (controller->layers()->rowCount() > 1)
+                                controller->deleteLayer();
+                            break;
+                        case 6: // undo / redo
+                            rng.range(0, 1) == 0 ? controller->undo() : controller->redo();
+                            break;
+                        case 7: // mirror toggle (rebuilds every tile)
+                            controller->setMirrorHorizontal(rng.range(0, 1) == 0);
+                            controller->setMirrorVertical(rng.range(0, 1) == 0);
+                            break;
+                        case 8: // zoom (relayout of every tile)
+                            controller->setZoom(0.25 + (rng.range(0, 30) / 10.0));
+                            break;
+                        default: // layer properties
+                            controller->setLayerVisible(controller->activeLayerIndex(),
+                                                        rng.range(0, 1) == 0);
+                            controller->previewLayerOpacity(controller->activeLayerIndex(),
+                                                            rng.range(10, 100));
+                            break;
+                        }
+                        QCoreApplication::processEvents();
+                        const int percent = (i + 1) * 100 / demoStress;
+                        if (percent != lastPercent && percent % 10 == 0) {
+                            lastPercent = percent;
+                            qInfo() << "stress:" << percent << "% (" << i + 1 << "of" << demoStress
+                                    << ") canvas" << controller->canvasWidth() << "x"
+                                    << controller->canvasHeight() << "layers"
+                                    << controller->layers()->rowCount();
                         }
                     }
-                    const char* opName = kOpNames[op];
-                    // Logged BEFORE the operation: if the app dies, the last
-                    // line in prism.log names what killed it.
-                    qInfo() << "stress: op" << i << opName << "canvas"
-                            << controller->canvasWidth() << "x" << controller->canvasHeight()
-                            << "layers" << controller->layers()->rowCount();
-                    switch (op) {
-                    case 0: { // document swap: reallocates the compositor buffer
-                        const QSize s = sizes[rng.range(0, 4)];
-                        controller->newDocument(s.width(), s.height());
-                        break;
-                    }
-                    case 1: case 2: { // paint stroke
-                        const qreal w = controller->canvasWidth(), h = controller->canvasHeight();
-                        const qreal x = rng.range(0, static_cast<int>(w) - 1);
-                        const qreal y = rng.range(0, static_cast<int>(h) - 1);
-                        controller->beginStroke(x, y);
-                        for (int k = 0; k < 12; ++k)
-                            controller->extendStroke(x + k * 6, y + rng.range(-8, 8));
-                        controller->endStroke();
-                        break;
-                    }
-                    case 3: { // erase stroke
-                        const qreal w = controller->canvasWidth(), h = controller->canvasHeight();
-                        const qreal x = rng.range(0, static_cast<int>(w) - 1);
-                        const qreal y = rng.range(0, static_cast<int>(h) - 1);
-                        controller->setEraser(true);
-                        controller->beginStroke(x, y);
-                        for (int k = 0; k < 10; ++k)
-                            controller->extendStroke(x + k * 8, y + k * 3);
-                        controller->endStroke();
-                        controller->setEraser(false);
-                        break;
-                    }
-                    case 4: // bucket fill
-                        controller->fillAt(rng.range(0, 400), rng.range(0, 300));
-                        break;
-                    case 5: // layer churn
-                        if (rng.range(0, 1) == 0)
-                            controller->addLayer();
-                        else if (controller->layers()->rowCount() > 1)
-                            controller->deleteLayer();
-                        break;
-                    case 6: // undo / redo
-                        rng.range(0, 1) == 0 ? controller->undo() : controller->redo();
-                        break;
-                    case 7: // mirror toggle (rebuilds every tile)
-                        controller->setMirrorHorizontal(rng.range(0, 1) == 0);
-                        controller->setMirrorVertical(rng.range(0, 1) == 0);
-                        break;
-                    case 8: // zoom (relayout of every tile)
-                        controller->setZoom(0.25 + (rng.range(0, 30) / 10.0));
-                        break;
-                    default: // layer properties
-                        controller->setLayerVisible(controller->activeLayerIndex(),
-                                                    rng.range(0, 1) == 0);
-                        controller->previewLayerOpacity(controller->activeLayerIndex(),
-                                                        rng.range(10, 100));
-                        break;
-                    }
+                    qInfo() << "stress: completed" << demoStress << "operations without crashing";
+                }
+                if (!demoMirror.isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    if (demoMirror.contains(QLatin1Char('h')))
+                        controller->setMirrorHorizontal(true);
+                    if (demoMirror.contains(QLatin1Char('v')))
+                        controller->setMirrorVertical(true);
+                    qInfo() << "demo: mirror h =" << controller->mirrorHorizontal()
+                            << " v =" << controller->mirrorVertical();
+                }
+                if (demoBrushLab && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    controller->selectPreset(1);
+                    QMetaObject::invokeMethod(engine.rootObjects().first(), "showWorkspacePanel",
+                                              Q_ARG(QVariant, QVariant(1)));
                     QCoreApplication::processEvents();
-                    const int percent = (i + 1) * 100 / demoStress;
-                    if (percent != lastPercent && percent % 10 == 0) {
-                        lastPercent = percent;
-                        qInfo() << "stress:" << percent << "% (" << i + 1 << "of" << demoStress
-                                << ") canvas" << controller->canvasWidth() << "x"
-                                << controller->canvasHeight() << "layers"
-                                << controller->layers()->rowCount();
-                    }
+                    qInfo() << "demo: Brush Lab opened for" << controller->brushName();
                 }
-                qInfo() << "stress: completed" << demoStress << "operations without crashing";
-            }
-            if (!demoMirror.isEmpty()) {
-                controller->setStartPageVisible(false);
-                if (demoMirror.contains(QLatin1Char('h')))
-                    controller->setMirrorHorizontal(true);
-                if (demoMirror.contains(QLatin1Char('v')))
-                    controller->setMirrorVertical(true);
-                qInfo() << "demo: mirror h =" << controller->mirrorHorizontal()
-                        << " v =" << controller->mirrorVertical();
-            }
-            if (demoStrokeBench > 0 && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                if (demoDocW > 0 && demoDocH > 0) {
-                    controller->newDocument(demoDocW, demoDocH);
-                    qInfo() << "bench: document" << demoDocW << "x" << demoDocH;
-                    // Let the new document settle (full composite + first tile
-                    // upload) before the timed stretch.
-                    QTest::qWait(500);
-                }
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* canvas = window ? findItemByName(window->contentItem(),
-                                                       QStringLiteral("canvasItem"))
-                                      : nullptr;
-                if (!canvas) {
-                    qWarning() << "demo: canvas item not found";
-                } else {
-                    // Count rendered frames while the stroke runs.
-                    int frames = 0;
-                    const auto conn = QObject::connect(window, &QQuickWindow::frameSwapped,
-                                                       [&frames]() { ++frames; });
-                    const QRectF itemScene = canvas->mapRectToScene(canvas->boundingRect());
-                    const QRectF windowRect(0, 0, window->width(), window->height());
-                    const QRectF visible = itemScene.intersected(windowRect);
-                    if (visible.width() < 8 || visible.height() < 8) {
-                        qWarning() << "demo: canvas is not visible"
-                                   << itemScene << "window" << windowRect;
-                        return;
+                if (demoStrokeBench > 0 && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    if (demoBenchPreset > 0 && demoBenchPreset < controller->presetCount()) {
+                        controller->selectPreset(demoBenchPreset);
+                        qInfo() << "bench: preset" << controller->presetName(demoBenchPreset);
                     }
-                    // A big document at 100% zoom extends past the viewport, so
-                    // the stroke has to run inside the visible part.
-                    const QPointF centre = visible.center();
-                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
-                    // A back-and-forth line across the canvas: every move paints
-                    // a new band, which is the worst case for the uploader.
-                    const qreal span = visible.width() * 0.5;
-                    QElapsedTimer t;
-                    t.start();
-                    for (int i = 0; i < demoStrokeBench; ++i) {
-                        const qreal f = static_cast<qreal>(i % 20) / 19.0;
-                        const qreal x = centre.x() - span / 2 + span * f;
-                        const qreal y = centre.y() + std::sin(f * 6.28) * 40.0;
-                        QTest::mouseMove(window, QPointF(x, y).toPoint());
-                        // Spin the loop after every move: without this Qt merges
-                        // the whole burst and nothing is rendered or measured.
-                        QCoreApplication::processEvents();
+                    if (demoDocW > 0 && demoDocH > 0) {
+                        controller->newDocument(demoDocW, demoDocH);
+                        qInfo() << "bench: document" << demoDocW << "x" << demoDocH;
+                        // Let the new document settle (full composite + first tile
+                        // upload) before the timed stretch.
+                        QTest::qWait(500);
                     }
-                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
-                                        QPointF(centre.x() + span / 2, centre.y()).toPoint());
-                    const qint64 elapsed = t.elapsed();
-                    QObject::disconnect(conn);
-                    qInfo() << "bench:" << demoStrokeBench << "moves in" << elapsed << "ms ("
-                            << (elapsed / static_cast<double>(demoStrokeBench)) << "ms/move)"
-                            << "frames:" << frames;
-                    if (frames > 0)
-                        qInfo() << "bench: average frame interval"
-                                << (elapsed / static_cast<double>(frames)) << "ms";
-                    if (canvas->property("renderStats").isValid())
-                        qInfo().noquote() << "bench:" << canvas->property("renderStats").toString();
-
-                    // Second phase: the same stroke with NO rendering at all, to
-                    // separate CPU cost (brush + compositor) from GPU upload.
-                    const qreal cw = controller->canvasWidth();
-                    const qreal ch = controller->canvasHeight();
-                    QElapsedTimer cpu;
-                    cpu.start();
-                    controller->beginStroke(cw * 0.3, ch * 0.3);
-                    const qint64 beginMs = cpu.elapsed();
-                    cpu.restart();
-                    for (int i = 0; i < demoStrokeBench; ++i) {
-                        const qreal f = static_cast<qreal>(i % 20) / 19.0;
-                        controller->extendStroke(cw * (0.3 + 0.4 * f), ch * (0.3 + 0.2 * f));
-                    }
-                    const qint64 movesMs = cpu.elapsed();
-                    cpu.restart();
-                    controller->endStroke();
-                    const qint64 endMs = cpu.elapsed();
-                    qInfo() << "bench: CPU split - beginStroke" << beginMs << "ms,"
-                            << demoStrokeBench << "moves" << movesMs << "ms ("
-                            << (movesMs / static_cast<double>(demoStrokeBench))
-                            << "ms/move), endStroke" << endMs << "ms";
-
-                    // Same split for the eraser, which used to copy the whole
-                    // layer twice before the first stroke point was painted.
-                    controller->setEraser(true);
-                    cpu.restart();
-                    controller->beginStroke(cw * 0.35, ch * 0.35);
-                    const qint64 eraseBeginMs = cpu.elapsed();
-                    cpu.restart();
-                    for (int i = 0; i < demoStrokeBench; ++i) {
-                        const qreal f = static_cast<qreal>(i % 20) / 19.0;
-                        controller->extendStroke(cw * (0.35 + 0.3 * f), ch * (0.35 + 0.1 * f));
-                    }
-                    const qint64 eraseMovesMs = cpu.elapsed();
-                    cpu.restart();
-                    controller->endStroke();
-                    const qint64 eraseEndMs = cpu.elapsed();
-                    controller->setEraser(false);
-                    qInfo() << "bench: erase split - beginStroke" << eraseBeginMs << "ms,"
-                            << demoStrokeBench << "moves" << eraseMovesMs << "ms,"
-                            << "endStroke" << eraseEndMs << "ms";
-
-                    // Bucket fill: used to copy the whole layer to discover the
-                    // filled rect, then recomposite the whole canvas.
-                    cpu.restart();
-                    const int fillCount = 8;
-                    for (int i = 0; i < fillCount; ++i)
-                        controller->fillAt(cw * (0.2 + 0.06 * i), ch * (0.25 + 0.05 * i));
-                    const qint64 fillMs = cpu.elapsed();
-                    qInfo() << "bench: bucket fill" << fillCount << "clicks in" << fillMs
-                            << "ms (" << (fillMs / static_cast<double>(fillCount))
-                            << "ms/fill)";
-                }
-            }
-            if (!demoClick.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                // Two extra layers so Raise/Lower have somewhere to go, plus an
-                // optional --demo-active=<index> to pick which row is acted on.
-                controller->addLayer();
-                controller->addLayer();
-                if (!demoActive.isEmpty())
-                    controller->setActiveLayerIndex(demoActive.toInt());
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* button = window ? findItemByName(window->contentItem(), demoClick) : nullptr;
-                if (button) {
-                    auto names = [controller]() {
-                        QStringList out;
-                        for (int i = 0; i < controller->layers()->rowCount(); ++i)
-                            out << controller->layers()
-                                       ->data(controller->layers()->index(i, 0),
-                                              LayerListModel::NameRole)
-                                       .toString();
-                        return out.join(QLatin1Char(','));
-                    };
-                    const QPointF centre = button->mapToScene(
-                        QPointF(button->width() / 2.0, button->height() / 2.0));
-                    qInfo().noquote() << "demo: clicking" << demoClick << "order before:" << names();
-                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
-                    qInfo().noquote() << "demo: order after: " << names()
-                                      << "active =" << controller->activeLayerIndex();
-                } else {
-                    qWarning() << "demo: no clickable item named" << demoClick
-                               << "- known names:";
-                    if (window) {
-                        QStringList known;
-                        itemNames(window->contentItem(), known);
-                        qWarning().noquote() << "  " + known.join(QLatin1Char(' '));
-                    }
-                }
-            }
-            if (!demoDragLayer.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                controller->addLayer();
-                controller->addLayer();
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* listItem = window ? findItemByName(window->contentItem(), QStringLiteral("layerList"))
-                                        : nullptr;
-                if (listItem) {
-                    auto names = [controller]() {
-                        QStringList out;
-                        for (int i = 0; i < controller->layers()->rowCount(); ++i)
-                            out << controller->layers()
-                                       ->data(controller->layers()->index(i, 0),
-                                              LayerListModel::NameRole)
-                                       .toString();
-                        return out.join(QLatin1Char(','));
-                    };
-                    const int from = demoDragLayer.section(QLatin1Char(':'), 0, 0).toInt();
-                    const int to = demoDragLayer.section(QLatin1Char(':'), 1, 1).toInt();
-                    // Ask the view where those rows actually are: the layer list
-                    // is BottomToTop (Krita order), so y = index * rowHeight
-                    // would pick the wrong rows.
-                    auto rowCentreY = [listItem](int rowIndex) {
-                        QVariant result;
-                        const bool ok = QMetaObject::invokeMethod(
-                            listItem, "demoRowY", Q_RETURN_ARG(QVariant, result),
-                            Q_ARG(QVariant, QVariant(rowIndex)));
-                        return ok ? result.toDouble() : -1.0;                    };
-                    const qreal fromY = rowCentreY(from);
-                    const qreal toY = rowCentreY(to);
-                    if (fromY < 0 || toY < 0) {
-                        qWarning() << "demo: row" << from << "or" << to << "is not visible";
-                        return;
-                    }
-                    const QPointF start = listItem->mapToScene(QPointF(listItem->width() / 2.0, fromY));
-                    const QPointF end = listItem->mapToScene(QPointF(listItem->width() / 2.0, toY));
-                    qInfo().noquote() << "demo: layer order before:" << names();
-                    // Drive the real input pipeline through QTest instead of
-                    // QCoreApplication::sendEvent: a raw synthetic event bypasses
-                    // the delivery agent's grab bookkeeping, so gestures that
-                    // depend on holding the mouse (drag & drop) look broken when
-                    // they are fine.
-                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start.toPoint());
-                    const int steps = 8;
-                    for (int step = 1; step <= steps; ++step) {
-                        const QPointF p = start + (end - start) * (step / static_cast<qreal>(steps));
-                        QTest::mouseMove(window, p.toPoint());
-                    }
-                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, end.toPoint());
-                    qInfo().noquote() << "demo: layer order after: " << names()
-                                      << "active =" << controller->activeLayerIndex();
-                } else {
-                    qWarning() << "demo: layer list not found";
-                }
-            }
-            // Click a layer row with a real left click: the row must become
-            // active. Clicking did nothing before (only the drag handler set the
-            // active layer), so "change layer by clicking" was impossible.
-            if (demoClickLayer >= 0 && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                controller->addLayer();
-                controller->addLayer();
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* listItem = window ? findItemByName(window->contentItem(), QStringLiteral("layerList"))
-                                        : nullptr;
-                if (!listItem) {
-                    qWarning() << "demo: layer list not found";
-                } else {
-                    QVariant rowY;
-                    QMetaObject::invokeMethod(listItem, "demoRowY", Q_RETURN_ARG(QVariant, rowY),
-                                              Q_ARG(QVariant, QVariant(demoClickLayer)));
-                    const QPointF click = listItem->mapToScene(
-                        QPointF(listItem->width() - 10.0, rowY.toDouble()));
-                    controller->setActiveLayerIndex(0);
-                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, click.toPoint());
-                    qInfo().noquote() << "demo: clicked layer row" << demoClickLayer
-                                      << "-> active layer" << controller->activeLayerIndex();
-                }
-            }
-            // Right button held = temporary pan. Must scroll the canvas (the
-            // flickable behind it) and draw nothing.
-            if (demoRightPan && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
-                    auto* flick = findItemByName(window->contentItem(), QStringLiteral("canvasFlick"));
-                    auto* canvas = findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
-                    if (!flick || !canvas) {
-                        qWarning() << "demo: canvas not found (flick" << (flick != nullptr)
-                                   << "canvas" << (canvas != nullptr) << ")";
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* canvas =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("canvasItem"))
+                               : nullptr;
+                    if (!canvas) {
+                        qWarning() << "demo: canvas item not found";
                     } else {
+                        // Count rendered frames while the stroke runs.
+                        int frames = 0;
+                        const auto conn = QObject::connect(window, &QQuickWindow::frameSwapped,
+                                                           [&frames]() { ++frames; });
+                        const QRectF itemScene = canvas->mapRectToScene(canvas->boundingRect());
+                        const QRectF windowRect(0, 0, window->width(), window->height());
+                        const QRectF visible = itemScene.intersected(windowRect);
+                        if (visible.width() < 8 || visible.height() < 8) {
+                            qWarning() << "demo: canvas is not visible" << itemScene << "window"
+                                       << windowRect;
+                            return;
+                        }
+                        // A big document at 100% zoom extends past the viewport, so
+                        // the stroke has to run inside the visible part.
+                        const QPointF centre = visible.center();
+                        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+                        // A back-and-forth line across the canvas: every move paints
+                        // a new band, which is the worst case for the uploader.
+                        const qreal span = visible.width() * 0.5;
+                        QElapsedTimer t;
+                        t.start();
+                        for (int i = 0; i < demoStrokeBench; ++i) {
+                            const qreal f = static_cast<qreal>(i % 20) / 19.0;
+                            const qreal x = centre.x() - span / 2 + span * f;
+                            const qreal y = centre.y() + std::sin(f * 6.28) * 40.0;
+                            QTest::mouseMove(window, QPointF(x, y).toPoint());
+                            // Spin the loop after every move: without this Qt merges
+                            // the whole burst and nothing is rendered or measured.
+                            QCoreApplication::processEvents();
+                        }
+                        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
+                                            QPointF(centre.x() + span / 2, centre.y()).toPoint());
+                        const qint64 elapsed = t.elapsed();
+                        QObject::disconnect(conn);
+                        qInfo() << "bench:" << demoStrokeBench << "moves in" << elapsed << "ms ("
+                                << (elapsed / static_cast<double>(demoStrokeBench)) << "ms/move)"
+                                << "frames:" << frames;
+                        if (frames > 0)
+                            qInfo() << "bench: average frame interval"
+                                    << (elapsed / static_cast<double>(frames)) << "ms";
+                        const QString renderStats = canvas->property("renderStats").toString();
+                        if (!renderStats.isEmpty())
+                            qInfo().noquote() << "bench:" << renderStats;
+                        if (frames == 0 || renderStats.contains(QStringLiteral("uploads=0"))) {
+                            qCritical() << "bench: no rendered frames or texture uploads; show the "
+                                           "window before measuring";
+                            QCoreApplication::exit(1);
+                            return;
+                        }
+
+                        // Second phase: the same stroke with NO rendering at all, to
+                        // separate CPU cost (brush + compositor) from GPU upload.
+                        const qreal cw = controller->canvasWidth();
+                        const qreal ch = controller->canvasHeight();
+                        QElapsedTimer cpu;
+                        cpu.start();
+                        controller->beginStroke(cw * 0.3, ch * 0.3);
+                        const qint64 beginMs = cpu.elapsed();
+                        cpu.restart();
+                        std::vector<qint64> pointNanoseconds;
+                        pointNanoseconds.reserve(static_cast<std::size_t>(demoStrokeBench));
+                        for (int i = 0; i < demoStrokeBench; ++i) {
+                            const qreal f = static_cast<qreal>(i % 20) / 19.0;
+                            QElapsedTimer pointClock;
+                            pointClock.start();
+                            controller->extendStroke(cw * (0.3 + 0.4 * f), ch * (0.3 + 0.2 * f));
+                            pointNanoseconds.push_back(pointClock.nsecsElapsed());
+                        }
+                        const qint64 movesMs = cpu.elapsed();
+                        std::nth_element(pointNanoseconds.begin(),
+                                         pointNanoseconds.begin() + pointNanoseconds.size() / 2,
+                                         pointNanoseconds.end());
+                        const double medianPointMs =
+                            pointNanoseconds[pointNanoseconds.size() / 2] / 1000000.0;
+                        cpu.restart();
+                        controller->endStroke();
+                        const qint64 endMs = cpu.elapsed();
+                        qInfo() << "bench: CPU split - beginStroke" << beginMs << "ms,"
+                                << demoStrokeBench << "moves" << movesMs << "ms ("
+                                << (movesMs / static_cast<double>(demoStrokeBench))
+                                << "ms/move), median point" << medianPointMs << "ms, endStroke"
+                                << endMs << "ms";
+
+                        // Same split for the eraser, which used to copy the whole
+                        // layer twice before the first stroke point was painted.
+                        controller->setEraser(true);
+                        cpu.restart();
+                        controller->beginStroke(cw * 0.35, ch * 0.35);
+                        const qint64 eraseBeginMs = cpu.elapsed();
+                        cpu.restart();
+                        for (int i = 0; i < demoStrokeBench; ++i) {
+                            const qreal f = static_cast<qreal>(i % 20) / 19.0;
+                            controller->extendStroke(cw * (0.35 + 0.3 * f), ch * (0.35 + 0.1 * f));
+                        }
+                        const qint64 eraseMovesMs = cpu.elapsed();
+                        cpu.restart();
+                        controller->endStroke();
+                        const qint64 eraseEndMs = cpu.elapsed();
+                        controller->setEraser(false);
+                        qInfo() << "bench: erase split - beginStroke" << eraseBeginMs << "ms,"
+                                << demoStrokeBench << "moves" << eraseMovesMs << "ms,"
+                                << "endStroke" << eraseEndMs << "ms";
+
+                        // Bucket fill: used to copy the whole layer to discover the
+                        // filled rect, then recomposite the whole canvas.
+                        cpu.restart();
+                        const int fillCount = 8;
+                        for (int i = 0; i < fillCount; ++i)
+                            controller->fillAt(cw * (0.2 + 0.06 * i), ch * (0.25 + 0.05 * i));
+                        const qint64 fillMs = cpu.elapsed();
+                        qInfo() << "bench: bucket fill" << fillCount << "clicks in" << fillMs
+                                << "ms (" << (fillMs / static_cast<double>(fillCount))
+                                << "ms/fill)";
+                    }
+                }
+                if (!demoClick.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    // Two extra layers so Raise/Lower have somewhere to go, plus an
+                    // optional --demo-active=<index> to pick which row is acted on.
+                    controller->addLayer();
+                    controller->addLayer();
+                    if (!demoActive.isEmpty())
+                        controller->setActiveLayerIndex(demoActive.toInt());
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* button =
+                        window ? findItemByName(window->contentItem(), demoClick) : nullptr;
+                    if (button) {
+                        auto names = [controller]() {
+                            QStringList out;
+                            for (int i = 0; i < controller->layers()->rowCount(); ++i)
+                                out << controller->layers()
+                                           ->data(controller->layers()->index(i, 0),
+                                                  LayerListModel::NameRole)
+                                           .toString();
+                            return out.join(QLatin1Char(','));
+                        };
+                        const QPointF centre = button->mapToScene(
+                            QPointF(button->width() / 2.0, button->height() / 2.0));
+                        qInfo().noquote()
+                            << "demo: clicking" << demoClick << "order before:" << names();
+                        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+                        qInfo().noquote() << "demo: order after: " << names()
+                                          << "active =" << controller->activeLayerIndex();
+                    } else {
+                        qWarning()
+                            << "demo: no clickable item named" << demoClick << "- known names:";
+                        if (window) {
+                            QStringList known;
+                            itemNames(window->contentItem(), known);
+                            qWarning().noquote() << "  " + known.join(QLatin1Char(' '));
+                        }
+                    }
+                }
+                if (!demoDragLayer.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    controller->addLayer();
+                    controller->addLayer();
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* listItem =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("layerList"))
+                               : nullptr;
+                    if (listItem) {
+                        auto names = [controller]() {
+                            QStringList out;
+                            for (int i = 0; i < controller->layers()->rowCount(); ++i)
+                                out << controller->layers()
+                                           ->data(controller->layers()->index(i, 0),
+                                                  LayerListModel::NameRole)
+                                           .toString();
+                            return out.join(QLatin1Char(','));
+                        };
+                        const int from = demoDragLayer.section(QLatin1Char(':'), 0, 0).toInt();
+                        const int to = demoDragLayer.section(QLatin1Char(':'), 1, 1).toInt();
+                        // Ask the view where those rows actually are: the layer list
+                        // is BottomToTop (Krita order), so y = index * rowHeight
+                        // would pick the wrong rows.
+                        auto rowCentreY = [listItem](int rowIndex) {
+                            QVariant result;
+                            const bool ok = QMetaObject::invokeMethod(
+                                listItem, "demoRowY", Q_RETURN_ARG(QVariant, result),
+                                Q_ARG(QVariant, QVariant(rowIndex)));
+                            return ok ? result.toDouble() : -1.0;
+                        };
+                        const qreal fromY = rowCentreY(from);
+                        const qreal toY = rowCentreY(to);
+                        if (fromY < 0 || toY < 0) {
+                            qWarning() << "demo: row" << from << "or" << to << "is not visible";
+                            return;
+                        }
+                        const QPointF start =
+                            listItem->mapToScene(QPointF(listItem->width() / 2.0, fromY));
+                        const QPointF end =
+                            listItem->mapToScene(QPointF(listItem->width() / 2.0, toY));
+                        qInfo().noquote() << "demo: layer order before:" << names();
+                        // Drive the real input pipeline through QTest instead of
+                        // QCoreApplication::sendEvent: a raw synthetic event bypasses
+                        // the delivery agent's grab bookkeeping, so gestures that
+                        // depend on holding the mouse (drag & drop) look broken when
+                        // they are fine.
+                        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+                        const int steps = 8;
+                        for (int step = 1; step <= steps; ++step) {
+                            const QPointF p =
+                                start + (end - start) * (step / static_cast<qreal>(steps));
+                            QTest::mouseMove(window, p.toPoint());
+                        }
+                        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, end.toPoint());
+                        qInfo().noquote() << "demo: layer order after: " << names()
+                                          << "active =" << controller->activeLayerIndex();
+                    } else {
+                        qWarning() << "demo: layer list not found";
+                    }
+                }
+                // Click a layer row with a real left click: the row must become
+                // active. Clicking did nothing before (only the drag handler set the
+                // active layer), so "change layer by clicking" was impossible.
+                if (demoClickLayer >= 0 && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    controller->addLayer();
+                    controller->addLayer();
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* listItem =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("layerList"))
+                               : nullptr;
+                    if (!listItem) {
+                        qWarning() << "demo: layer list not found";
+                    } else {
+                        QVariant rowY;
+                        QMetaObject::invokeMethod(listItem, "demoRowY",
+                                                  Q_RETURN_ARG(QVariant, rowY),
+                                                  Q_ARG(QVariant, QVariant(demoClickLayer)));
+                        const QPointF click = listItem->mapToScene(
+                            QPointF(listItem->width() - 10.0, rowY.toDouble()));
+                        controller->setActiveLayerIndex(0);
+                        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, click.toPoint());
+                        qInfo().noquote() << "demo: clicked layer row" << demoClickLayer
+                                          << "-> active layer" << controller->activeLayerIndex();
+                    }
+                }
+                // Right button held = temporary pan. Must scroll the canvas (the
+                // flickable behind it) and draw nothing.
+                if (demoRightPan && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                        auto* flick =
+                            findItemByName(window->contentItem(), QStringLiteral("canvasFlick"));
+                        auto* canvas =
+                            findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
+                        if (!flick || !canvas) {
+                            qWarning() << "demo: canvas not found (flick" << (flick != nullptr)
+                                       << "canvas" << (canvas != nullptr) << ")";
+                        } else {
+                            const QPointF centre = canvas->mapToScene(
+                                QPointF(canvas->width() / 2.0, canvas->height() / 2.0));
+                            const double x0 = flick->property("contentX").toDouble();
+                            const double y0 = flick->property("contentY").toDouble();
+                            const bool canUndoBefore = controller->canUndo();
+                            QTest::mousePress(window, Qt::RightButton, Qt::NoModifier,
+                                              centre.toPoint());
+                            for (int step = 1; step <= 6; ++step)
+                                QTest::mouseMove(
+                                    window, (centre + QPointF(-12 * step, -8 * step)).toPoint());
+                            QTest::mouseRelease(window, Qt::RightButton, Qt::NoModifier,
+                                                (centre + QPointF(-72, -48)).toPoint());
+                            const double dx = flick->property("contentX").toDouble() - x0;
+                            const double dy = flick->property("contentY").toDouble() - y0;
+                            qInfo().noquote() << "demo: right-drag pan moved content by" << dx << dy
+                                              << "undo entries added:"
+                                              << (controller->canUndo() != canUndoBefore);
+                        }
+                    }
+                }
+                // "Ctrl+Z works sometimes": a focused text field swallows it (Qt's
+                // ShortcutOverride), and nothing used to take focus back. Clicking
+                // the canvas must restore the document shortcuts.
+                if (demoFocusUndo && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                        auto focusName = [window]() {
+                            QQuickItem* item = window->activeFocusItem();
+                            if (!item)
+                                return QStringLiteral("<none>");
+                            return QString::fromLatin1(item->metaObject()->className()) +
+                                   QLatin1Char('#') + item->objectName();
+                        };
+                        auto strokeOnce = [controller]() {
+                            controller->beginStroke(60.0F, 60.0F);
+                            controller->extendStroke(140.0F, 90.0F);
+                            controller->endStroke();
+                        };
+                        auto* canvas =
+                            findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
                         const QPointF centre = canvas->mapToScene(
                             QPointF(canvas->width() / 2.0, canvas->height() / 2.0));
-                        const double x0 = flick->property("contentX").toDouble();
-                        const double y0 = flick->property("contentY").toDouble();
-                        const bool canUndoBefore = controller->canUndo();
-                        QTest::mousePress(window, Qt::RightButton, Qt::NoModifier, centre.toPoint());
-                        for (int step = 1; step <= 6; ++step)
-                            QTest::mouseMove(window, (centre + QPointF(-12 * step, -8 * step)).toPoint());
-                        QTest::mouseRelease(window, Qt::RightButton, Qt::NoModifier,
-                                            (centre + QPointF(-72, -48)).toPoint());
-                        const double dx = flick->property("contentX").toDouble() - x0;
-                        const double dy = flick->property("contentY").toDouble() - y0;
-                        qInfo().noquote() << "demo: right-drag pan moved content by" << dx << dy
-                                          << "undo entries added:"
-                                          << (controller->canUndo() != canUndoBefore);
-                    }
-                }
-            }
-            // "Ctrl+Z works sometimes": a focused text field swallows it (Qt's
-            // ShortcutOverride), and nothing used to take focus back. Clicking
-            // the canvas must restore the document shortcuts.
-            if (demoFocusUndo && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
-                    auto focusName = [window]() {
-                        QQuickItem* item = window->activeFocusItem();
-                        if (!item)
-                            return QStringLiteral("<none>");
-                        return QString::fromLatin1(item->metaObject()->className())
-                            + QLatin1Char('#') + item->objectName();
-                    };
-                    auto strokeOnce = [controller]() {
-                        controller->beginStroke(60.0F, 60.0F);
-                        controller->extendStroke(140.0F, 90.0F);
-                        controller->endStroke();
-                    };
-                    auto* canvas = findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
-                    const QPointF centre =
-                        canvas->mapToScene(QPointF(canvas->width() / 2.0, canvas->height() / 2.0));
-                    // Pan tool: these clicks move the view, they must not paint.
-                    controller->setTool(AppController::PanTool);
-                    strokeOnce();
-
-                    // Baseline: does a synthetic Ctrl+Z reach the window shortcut
-                    // at all, with focus already on the canvas?
-                    qInfo().noquote()
-                        << "demo: step | canUndo | undoLabel | focus";
-                    auto report = [controller, &focusName](const char* step) {
-                        qInfo().noquote() << "demo:" << step << "|" << controller->canUndo() << "|"
-                                          << controller->undoLabel() << "|" << focusName();
-                    };
-                    report("after stroke (canvas focus)");
-                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
-                    report("after clicking the canvas");
-                    QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
-                    report("after Ctrl+Z");
-                    const bool shortcutWorks = !controller->canUndo();
-
-                    // A text field legitimately takes Ctrl+Z for its own undo.
-                    // The brush-size box in the status bar is used on purpose:
-                    // invisible delegate editors (the layer-name field) would
-                    // commit a rename on focus-out and spend an undo entry,
-                    // which would muddy the measurement.
-                    auto findTextInput = [](QQuickItem* root) {
-                        QQuickItem* found = nullptr;
-                        QList<QQuickItem*> pending{ root };
-                        while (!pending.isEmpty() && !found) {
-                            QQuickItem* item = pending.takeLast();
-                            if (QString::fromLatin1(item->metaObject()->className())
-                                == QLatin1String("QQuickTextInput"))
-                                found = item;
-                            else
-                                pending.append(item->childItems());
-                        }
-                        return found;
-                    };
-                    QQuickItem* sizeBox =
-                        findItemByName(window->contentItem(), QStringLiteral("sizeBox"));
-                    QQuickItem* textField = sizeBox ? findTextInput(sizeBox) : nullptr;
-                    bool leaked = false;
-                    bool recovered = false;
-                    QString focusInField;
-                    if (textField) {
+                        // Pan tool: these clicks move the view, they must not paint.
+                        controller->setTool(AppController::PanTool);
                         strokeOnce();
-                        report("after stroke (before text focus)");
-                        textField->forceActiveFocus();
-                        report("with a text field focused");
-                        QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
-                        report("after Ctrl+Z in the text field");
-                        leaked = controller->canUndo();
+
+                        // Baseline: does a synthetic Ctrl+Z reach the window shortcut
+                        // at all, with focus already on the canvas?
+                        qInfo().noquote() << "demo: step | canUndo | undoLabel | focus";
+                        auto report = [controller, &focusName](const char* step) {
+                            qInfo().noquote()
+                                << "demo:" << step << "|" << controller->canUndo() << "|"
+                                << controller->undoLabel() << "|" << focusName();
+                        };
+                        report("after stroke (canvas focus)");
                         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
                         report("after clicking the canvas");
                         QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
-                        report("after Ctrl+Z on the canvas");
-                        recovered = !controller->canUndo();
+                        report("after Ctrl+Z");
+                        const bool shortcutWorks = !controller->canUndo();
+
+                        // A text field legitimately takes Ctrl+Z for its own undo.
+                        // The Brush Lab search field is a visible text input;
+                        // a layer-name editor would commit a rename on focus-out.
+                        QMetaObject::invokeMethod(engine.rootObjects().first(),
+                                                  "showWorkspacePanel",
+                                                  Q_ARG(QVariant, QVariant(1)));
+                        QCoreApplication::processEvents();
+                        QQuickItem* textField = findItemByName(window->contentItem(),
+                                                               QStringLiteral("brushSearchInput"));
+                        bool leaked = false;
+                        bool recovered = false;
+                        QString focusInField;
+                        if (textField) {
+                            strokeOnce();
+                            report("after stroke (before text focus)");
+                            textField->forceActiveFocus();
+                            report("with a text field focused");
+                            QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+                            report("after Ctrl+Z in the text field");
+                            leaked = controller->canUndo();
+                            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                                              centre.toPoint());
+                            report("after clicking the canvas");
+                            QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
+                            report("after Ctrl+Z on the canvas");
+                            recovered = !controller->canUndo();
+                        }
+                        qInfo().noquote()
+                            << "demo: Ctrl+Z on a canvas-focused window undoes:" << shortcutWorks
+                            << "| leaked in the text field:" << leaked
+                            << "| works again after clicking the canvas:" << recovered;
                     }
-                    qInfo().noquote()
-                        << "demo: Ctrl+Z on a canvas-focused window undoes:" << shortcutWorks
-                        << "| leaked in the text field:" << leaked
-                        << "| works again after clicking the canvas:" << recovered;
                 }
-            }
-            // ---- crop / move / slider input, driven through the QML path ----
-            auto canvasPointToWindow = [](QQuickItem* canvasItem, AppController* c, qreal cx,
-                                          qreal cy) {
-                const qreal zoom = c->zoom();
-                return canvasItem->mapToScene(QPointF(cx * zoom, cy * zoom));
-            };
-            if (!demoCrop.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* canvas = window ? findItemByName(window->contentItem(),
-                                                       QStringLiteral("canvasItem"))
-                                      : nullptr;
-                const QStringList parts = demoCrop.split(QLatin1Char(','));
-                if (!canvas || parts.size() < 4) {
-                    qWarning() << "demo: crop needs --demo-crop=X,Y,W,H and a canvas";
-                } else {
-                    const qreal cx = parts.at(0).toDouble();
-                    const qreal cy = parts.at(1).toDouble();
-                    const qreal cw = parts.at(2).toDouble();
-                    const qreal ch = parts.at(3).toDouble();
-                    const int widthBefore = controller->canvasWidth();
-                    const int heightBefore = controller->canvasHeight();
-                    // Paint a known mark that runs PAST the frame's right/bottom
-                    // edge, so the cropped-away content can be shown to come back
-                    // when the layer is dragged.
-                    controller->setBrushColor(QColor(0, 0, 0));
-                    controller->beginStroke(cx + 60, cy + 60);
-                    controller->extendStroke(cx + cw + 300, cy + ch + 200);
-                    controller->endStroke();
-                    controller->setTool(AppController::CropTool);
-                    const QPointF from = canvasPointToWindow(canvas, controller, cx, cy);
-                    const QPointF to = canvasPointToWindow(canvas, controller, cx + cw, cy + ch);
-                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from.toPoint());
-                    for (int step = 1; step <= 6; ++step)
-                        QTest::mouseMove(window, (from + (to - from) * (step / 6.0)).toPoint());
-                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to.toPoint());
-                    // Photoshop behaviour: releasing only leaves the frame on
-                    // screen; it is not a crop yet.
-                    qInfo().noquote()
-                        << "demo: crop frame drawn, canvas still" << controller->canvasWidth() << "x"
-                        << controller->canvasHeight() << "frame at" << controller->selectionX()
-                        << controller->selectionY() << controller->selectionW() << "x"
-                        << controller->selectionH();
-                    // --demo-crop=X,Y,W,H,hold stops here, so a screenshot shows
-                    // whether the frame is actually drawn on the canvas.
-                    if (parts.size() >= 5 && parts.at(4) == QLatin1String("hold"))
+                if (demoUxBeta && !engine.rootObjects().isEmpty()) {
+                    auto* root = engine.rootObjects().first();
+                    auto* window = qobject_cast<QQuickWindow*>(root);
+                    if (!window) {
+                        QCoreApplication::exit(1);
                         return;
-                    // Drag the frame itself to reposition it.
-                    const QPointF grab = canvasPointToWindow(canvas, controller, cx + cw / 2,
-                                                             cy + ch / 2);
-                    const QPointF drop = canvasPointToWindow(canvas, controller, cx + cw / 2 + 40,
-                                                             cy + ch / 2 + 20);
-                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, grab.toPoint());
-                    for (int step = 1; step <= 4; ++step)
-                        QTest::mouseMove(window, (grab + (drop - grab) * (step / 4.0)).toPoint());
-                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, drop.toPoint());
-                    qInfo().noquote() << "demo: after dragging the frame -> frame at"
-                                      << controller->selectionX() << controller->selectionY()
-                                      << controller->selectionW() << "x" << controller->selectionH();
-                    // The way it actually gets used: pick the Move tool to place
-                    // the piece. That tool change COMMITS the frame — since the
-                    // Crop tool became cut-and-drag, committing lifts the framed
-                    // pixels onto their own layer and leaves the canvas size
-                    // alone.
-                    const int widthBeforeSwitch = controller->canvasWidth();
-                    const int layersBeforeCut = controller->layers()->rowCount();
-                    controller->setTool(AppController::MoveTool);
-                    const bool undoable = controller->canUndo();
-                    const QImage cropped = controller->canvasImage();
-                    int inkPixels = 0;
-                    for (int y = 0; y < cropped.height(); y += 3)
-                        for (int x = 0; x < cropped.width(); x += 3)
-                            if (qAlpha(cropped.pixel(x, y)) > 0)
-                                ++inkPixels;
-                    qInfo().noquote()
-                        << "demo: committed with the Move tool -> canvas"
-                        << controller->canvasWidth() << "x" << controller->canvasHeight()
-                        << "(was" << widthBeforeSwitch << "x" << heightBefore << ") layers"
-                        << layersBeforeCut << "->" << controller->layers()->rowCount()
-                        << "ink pixels:" << inkPixels << "undoable:" << undoable;
-                    if (undoable) {
-                        // Drag the piece with the Move tool: it must follow, and
-                        // the spot it came from must now show the source layer
-                        // (i.e. empty where the pixels used to be).
-                        const auto pixelAt = [controller](qreal cx, qreal cy) {
-                            const QImage img = controller->canvasImage();
-                            if (cx < 0 || cy < 0 || cx >= img.width() || cy >= img.height())
-                                return 0;
-                            return qAlpha(img.pixel(static_cast<int>(cx), static_cast<int>(cy)));
+                    }
+                    int failures = 0;
+                    const auto check = [&](bool passed, const char* name) {
+                        qInfo() << "ux beta:" << (passed ? "PASS" : "FAIL") << name;
+                        if (!passed)
+                            ++failures;
+                    };
+                    const auto click = [&](const char* name) {
+                        auto* item =
+                            findItemByName(window->contentItem(), QString::fromLatin1(name));
+                        if (!item || !item->isVisible())
+                            return false;
+                        QTest::mouseClick(
+                            window, Qt::LeftButton, Qt::NoModifier,
+                            item->mapToScene(QPointF(item->width() / 2, item->height() / 2))
+                                .toPoint());
+                        QTest::qWait(50);
+                        return true;
+                    };
+                    const auto enterNumber = [&](const char* name, const QByteArray& number) {
+                        auto* item =
+                            findItemByName(window->contentItem(), QString::fromLatin1(name));
+                        if (!item)
+                            return false;
+                        item->forceActiveFocus();
+                        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+                        for (const char digit : number)
+                            QTest::keyClick(window, digit);
+                        QTest::keyClick(window, Qt::Key_Return);
+                        return true;
+                    };
+                    controller->newDocument(40, 32);
+                    window->requestActivate();
+                    if (auto* canvas =
+                            findItemByName(window->contentItem(), QStringLiteral("canvasItem")))
+                        canvas->forceActiveFocus();
+                    QTest::qWait(100);
+                    QTest::keyClick(window, Qt::Key_N, Qt::ControlModifier);
+                    QTest::qWait(200);
+                    check(enterNumber("newDocumentWidth", "40") &&
+                              enterNumber("newDocumentHeight", "32") &&
+                              enterNumber("newDocumentDpi", "300") &&
+                              enterNumber("newDocumentLayers", "2"),
+                          "document fields accept keyboard edits");
+                    check(click("newDocumentCreate") && controller->canvasWidth() == 40 &&
+                              controller->canvasHeight() == 32 && controller->canvasDpi() == 300,
+                          "Create uses entered dimensions and DPI");
+                    check(controller->hasUnsavedChanges() && controller->layers()->rowCount() == 2,
+                          "new project is unsaved with two paint layers");
+                    controller->beginStroke(5, 10);
+                    controller->extendStroke(25, 10);
+                    controller->endStroke();
+                    const QImage before = controller->canvasImage();
+                    QTest::keyClick(window, Qt::Key_N, Qt::ControlModifier);
+                    QTest::qWait(200);
+                    enterNumber("newDocumentWidth", "20");
+                    click("newDocumentCreate");
+                    check(controller->documentDecisionPending(),
+                          "replacement opens Save Discard Cancel");
+                    check(click("unsavedCancel") && controller->canvasImage() == before &&
+                              !controller->documentDecisionPending(),
+                          "Cancel preserves current artwork");
+                    auto* pointerArea =
+                        findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea"));
+                    if (pointerArea) {
+                        const QPoint press = pointerArea
+                                                 ->mapToScene(QPointF(pointerArea->width() / 2,
+                                                                      pointerArea->height() / 2))
+                                                 .toPoint();
+                        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, press);
+                        const bool accepted = controller->requestDocumentAction("close");
+                        check(accepted && controller->strokeActive() && pointerArea->isEnabled(),
+                              "close keeps active pointer grab");
+                        QTest::mouseMove(window, press + QPoint(6, 0));
+                        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
+                                            press + QPoint(6, 0));
+                        QTest::qWait(100);
+                        check(!controller->strokeActive() && controller->documentDecisionPending(),
+                              "pen release commits before close decision");
+                        click("unsavedCancel");
+                    } else
+                        check(false, "pointer input area exists");
+                    if (auto* canvas =
+                            findItemByName(window->contentItem(), QStringLiteral("canvasItem")))
+                        canvas->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_F1);
+                    QTest::qWait(200);
+                    auto* help = root->findChild<QObject*>(QStringLiteral("helpDialog"));
+                    check(help && help->property("visible").toBool(), "F1 opens offline Help");
+                    if (help)
+                        QMetaObject::invokeMethod(help, "close");
+                    QTest::qWait(100);
+                    check(click("colourPickerPin") && controller->colourPickerPinned(),
+                          "Colour pin is clickable");
+                    controller->setColourPickerPinned(false);
+                    controller->setLastError(
+                        QStringLiteral("Verification: persistent actionable error"));
+                    controller->setStartPageVisible(true);
+                    QCoreApplication::processEvents();
+                    check(controller->lastError().contains("Verification"),
+                          "Start Page retains the error");
+                    controller->dismissError();
+                    qInfo() << "ux beta test:" << failures << "failure(s)";
+                    if (failures) {
+                        QCoreApplication::exit(1);
+                        return;
+                    }
+                    controller->setStartPageVisible(false);
+                }
+                if (demoFocusMode && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    controller->setFocusMode(false);
+                    auto* root = engine.rootObjects().first();
+                    auto* window = qobject_cast<QQuickWindow*>(root);
+                    QMetaObject::invokeMethod(root, "showWorkspacePanel",
+                                              Q_ARG(QVariant, QVariant(1)));
+                    QCoreApplication::processEvents();
+                    auto* input = window ? findItemByName(window->contentItem(),
+                                                          QStringLiteral("brushSearchInput"))
+                                         : nullptr;
+                    if (!input || !window) {
+                        qCritical() << "focus mode test: brush search unavailable";
+                        QCoreApplication::exit(1);
+                        return;
+                    }
+                    input->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_Tab);
+                    const bool textKeptWorkspace = !controller->focusMode();
+                    auto* canvas =
+                        findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
+                    if (canvas)
+                        canvas->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_Tab);
+                    const bool tabEnteredFocus = controller->focusMode();
+                    QTest::keyClick(window, Qt::Key_2, Qt::ControlModifier);
+                    auto* popup = root->findChild<QObject*>(QStringLiteral("focusQuickPanel"));
+                    const bool brushPopover = popup && popup->property("visible").toBool() &&
+                                              popup->property("page").toInt() == 1;
+                    QTest::keyClick(window, Qt::Key_Q);
+                    auto* controls =
+                        root->findChild<QObject*>(QStringLiteral("drawingQuickControls"));
+                    const bool quickOpened = controls && controls->property("visible").toBool();
+                    controller->beginStroke(200.0F, 200.0F);
+                    QCoreApplication::processEvents();
+                    auto* restore = findItemByName(window->contentItem(),
+                                                   QStringLiteral("workspaceRestoreButton"));
+                    const bool strokeHidesPanels =
+                        controller->strokeActive() && popup &&
+                        !popup->property("visible").toBool() && controls &&
+                        !controls->property("visible").toBool() && restore && !restore->isVisible();
+                    controller->endStroke();
+                    auto* flick =
+                        findItemByName(window->contentItem(), QStringLiteral("canvasFlick"));
+                    auto* paper =
+                        findItemByName(window->contentItem(), QStringLiteral("canvasItem"));
+                    bool arrowAndView = false;
+                    if (restore && flick && paper) {
+                        controller->setZoom(1.5);
+                        QCoreApplication::processEvents();
+                        const qreal maxX = std::max(
+                            0.0, flick->property("contentWidth").toDouble() - flick->width());
+                        const qreal maxY = std::max(
+                            0.0, flick->property("contentHeight").toDouble() - flick->height());
+                        flick->setProperty("contentX", maxX * 0.4);
+                        flick->setProperty("contentY", maxY * 0.4);
+                        QCoreApplication::processEvents();
+                        const auto centreOnPaper = [&]() {
+                            return paper->mapFromItem(
+                                flick, QPointF(flick->width() / 2.0, flick->height() / 2.0));
                         };
-                        const int wasAtOrigin = pixelAt(cx + cw / 2, cy + ch / 2);
-                        const QPointF grab = canvasPointToWindow(canvas, controller, 100.0, 80.0);
-                        const QPointF drop = canvasPointToWindow(canvas, controller, 100.0 - 120.0,
-                                                                 80.0 - 90.0);
+                        const QPointF before = centreOnPaper();
+                        const qreal zoomBefore = controller->zoom();
+                        restore->forceActiveFocus();
+                        QTest::keyClick(window, Qt::Key_Return);
+                        QTest::qWait(40);
+                        const QPointF afterRestore = centreOnPaper();
+                        auto* collapse = findItemByName(window->contentItem(),
+                                                        QStringLiteral("workspaceCollapseButton"));
+                        const bool keyboardRestored =
+                            !controller->focusMode() && collapse && collapse->isVisible();
+                        if (keyboardRestored) {
+                            const QPointF buttonCentre = collapse->mapToScene(
+                                QPointF(collapse->width() / 2.0, collapse->height() / 2.0));
+                            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                                              buttonCentre.toPoint());
+                            QTest::qWait(40);
+                        }
+                        const QPointF afterCollapse = centreOnPaper();
+                        const bool mouseCollapsed = controller->focusMode() && restore->isVisible();
+                        QTest::keyClick(window, Qt::Key_3, Qt::ControlModifier);
+                        const bool colourPopoverOpened = popup &&
+                                                         popup->property("visible").toBool() &&
+                                                         popup->property("page").toInt() == 2;
+                        if (mouseCollapsed) {
+                            const QPointF buttonCentre = restore->mapToScene(
+                                QPointF(restore->width() / 2.0, restore->height() / 2.0));
+                            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                                              buttonCentre.toPoint());
+                            QTest::qWait(40);
+                        }
+                        const bool mouseRestored = !controller->focusMode() && collapse &&
+                                                   collapse->isVisible() && popup &&
+                                                   !popup->property("visible").toBool();
+                        if (mouseRestored) {
+                            QTest::keyClick(window, Qt::Key_Tab);
+                            QTest::qWait(40);
+                        }
+                        const bool keyboardCollapsed =
+                            controller->focusMode() && restore->isVisible();
+                        const QPointF afterTab = centreOnPaper();
+                        const auto near = [](const QPointF& a, const QPointF& b) {
+                            return std::abs(a.x() - b.x()) <= 1.5 && std::abs(a.y() - b.y()) <= 1.5;
+                        };
+                        arrowAndView = keyboardRestored && mouseCollapsed && colourPopoverOpened &&
+                                       mouseRestored && keyboardCollapsed &&
+                                       controller->zoom() == zoomBefore &&
+                                       near(before, afterRestore) && near(before, afterCollapse) &&
+                                       near(before, afterTab);
+                        qInfo() << "focus arrow: keyboard restore" << keyboardRestored
+                                << "mouse collapse" << mouseCollapsed << "colour popover"
+                                << colourPopoverOpened << "mouse restore" << mouseRestored
+                                << "keyboard collapse" << keyboardCollapsed << "zoom" << zoomBefore
+                                << "->" << controller->zoom() << "canvas centre" << before << "->"
+                                << afterRestore << "->" << afterCollapse << "->" << afterTab;
+                    }
+                    qInfo() << "focus mode test: text Tab preserved" << textKeptWorkspace
+                            << "canvas Tab entered" << tabEnteredFocus << "Ctrl+2 popover"
+                            << brushPopover << "Q controls" << quickOpened << "stroke hides panels"
+                            << strokeHidesPanels << "arrow and viewport" << arrowAndView;
+                    if (!textKeptWorkspace || !tabEnteredFocus || !brushPopover || !quickOpened ||
+                        !strokeHidesPanels || !arrowAndView) {
+                        QCoreApplication::exit(1);
+                        return;
+                    }
+                }
+                if (!demoFocusHover.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    controller->setFocusMode(true);
+                    auto* root = engine.rootObjects().first();
+                    auto* window = qobject_cast<QQuickWindow*>(root);
+                    if (window) {
+                        const QPoint target =
+                            demoFocusHover == QLatin1String("left")
+                                ? QPoint(3, window->height() / 2)
+                            : demoFocusHover == QLatin1String("right")
+                                ? QPoint(window->width() - 3, window->height() / 2)
+                            : demoFocusHover == QLatin1String("top")
+                                ? QPoint(window->width() / 2, 3)
+                                : QPoint(window->width() / 2, window->height() - 3);
+                        QTest::mouseMove(window, target);
+                        QCoreApplication::processEvents();
+                        auto* popup = root->findChild<QObject*>(QStringLiteral("focusQuickPanel"));
+                        if (popup && popup->property("visible").toBool()) {
+                            qCritical()
+                                << "focus edge unexpectedly opened a panel:" << demoFocusHover;
+                            QCoreApplication::exit(1);
+                            return;
+                        }
+                    }
+                }
+                // ---- crop / move / slider input, driven through the QML path ----
+                auto canvasPointToWindow = [](QQuickItem* canvasItem, AppController* c, qreal cx,
+                                              qreal cy) {
+                    const qreal zoom = c->zoom();
+                    return canvasItem->mapToScene(QPointF(cx * zoom, cy * zoom));
+                };
+                if (!demoCrop.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* canvas =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("canvasItem"))
+                               : nullptr;
+                    const QStringList parts = demoCrop.split(QLatin1Char(','));
+                    if (!canvas || parts.size() < 4) {
+                        qWarning() << "demo: crop needs --demo-crop=X,Y,W,H and a canvas";
+                    } else {
+                        const qreal cx = parts.at(0).toDouble();
+                        const qreal cy = parts.at(1).toDouble();
+                        const qreal cw = parts.at(2).toDouble();
+                        const qreal ch = parts.at(3).toDouble();
+                        const int widthBefore = controller->canvasWidth();
+                        const int heightBefore = controller->canvasHeight();
+                        // Paint a known mark that runs PAST the frame's right/bottom
+                        // edge, so the cropped-away content can be shown to come back
+                        // when the layer is dragged.
+                        controller->setBrushColor(QColor(0, 0, 0));
+                        controller->beginStroke(cx + 60, cy + 60);
+                        controller->extendStroke(cx + cw + 300, cy + ch + 200);
+                        controller->endStroke();
+                        controller->setTool(AppController::CropTool);
+                        const QPointF from = canvasPointToWindow(canvas, controller, cx, cy);
+                        const QPointF to =
+                            canvasPointToWindow(canvas, controller, cx + cw, cy + ch);
+                        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+                        for (int step = 1; step <= 6; ++step)
+                            QTest::mouseMove(window, (from + (to - from) * (step / 6.0)).toPoint());
+                        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+                        // Photoshop behaviour: releasing only leaves the frame on
+                        // screen; it is not a crop yet.
+                        qInfo().noquote()
+                            << "demo: crop frame drawn, canvas still" << controller->canvasWidth()
+                            << "x" << controller->canvasHeight() << "frame at"
+                            << controller->selectionX() << controller->selectionY()
+                            << controller->selectionW() << "x" << controller->selectionH();
+                        // --demo-crop=X,Y,W,H,hold stops here, so a screenshot shows
+                        // whether the frame is actually drawn on the canvas.
+                        if (parts.size() >= 5 && parts.at(4) == QLatin1String("hold"))
+                            return;
+                        // Drag the frame itself to reposition it.
+                        const QPointF grab =
+                            canvasPointToWindow(canvas, controller, cx + cw / 2, cy + ch / 2);
+                        const QPointF drop = canvasPointToWindow(
+                            canvas, controller, cx + cw / 2 + 40, cy + ch / 2 + 20);
                         QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, grab.toPoint());
-                        for (int step = 1; step <= 5; ++step)
-                            QTest::mouseMove(window, (grab + (drop - grab) * (step / 5.0)).toPoint());
+                        for (int step = 1; step <= 4; ++step)
+                            QTest::mouseMove(window,
+                                             (grab + (drop - grab) * (step / 4.0)).toPoint());
                         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, drop.toPoint());
                         qInfo().noquote()
-                            << "demo: piece alpha at the frame's centre before the drag:"
-                            << wasAtOrigin << "after dragging it away:"
-                            << pixelAt(cx + cw / 2, cy + ch / 2) << "(0 = the pixels left the"
-                            << "source layer and travelled with the piece)";
-                        if (parts.size() >= 5 && parts.at(4) == QLatin1String("holdmove"))
-                            return;
-                        controller->undo();
-                        controller->undo();
-                        qInfo().noquote() << "demo: after undo canvas" << controller->canvasWidth()
-                                          << "x" << controller->canvasHeight() << "layers"
-                                          << controller->layers()->rowCount();
+                            << "demo: after dragging the frame -> frame at"
+                            << controller->selectionX() << controller->selectionY()
+                            << controller->selectionW() << "x" << controller->selectionH();
+                        // The way it actually gets used: pick the Move tool to place
+                        // the piece. That tool change COMMITS the frame — since the
+                        // Crop tool became cut-and-drag, committing lifts the framed
+                        // pixels onto their own layer and leaves the canvas size
+                        // alone.
+                        const int widthBeforeSwitch = controller->canvasWidth();
+                        const int layersBeforeCut = controller->layers()->rowCount();
+                        controller->setTool(AppController::MoveTool);
+                        const bool undoable = controller->canUndo();
+                        const QImage cropped = controller->canvasImage();
+                        int inkPixels = 0;
+                        for (int y = 0; y < cropped.height(); y += 3)
+                            for (int x = 0; x < cropped.width(); x += 3)
+                                if (qAlpha(cropped.pixel(x, y)) > 0)
+                                    ++inkPixels;
+                        qInfo().noquote()
+                            << "demo: committed with the Move tool -> canvas"
+                            << controller->canvasWidth() << "x" << controller->canvasHeight()
+                            << "(was" << widthBeforeSwitch << "x" << heightBefore << ") layers"
+                            << layersBeforeCut << "->" << controller->layers()->rowCount()
+                            << "ink pixels:" << inkPixels << "undoable:" << undoable;
+                        if (undoable) {
+                            // Drag the piece with the Move tool: it must follow, and
+                            // the spot it came from must now show the source layer
+                            // (i.e. empty where the pixels used to be).
+                            const auto pixelAt = [controller](qreal cx, qreal cy) {
+                                const QImage img = controller->canvasImage();
+                                if (cx < 0 || cy < 0 || cx >= img.width() || cy >= img.height())
+                                    return 0;
+                                return qAlpha(
+                                    img.pixel(static_cast<int>(cx), static_cast<int>(cy)));
+                            };
+                            const int wasAtOrigin = pixelAt(cx + cw / 2, cy + ch / 2);
+                            const QPointF grab =
+                                canvasPointToWindow(canvas, controller, 100.0, 80.0);
+                            const QPointF drop =
+                                canvasPointToWindow(canvas, controller, 100.0 - 120.0, 80.0 - 90.0);
+                            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier,
+                                              grab.toPoint());
+                            for (int step = 1; step <= 5; ++step)
+                                QTest::mouseMove(window,
+                                                 (grab + (drop - grab) * (step / 5.0)).toPoint());
+                            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
+                                                drop.toPoint());
+                            qInfo().noquote()
+                                << "demo: piece alpha at the frame's centre before the drag:"
+                                << wasAtOrigin
+                                << "after dragging it away:" << pixelAt(cx + cw / 2, cy + ch / 2)
+                                << "(0 = the pixels left the"
+                                << "source layer and travelled with the piece)";
+                            if (parts.size() >= 5 && parts.at(4) == QLatin1String("holdmove"))
+                                return;
+                            controller->undo();
+                            controller->undo();
+                            qInfo().noquote()
+                                << "demo: after undo canvas" << controller->canvasWidth() << "x"
+                                << controller->canvasHeight() << "layers"
+                                << controller->layers()->rowCount();
+                        }
                     }
                 }
-            }
-            if (!demoMove.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* canvas = window ? findItemByName(window->contentItem(),
-                                                       QStringLiteral("canvasItem"))
-                                      : nullptr;
-                const QStringList parts = demoMove.split(QLatin1Char(','));
-                if (!canvas || parts.size() != 2) {
-                    qWarning() << "demo: move needs --demo-move=DX,DY and a canvas";
-                } else {
-                    // Exactly the reported case: a layer created by importing a
-                    // PNG, then dragged with the Move tool.
-                    const QString png = QDir::temp().filePath(QStringLiteral("prism-move.png"));
-                    QImage src(120, 90, QImage::Format_RGBA8888);
-                    src.fill(Qt::transparent);
-                    for (int y = 10; y < 80; ++y)
-                        for (int x = 10; x < 110; ++x)
-                            src.setPixelColor(x, y, QColor(220, 40, 40));
-                    src.save(png);
-                    controller->newDocument(400, 300);
-                    controller->importImageAsLayer(QUrl::fromLocalFile(png));
-                    // Importing hands over the Move tool, so the first drag
-                    // places the image instead of painting on it.
-                    qInfo().noquote() << "demo: tool right after import is"
-                                      << controller->tool() << "(move tool is"
-                                      << AppController::MoveTool << ")";
-                    const auto bbox = [controller]() {
+                if (!demoMove.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* canvas =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("canvasItem"))
+                               : nullptr;
+                    const QStringList parts = demoMove.split(QLatin1Char(','));
+                    if (!canvas || parts.size() != 2) {
+                        qWarning() << "demo: move needs --demo-move=DX,DY and a canvas";
+                    } else {
+                        // Exactly the reported case: a layer created by importing a
+                        // PNG, then dragged with the Move tool.
+                        const QString png = QDir::temp().filePath(QStringLiteral("prism-move.png"));
+                        QImage src(120, 90, QImage::Format_RGBA8888);
+                        src.fill(Qt::transparent);
+                        for (int y = 10; y < 80; ++y)
+                            for (int x = 10; x < 110; ++x)
+                                src.setPixelColor(x, y, QColor(220, 40, 40));
+                        src.save(png);
+                        controller->newDocument(400, 300);
+                        controller->importImageAsLayer(QUrl::fromLocalFile(png));
+                        // Importing hands over the Move tool, so the first drag
+                        // places the image instead of painting on it.
+                        qInfo().noquote()
+                            << "demo: tool right after import is" << controller->tool()
+                            << "(move tool is" << AppController::MoveTool << ")";
+                        const auto bbox = [controller]() {
+                            const QImage img = controller->canvasImage();
+                            int x0 = img.width(), y0 = img.height(), x1 = -1, y1 = -1;
+                            for (int y = 0; y < img.height(); ++y)
+                                for (int x = 0; x < img.width(); ++x)
+                                    if (qAlpha(img.pixel(x, y)) > 0) {
+                                        x0 = std::min(x0, x);
+                                        y0 = std::min(y0, y);
+                                        x1 = std::max(x1, x);
+                                        y1 = std::max(y1, y);
+                                    }
+                            return QRect(QPoint(x0, y0), QPoint(x1, y1));
+                        };
+                        const QRect before = bbox();
+                        const qreal dx = parts.at(0).toDouble();
+                        const qreal dy = parts.at(1).toDouble();
+                        // Drag from the middle of the image.
+                        const QPointF centre = before.center();
+                        controller->setTool(AppController::MoveTool);
+                        const QPointF from =
+                            canvasPointToWindow(canvas, controller, centre.x(), centre.y());
+                        const QPointF to = canvasPointToWindow(canvas, controller, centre.x() + dx,
+                                                               centre.y() + dy);
+                        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+                        for (int step = 1; step <= 6; ++step)
+                            QTest::mouseMove(window, (from + (to - from) * (step / 6.0)).toPoint());
+                        // Before the release: the drag must already show the image
+                        // at the new position, not only commit on mouse-up.
+                        const QRect during = bbox();
+                        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+                        const QRect after = bbox();
+                        qInfo().noquote()
+                            << "demo: moved imported layer by" << dx << dy << "-> bbox" << before
+                            << "during drag" << during << "after release" << after << "shift"
+                            << (after.topLeft() - before.topLeft()) << "canUndo"
+                            << controller->canUndo();
+                    }
+                }
+                if (!demoPenTool.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    controller->newDocument(800, 600);
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* canvas =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("canvasItem"))
+                               : nullptr;
+                    auto* area = window ? findItemByName(window->contentItem(),
+                                                         QStringLiteral("canvasMouseArea"))
+                                        : nullptr;
+                    int tool = AppController::CropTool;
+                    if (demoPenTool == QLatin1String("rectselect"))
+                        tool = AppController::RectSelectTool;
+                    else if (demoPenTool == QLatin1String("move"))
+                        tool = AppController::MoveTool;
+                    // Something to cut: the crop tool lifts pixels, and an empty frame
+                    // is refused on purpose.
+                    if (tool == AppController::CropTool) {
+                        controller->setBrushColor(QColor(0, 0, 0));
+                        controller->beginStroke(220.0F, 170.0F);
+                        controller->extendStroke(420.0F, 310.0F);
+                        controller->endStroke();
+                    }
+                    controller->setTool(tool);
+                    // The Move tool needs something to move, and its effect is a
+                    // moved bbox rather than a selection.
+                    const auto inkBox = [controller]() {
                         const QImage img = controller->canvasImage();
                         int x0 = img.width(), y0 = img.height(), x1 = -1, y1 = -1;
                         for (int y = 0; y < img.height(); ++y)
@@ -2857,364 +3535,340 @@ int main(int argc, char* argv[])
                                 }
                         return QRect(QPoint(x0, y0), QPoint(x1, y1));
                     };
-                    const QRect before = bbox();
-                    const qreal dx = parts.at(0).toDouble();
-                    const qreal dy = parts.at(1).toDouble();
-                    // Drag from the middle of the image.
-                    const QPointF centre = before.center();
-                    controller->setTool(AppController::MoveTool);
-                    const QPointF from = canvasPointToWindow(canvas, controller, centre.x(),
-                                                             centre.y());
-                    const QPointF to =
-                        canvasPointToWindow(canvas, controller, centre.x() + dx, centre.y() + dy);
-                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from.toPoint());
-                    for (int step = 1; step <= 6; ++step)
-                        QTest::mouseMove(window, (from + (to - from) * (step / 6.0)).toPoint());
-                    // Before the release: the drag must already show the image
-                    // at the new position, not only commit on mouse-up.
-                    const QRect during = bbox();
-                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to.toPoint());
-                    const QRect after = bbox();
-                    qInfo().noquote() << "demo: moved imported layer by" << dx << dy << "-> bbox"
-                                      << before << "during drag" << during << "after release"
-                                      << after << "shift" << (after.topLeft() - before.topLeft())
-                                      << "canUndo" << controller->canUndo();
-                }
-            }
-            if (!demoPenTool.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                controller->newDocument(800, 600);
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* canvas = window ? findItemByName(window->contentItem(),
-                                                       QStringLiteral("canvasItem"))
-                                      : nullptr;
-                auto* area = window ? findItemByName(window->contentItem(),
-                                                     QStringLiteral("canvasMouseArea"))
-                                    : nullptr;
-                int tool = AppController::CropTool;
-                if (demoPenTool == QLatin1String("rectselect"))
-                    tool = AppController::RectSelectTool;
-                else if (demoPenTool == QLatin1String("move"))
-                    tool = AppController::MoveTool;
-                // Something to cut: the crop tool lifts pixels, and an empty frame
-                // is refused on purpose.
-                if (tool == AppController::CropTool) {
-                    controller->setBrushColor(QColor(0, 0, 0));
-                    controller->beginStroke(220.0F, 170.0F);
-                    controller->extendStroke(420.0F, 310.0F);
-                    controller->endStroke();
-                }
-                controller->setTool(tool);
-                // The Move tool needs something to move, and its effect is a
-                // moved bbox rather than a selection.
-                const auto inkBox = [controller]() {
-                    const QImage img = controller->canvasImage();
-                    int x0 = img.width(), y0 = img.height(), x1 = -1, y1 = -1;
-                    for (int y = 0; y < img.height(); ++y)
-                        for (int x = 0; x < img.width(); ++x)
-                            if (qAlpha(img.pixel(x, y)) > 0) {
-                                x0 = std::min(x0, x);
-                                y0 = std::min(y0, y);
-                                x1 = std::max(x1, x);
-                                y1 = std::max(y1, y);
-                            }
-                    return QRect(QPoint(x0, y0), QPoint(x1, y1));
-                };
-                if (tool == AppController::MoveTool) {
-                    controller->setBrushColor(QColor(0, 0, 0));
-                    controller->beginStroke(150.0F, 100.0F);
-                    controller->extendStroke(320.0F, 100.0F);
-                    controller->endStroke();
-                }
-                const QRect inkBefore = inkBox();
-                static QPointingDevice pen(QStringLiteral("demo-pen"), 1,
-                                           QInputDevice::DeviceType::Stylus,
-                                           QPointingDevice::PointerType::Pen,
-                                           QInputDevice::Capability::Pressure, 1, 1);
-                if (!window || !canvas || !area) {
-                    qWarning() << "demo: canvas not found for the pen check";
-                } else {
-                    const auto send = [window, area, canvas, controller](QEvent::Type type,
-                                                                        qreal cx, qreal cy) {
-                        const QPointF local = canvas->mapToScene(
-                            QPointF(cx * controller->zoom(), cy * controller->zoom()));
-                        QTabletEvent ev(type, &pen, local, local, 0.4, 0.0F, 0.0F, 0.0F, 0.0,
-                                        0.0F, Qt::NoModifier, Qt::LeftButton,
-                                        type == QEvent::TabletRelease ? Qt::NoButton
-                                                                      : Qt::LeftButton);
-                        QCoreApplication::sendEvent(window, &ev);
-                        Q_UNUSED(area);
-                    };
-                    send(QEvent::TabletPress, 200.0, 150.0);
-                    for (int step = 1; step <= 6; ++step)
-                        send(QEvent::TabletMove, 200.0 + step * 40.0, 150.0 + step * 30.0);
-                    const bool reacted =
-                        controller->hasSelection()
-                        || (controller->tool() == AppController::CropTool
-                            && controller->selectionW() > 0)
-                        || (tool == AppController::MoveTool && inkBox() != inkBefore);
-                    qInfo().noquote()
-                        << "demo: pen drag with" << demoPenTool << "-> selection"
-                        << controller->selectionX() << controller->selectionY()
-                        << controller->selectionW() << "x" << controller->selectionH()
-                        << "ink" << inkBefore << "->" << inkBox() << "reacted:" << reacted;
-                    send(QEvent::TabletRelease, 440.0, 330.0);
-                    QTest::keyClick(window, Qt::Key_Return);
-                    qInfo().noquote() << "demo: after Enter -> canvas" << controller->canvasWidth()
-                                      << "x" << controller->canvasHeight() << "tool"
-                                      << controller->tool() << "layers"
-                                      << controller->layers()->rowCount();
-                }
-            }
-            if (!demoRecord.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                // --demo-doc-size lets this run at the size a tester's drawing
-                // actually was, which is where the frame downscale kicks in.
-                controller->newDocument(demoDocW > 0 ? demoDocW : 600,
-                                        demoDocH > 0 ? demoDocH : 400);
-                controller->setRecording(true);
-                controller->setBrushColor(QColor(0, 0, 0));
-                // Three strokes, spaced past the recorder's interval so they land
-                // as three frames (the final state is appended on export).
-                controller->beginStroke(60.0F, 80.0F);
-                controller->extendStroke(520.0F, 120.0F);
-                controller->endStroke();
-                QThread::msleep(1600);
-                controller->beginStroke(80.0F, 200.0F);
-                controller->extendStroke(500.0F, 260.0F);
-                controller->endStroke();
-                QThread::msleep(1600);
-                controller->beginStroke(120.0F, 320.0F);
-                controller->extendStroke(480.0F, 360.0F);
-                controller->endStroke();
-                const bool ok = controller->exportRecording(QUrl::fromLocalFile(demoRecord));
-                qInfo().noquote() << "demo: exported record to" << demoRecord << "frames"
-                                  << controller->recordedFrames() << "ok:" << ok
-                                  << "error:" << controller->lastError();
-                // The export control has to be reachable: it used to stay greyed
-                // out for the whole session because the frame count never notified.
-                auto* rootWindow = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* button = rootWindow
-                                   ? findItemByName(rootWindow->contentItem(),
-                                                    QStringLiteral("toolbarButton_record"))
-                                   : nullptr;
-                if (button) {
-                    // A button nobody can find is not a button: it has to have a
-                    // size and sit inside the window, not just exist in the tree.
-                    const QPointF at = button->mapToScene(QPointF(0, 0));
-                    const bool onScreen = button->isVisible() && button->width() > 1
-                                          && button->height() > 1 && at.x() >= 0 && at.y() >= 0
-                                          && at.x() < rootWindow->width()
-                                          && at.y() < rootWindow->height();
-                    qInfo().noquote() << "demo: record button" << button->width() << "x"
-                                      << button->height() << "at" << at.x() << at.y() << "opacity"
-                                      << button->property("opacity").toDouble()
-                                      << "window" << rootWindow->width() << "x"
-                                      << rootWindow->height() << "-> on screen:" << onScreen
-                                      << "(1.0 opacity = drawable, 0.4 = greyed out)";
-                } else {
-                    qWarning() << "demo: record toolbar button not found";
-                }
-            }
-            if (demoEyedropper && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                controller->newDocument(400, 300);
-                controller->setBrushColor(QColor(220, 40, 40));
-                controller->setTool(AppController::BrushTool);
-                controller->beginStroke(80.0F, 120.0F);
-                controller->extendStroke(320.0F, 120.0F);
-                controller->endStroke();
-                controller->setBrushColor(QColor(255, 255, 255));
-                controller->setTool(AppController::EyedropperTool);
-                auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-                auto* canvas = window ? findItemByName(window->contentItem(),
-                                                       QStringLiteral("canvasItem"))
-                                      : nullptr;
-                if (!canvas) {
-                    qWarning() << "demo: no canvas for the eyedropper check";
-                } else {
-                    const QPointF at = canvasPointToWindow(canvas, controller, 200.0, 120.0);
-                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, at.toPoint());
-                    const QColor picked = controller->brushColor();
-                    qInfo().noquote() << "demo: eyedropper click -> tool after release"
-                                      << controller->tool() << "(brush is"
-                                      << AppController::BrushTool << ") colour" << picked.name();
-                }
-            }
-            if (!demoSliderInput.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
-                    if (demoSliderTab >= 0) {
-                        window->setProperty("dockerTab", demoSliderTab);
-                        // The StackLayout shows the new tab on the next layout
-                        // pass; input sent before that lands on a hidden item.
-                        QCoreApplication::processEvents();
-                        QCoreApplication::processEvents();
+                    if (tool == AppController::MoveTool) {
+                        controller->setBrushColor(QColor(0, 0, 0));
+                        controller->beginStroke(150.0F, 100.0F);
+                        controller->extendStroke(320.0F, 100.0F);
+                        controller->endStroke();
                     }
-                    if (auto* slider = findItemByName(window->contentItem(), demoSliderInput)) {
-                        const auto value = [slider]() {
-                            return slider->property("value").toDouble();
+                    const QRect inkBefore = inkBox();
+                    static QPointingDevice pen(QStringLiteral("demo-pen"), 1,
+                                               QInputDevice::DeviceType::Stylus,
+                                               QPointingDevice::PointerType::Pen,
+                                               QInputDevice::Capability::Pressure, 1, 1);
+                    if (!window || !canvas || !area) {
+                        qWarning() << "demo: canvas not found for the pen check";
+                    } else {
+                        const auto send = [window, area, canvas, controller](QEvent::Type type,
+                                                                             qreal cx, qreal cy) {
+                            const QPointF local = canvas->mapToScene(
+                                QPointF(cx * controller->zoom(), cy * controller->zoom()));
+                            QTabletEvent ev(type, &pen, local, local, 0.4, 0.0F, 0.0F, 0.0F, 0.0,
+                                            0.0F, Qt::NoModifier, Qt::LeftButton,
+                                            type == QEvent::TabletRelease ? Qt::NoButton
+                                                                          : Qt::LeftButton);
+                            QCoreApplication::sendEvent(window, &ev);
+                            Q_UNUSED(area);
                         };
-                        qInfo().noquote() << "demo: slider" << demoSliderInput << "visible"
-                                          << slider->isVisible() << "at"
-                                          << slider->mapToScene(QPointF(0, 0)) << "size"
-                                          << QSizeF(slider->width(), slider->height());
-                        const auto centre =
-                            slider->mapToScene(QPointF(slider->width() / 2.0,
-                                                       slider->height() / 2.0));
-                        slider->forceActiveFocus();
-                        // A non-black colour, so a hue/saturation nudge is
-                        // actually visible: on black every HSV nudge is a no-op
-                        // and the sync-back hides whether the input arrived.
-                        controller->setBrushColor(QColor(120, 60, 200));
-                        QCoreApplication::processEvents();
-                        const double start = value();
-                        QTest::keyClick(window, Qt::Key_Right);
-                        const double afterRight = value();
-                        QTest::keyClick(window, Qt::Key_Left);
-                        const double afterLeft = value();
-                        const QPoint prev = QCursor::pos();
-                        QCursor::setPos(window->mapToGlobal(centre.toPoint()));
-                        QWheelEvent wheel(centre, window->mapToGlobal(centre), QPoint(0, 0),
-                                          QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
-                                          Qt::NoScrollPhase, false);
-                        QCoreApplication::sendEvent(window, &wheel);
-                        const double afterWheel = value();
-                        QCursor::setPos(prev);
-                        qInfo().noquote() << "demo:" << demoSliderInput << "value" << start
-                                          << "-> right arrow" << afterRight << "-> left arrow"
-                                          << afterLeft << "-> wheel up" << afterWheel
-                                          << "| controller: size" << controller->brushSize()
-                                          << "hardness" << controller->brushHardness()
-                                          << "colour" << controller->brushColor().name();
-                        // The slider must follow a colour set from elsewhere (a
-                        // pick, the hex field): binding `value` to the colour
-                        // broke on the first interaction and left it stale.
-                        controller->setBrushColor(QColor(0, 255, 0));
-                        QCoreApplication::processEvents();
-                        if (demoSliderInput.startsWith(QStringLiteral("colorSlider_"))) {
-                            qInfo().noquote()
-                                << "demo:" << demoSliderInput
-                                << "after an outside colour change -> value" << value()
-                                << "(green: H 120, S 100, V 100)";
+                        send(QEvent::TabletPress, 200.0, 150.0);
+                        for (int step = 1; step <= 6; ++step)
+                            send(QEvent::TabletMove, 200.0 + step * 40.0, 150.0 + step * 30.0);
+                        const bool reacted =
+                            controller->hasSelection() ||
+                            (controller->tool() == AppController::CropTool &&
+                             controller->selectionW() > 0) ||
+                            (tool == AppController::MoveTool && inkBox() != inkBefore);
+                        qInfo().noquote()
+                            << "demo: pen drag with" << demoPenTool << "-> selection"
+                            << controller->selectionX() << controller->selectionY()
+                            << controller->selectionW() << "x" << controller->selectionH() << "ink"
+                            << inkBefore << "->" << inkBox() << "reacted:" << reacted;
+                        send(QEvent::TabletRelease, 440.0, 330.0);
+                        QTest::keyClick(window, Qt::Key_Return);
+                        qInfo().noquote()
+                            << "demo: after Enter -> canvas" << controller->canvasWidth() << "x"
+                            << controller->canvasHeight() << "tool" << controller->tool()
+                            << "layers" << controller->layers()->rowCount();
+                    }
+                }
+                if (!demoRecord.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    // --demo-doc-size lets this run at the size a tester's drawing
+                    // actually was, which is where the frame downscale kicks in.
+                    controller->newDocument(demoDocW > 0 ? demoDocW : 600,
+                                            demoDocH > 0 ? demoDocH : 400);
+                    controller->setBrushColor(QColor(0, 0, 0));
+                    // Three strokes, spaced past the recorder's interval so they land
+                    // as three frames (the final state is appended on export).
+                    controller->beginStroke(60.0F, 80.0F);
+                    controller->extendStroke(520.0F, 120.0F);
+                    controller->endStroke();
+                    QThread::msleep(1600);
+                    controller->beginStroke(80.0F, 200.0F);
+                    controller->extendStroke(500.0F, 260.0F);
+                    controller->endStroke();
+                    QThread::msleep(1600);
+                    controller->beginStroke(120.0F, 320.0F);
+                    controller->extendStroke(480.0F, 360.0F);
+                    controller->endStroke();
+                    const bool ok = controller->exportRecording(QUrl::fromLocalFile(demoRecord));
+                    qInfo().noquote() << "demo: exported record to" << demoRecord << "frames"
+                                      << controller->recordedFrames() << "ok:" << ok
+                                      << "error:" << controller->lastError();
+                    // Automatic recording remains visible without a pause/stop button.
+                    auto* rootWindow = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* button = rootWindow ? findItemByName(rootWindow->contentItem(),
+                                                               QStringLiteral("recordingIndicator"))
+                                              : nullptr;
+                    if (button) {
+                        const QPointF at = button->mapToScene(QPointF(0, 0));
+                        const bool onScreen = button->isVisible() && button->width() > 1 &&
+                                              button->height() > 1 && at.x() >= 0 && at.y() >= 0 &&
+                                              at.x() < rootWindow->width() &&
+                                              at.y() < rootWindow->height();
+                        qInfo().noquote() << "demo: recording indicator" << button->width() << "x"
+                                          << button->height() << "at" << at.x() << at.y()
+                                          << "opacity" << button->property("opacity").toDouble()
+                                          << "window" << rootWindow->width() << "x"
+                                          << rootWindow->height() << "-> on screen:" << onScreen;
+                        if (!ok || !controller->recording() || !onScreen) {
+                            QCoreApplication::exit(1);
+                            return;
                         }
                     } else {
-                        qWarning() << "demo: slider" << demoSliderInput << "not found";
+                        qCritical() << "demo: recording indicator not found";
+                        QCoreApplication::exit(1);
+                        return;
                     }
                 }
-            }
-            if (!demoDragSlider.isEmpty() && !engine.rootObjects().isEmpty()) {
-                controller->setStartPageVisible(false);
-                if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
-                    // Half-width drag to the left by default; a leading '+' drags
-                    // right instead, so both directions get covered.
-                    QString sliderName = demoDragSlider;
-                    const bool dragRight = sliderName.startsWith(QLatin1Char('+'));
-                    if (dragRight)
-                        sliderName = sliderName.mid(1);
-                    if (auto* item = findItemByName(window->contentItem(), sliderName)) {
-                        const QPointF centre =
-                            item->mapToScene(QPointF(item->width() / 2.0, item->height() / 2.0));
-                        auto send = [window](QEvent::Type type, QPointF pos, Qt::MouseButtons held) {
-                            QMouseEvent ev(type, pos, window->mapToGlobal(pos.toPoint()),
-                                           Qt::LeftButton, held, Qt::NoModifier);
-                            QCoreApplication::sendEvent(window, &ev);
-                        };
-                        const qreal distance = item->width() * 0.4 * (dragRight ? 1.0 : -1.0);
-                        send(QEvent::MouseButtonPress, centre, Qt::LeftButton);
-                        for (int step = 1; step <= 6; ++step)
-                            send(QEvent::MouseMove,
-                                 centre + QPointF(distance * step / 6.0, 0), Qt::LeftButton);
-                        send(QEvent::MouseButtonRelease,
-                             centre + QPointF(distance, 0), Qt::NoButton);
-                        qInfo() << "demo: dragged" << sliderName
-                                << "brushSize now =" << controller->brushSize();
-                        // Read what the UI actually shows for every other
-                        // slider, so a stale number is visible in the log.
-                        const QStringList watched = { QStringLiteral("sizeSlider"),
-                                                      QStringLiteral("flowSlider"),
-                                                      QStringLiteral("hardnessSlider"),
-                                                      QStringLiteral("zoomSlider"),
-                                                      QStringLiteral("sizeBox"),
-                                                      QStringLiteral("opacitySlider") };
-                        for (const QString& name : watched) {
-                            if (auto* w = findItemByName(window->contentItem(), name))
-                                qInfo().noquote()
-                                    << QStringLiteral("  %1.value = %2").arg(
-                                           name, QString::number(w->property("value").toDouble()));
-                            else
-                                qWarning() << "demo: missing item" << name;
+                if (demoEyedropper && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    controller->newDocument(400, 300);
+                    controller->setBrushColor(QColor(220, 40, 40));
+                    controller->setTool(AppController::BrushTool);
+                    controller->beginStroke(80.0F, 120.0F);
+                    controller->extendStroke(320.0F, 120.0F);
+                    controller->endStroke();
+                    controller->setBrushColor(QColor(255, 255, 255));
+                    controller->setTool(AppController::EyedropperTool);
+                    auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+                    auto* canvas =
+                        window ? findItemByName(window->contentItem(), QStringLiteral("canvasItem"))
+                               : nullptr;
+                    if (!canvas) {
+                        qWarning() << "demo: no canvas for the eyedropper check";
+                    } else {
+                        const QPointF at = canvasPointToWindow(canvas, controller, 200.0, 120.0);
+                        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, at.toPoint());
+                        const QColor picked = controller->brushColor();
+                        qInfo().noquote()
+                            << "demo: eyedropper click -> tool after release" << controller->tool()
+                            << "(brush is" << AppController::BrushTool << ") colour"
+                            << picked.name();
+                    }
+                }
+                if (!demoSliderInput.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                        if (demoSliderTab >= 0) {
+                            QMetaObject::invokeMethod(engine.rootObjects().first(),
+                                                      "showWorkspacePanel",
+                                                      Q_ARG(QVariant, QVariant(demoSliderTab)));
+                            // The popover content appears on the next layout pass.
+                            QCoreApplication::processEvents();
+                            QCoreApplication::processEvents();
                         }
-                        qInfo() << "  controller: size" << controller->brushSize() << "flow"
-                                << controller->brushFlow() << "hardness"
-                                << controller->brushHardness() << "zoom" << controller->zoom()
-                                << "layer0 opacity"
+                        if (auto* slider = findItemByName(window->contentItem(), demoSliderInput)) {
+                            const auto value = [slider]() {
+                                return slider->property("value").toDouble();
+                            };
+                            qInfo().noquote()
+                                << "demo: slider" << demoSliderInput << "visible"
+                                << slider->isVisible() << "at" << slider->mapToScene(QPointF(0, 0))
+                                << "size" << QSizeF(slider->width(), slider->height());
+                            const auto centre = slider->mapToScene(
+                                QPointF(slider->width() / 2.0, slider->height() / 2.0));
+                            slider->forceActiveFocus();
+                            // A non-black colour, so a hue/saturation nudge is
+                            // actually visible: on black every HSV nudge is a no-op
+                            // and the sync-back hides whether the input arrived.
+                            controller->setBrushColor(QColor(120, 60, 200));
+                            QCoreApplication::processEvents();
+                            const double start = value();
+                            QTest::keyClick(window, Qt::Key_Right);
+                            const double afterRight = value();
+                            QTest::keyClick(window, Qt::Key_Left);
+                            const double afterLeft = value();
+                            const QPoint prev = QCursor::pos();
+                            QCursor::setPos(window->mapToGlobal(centre.toPoint()));
+                            QWheelEvent wheel(centre, window->mapToGlobal(centre), QPoint(0, 0),
+                                              QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+                                              Qt::NoScrollPhase, false);
+                            QCoreApplication::sendEvent(window, &wheel);
+                            const double afterWheel = value();
+                            QCursor::setPos(prev);
+                            qInfo().noquote() << "demo:" << demoSliderInput << "value" << start
+                                              << "-> right arrow" << afterRight << "-> left arrow"
+                                              << afterLeft << "-> wheel up" << afterWheel
+                                              << "| controller: size" << controller->brushSize()
+                                              << "hardness" << controller->brushHardness()
+                                              << "colour" << controller->brushColor().name();
+                            // The slider must follow a colour set from elsewhere (a
+                            // pick, the hex field): binding `value` to the colour
+                            // broke on the first interaction and left it stale.
+                            controller->setBrushColor(QColor(0, 255, 0));
+                            QCoreApplication::processEvents();
+                            if (demoSliderInput.startsWith(QStringLiteral("colorSlider_"))) {
+                                qInfo().noquote() << "demo:" << demoSliderInput
+                                                  << "after an outside colour change -> value"
+                                                  << value() << "(green: H 120, S 100, V 100)";
+                            }
+                        } else {
+                            qWarning() << "demo: slider" << demoSliderInput << "not found";
+                        }
+                    }
+                }
+                if (!demoDragSlider.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+                        // Half-width drag to the left by default; a leading '+' drags
+                        // right instead, so both directions get covered.
+                        QString sliderName = demoDragSlider;
+                        const bool dragRight = sliderName.startsWith(QLatin1Char('+'));
+                        if (dragRight)
+                            sliderName = sliderName.mid(1);
+                        if (sliderName.startsWith(QStringLiteral("quick"))) {
+                            QMetaObject::invokeMethod(
+                                engine.rootObjects().first(), "demoQuickControls",
+                                Q_ARG(QVariant, QVariant(window->width() / 2)),
+                                Q_ARG(QVariant, QVariant(window->height() / 2)));
+                            QCoreApplication::processEvents();
+                        }
+                        if (auto* item = findItemByName(window->contentItem(), sliderName)) {
+                            const QPointF centre = item->mapToScene(
+                                QPointF(item->width() / 2.0, item->height() / 2.0));
+                            const qreal distance = item->width() * 0.4 * (dragRight ? 1.0 : -1.0);
+                            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier,
+                                              centre.toPoint());
+                            for (int step = 1; step <= 6; ++step)
+                                QTest::mouseMove(
+                                    window, (centre + QPointF(distance * step / 6.0, 0)).toPoint());
+                            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
+                                                (centre + QPointF(distance, 0)).toPoint());
+                            qInfo() << "demo: dragged" << sliderName
+                                    << "brushSize now =" << controller->brushSize();
+                            // Read what the UI actually shows for every other
+                            // slider, so a stale number is visible in the log.
+                            const QStringList watched = {QStringLiteral("sizeSlider"),
+                                                         QStringLiteral("flowSlider"),
+                                                         QStringLiteral("opacitySlider"),
+                                                         QStringLiteral("labSpacingSlider")};
+                            for (const QString& name : watched) {
+                                if (auto* w = findItemByName(window->contentItem(), name))
+                                    qInfo().noquote()
+                                        << QStringLiteral("  %1.value = %2")
+                                               .arg(name, QString::number(
+                                                              w->property("value").toDouble()));
+                                else
+                                    qWarning() << "demo: missing item" << name;
+                            }
+                            qInfo()
+                                << "  controller: size" << controller->brushSize() << "spacing"
+                                << controller->brushSpacing() << "flow" << controller->brushFlow()
+                                << "hardness" << controller->brushHardness() << "zoom"
+                                << controller->zoom() << "layer0 opacity"
                                 << controller->layers()
                                        ->data(controller->layers()->index(0, 0),
                                               LayerListModel::OpacityRole)
                                        .toInt();
-                    } else {
-                        qWarning() << "demo: no item named" << sliderName;
+                        } else {
+                            qWarning() << "demo: no item named" << sliderName;
+                        }
                     }
                 }
-            }
-            if (!demoImport.isEmpty() && !engine.rootObjects().isEmpty()) {
+                if (!demoImport.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    QMetaObject::invokeMethod(engine.rootObjects().first(), "demoImportLayer",
+                                              Q_ARG(QVariant, QVariant(demoImport)));
+                    qInfo() << "demo: after QML import call, layers ="
+                            << controller->layers()->rowCount()
+                            << "error =" << controller->lastError();
+                }
+                if (demoMenu && !engine.rootObjects().isEmpty()) {
+                    // Opens a dropdown so its colours are visible in a screenshot.
+                    controller->setStartPageVisible(false);
+                    QMetaObject::invokeMethod(engine.rootObjects().first(), "demoOpenMenu");
+                }
+                if (demoDialog && !engine.rootObjects().isEmpty()) {
+                    // Opens the New Document dialog so its layout can be checked
+                    // from a screenshot.
+                    QMetaObject::invokeMethod(engine.rootObjects().first(),
+                                              "openNewDocumentDialog");
+                }
+                if (demoToolOptions && !engine.rootObjects().isEmpty()) {
+                    // Switches the color docker to its Tool Options tab.
+                    QMetaObject::invokeMethod(engine.rootObjects().first(), "showToolOptions");
+                }
+                if (demoCursor &&
+                    !engine.rootObjects()
+                         .isEmpty()) { // Pins the brush ring so its size/colour is visible in the
+                    // screenshot (a non-foreground window gets no hover events).
+                    controller->setStartPageVisible(false);
+                    controller->setBrushSize(60.0F);
+                    QMetaObject::invokeMethod(engine.rootObjects().first(), "demoCursor",
+                                              Q_ARG(QVariant, QVariant(560.0)),
+                                              Q_ARG(QVariant, QVariant(280.0)));
+                }
+                if (!demoQuickControls.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    auto* root = engine.rootObjects().first();
+                    auto* window = qobject_cast<QQuickWindow*>(root);
+                    controller->setStartPageVisible(false);
+                    QCoreApplication::processEvents();
+                    const QStringList xy = demoQuickControls.split(QLatin1Char(','));
+                    if (!window || xy.size() != 2) {
+                        qCritical() << "quick controls demo needs x,y";
+                        QCoreApplication::exit(1);
+                        return;
+                    }
+                    const int px = xy.at(0).toInt();
+                    const int py = xy.at(1).toInt();
+                    QMetaObject::invokeMethod(root, "demoQuickControls",
+                                              Q_ARG(QVariant, QVariant(px)),
+                                              Q_ARG(QVariant, QVariant(py)));
+                    QCoreApplication::processEvents();
+                    auto* popup = root->findChild<QObject*>(QStringLiteral("drawingQuickControls"));
+                    const QRectF rect(popup ? popup->property("x").toReal() : -1,
+                                      popup ? popup->property("y").toReal() : -1,
+                                      popup ? popup->property("width").toReal() : 0,
+                                      popup ? popup->property("height").toReal() : 0);
+                    const bool inside = popup && popup->property("visible").toBool() &&
+                                        rect.left() >= 0 && rect.top() >= 0 &&
+                                        rect.right() <= window->width() &&
+                                        rect.bottom() <= window->height();
+                    qInfo() << "quick controls:" << rect << "inside:" << inside;
+                    if (!inside) {
+                        QCoreApplication::exit(1);
+                        return;
+                    }
+                }
+                if (!demo || !controller)
+                    return;
+                // The demo draws on a document, so the start page must be gone.
                 controller->setStartPageVisible(false);
-                QMetaObject::invokeMethod(engine.rootObjects().first(), "demoImportLayer",
-                                          Q_ARG(QVariant, QVariant(demoImport)));
-                qInfo() << "demo: after QML import call, layers ="
-                        << controller->layers()->rowCount() << "error =" << controller->lastError();
-            }
-            if (demoMenu && !engine.rootObjects().isEmpty()) {
-                // Opens a dropdown so its colours are visible in a screenshot.
-                controller->setStartPageVisible(false);
-                QMetaObject::invokeMethod(engine.rootObjects().first(), "demoOpenMenu");
-            }
-            if (demoDialog && !engine.rootObjects().isEmpty()) {
-                // Opens the New Document dialog so its layout can be checked
-                // from a screenshot.
-                QMetaObject::invokeMethod(engine.rootObjects().first(), "openNewDocumentDialog");
-            }
-            if (demoToolOptions && !engine.rootObjects().isEmpty()) {
-                // Switches the color docker to its Tool Options tab.
-                QMetaObject::invokeMethod(engine.rootObjects().first(), "showToolOptions");
-            }
-            if (demoCursor && !engine.rootObjects().isEmpty()) {                // Pins the brush ring so its size/colour is visible in the
-                // screenshot (a non-foreground window gets no hover events).
-                controller->setStartPageVisible(false);
-                controller->setBrushSize(60.0F);
-                QMetaObject::invokeMethod(engine.rootObjects().first(), "demoCursor",
-                                          Q_ARG(QVariant, QVariant(560.0)),
-                                          Q_ARG(QVariant, QVariant(280.0)));
-            }
-            if (!demo || !controller)
-                return;
-            // The demo draws on a document, so the start page must be gone.
-            controller->setStartPageVisible(false);
-            // Add a second layer: makes the layer panel's list structure
-            // visible in the screenshot (it must show two rows).
-            controller->addLayer();
-            qInfo() << "demo: layer rows =" << controller->layers()->rowCount();
-            // Draw on the newly added (top) layer.
-            const qreal w = controller->canvasWidth();
-            const qreal h = controller->canvasHeight();
-            controller->setBrushColor(QColor(20, 20, 40));
-            controller->setBrushSize(6.0F);
-            controller->beginStroke(20.0F, 20.0F);
-            controller->extendStroke(static_cast<float>(w) - 20.0F, 20.0F);
-            controller->extendStroke(static_cast<float>(w) - 20.0F,
-                                     static_cast<float>(h) - 20.0F);
-            controller->extendStroke(20.0F, static_cast<float>(h) - 20.0F);
-            controller->extendStroke(20.0F, 20.0F);
-            controller->endStroke();
+                // Add a second layer: makes the layer panel's list structure
+                // visible in the screenshot (it must show two rows).
+                controller->addLayer();
+                qInfo() << "demo: layer rows =" << controller->layers()->rowCount();
+                // Draw on the newly added (top) layer.
+                const qreal w = controller->canvasWidth();
+                const qreal h = controller->canvasHeight();
+                controller->setBrushColor(QColor(20, 20, 40));
+                controller->setBrushSize(6.0F);
+                controller->beginStroke(20.0F, 20.0F);
+                controller->extendStroke(static_cast<float>(w) - 20.0F, 20.0F);
+                controller->extendStroke(static_cast<float>(w) - 20.0F,
+                                         static_cast<float>(h) - 20.0F);
+                controller->extendStroke(20.0F, static_cast<float>(h) - 20.0F);
+                controller->extendStroke(20.0F, 20.0F);
+                controller->endStroke();
 
-            controller->setBrushColor(QColor(200, 40, 60));
-            controller->setBrushSize(40.0F);
-            controller->beginStroke(static_cast<float>(w) / 2.0F, static_cast<float>(h) / 2.0F);
-            controller->extendStroke(static_cast<float>(w) / 2.0F + 0.5F,
-                                     static_cast<float>(h) / 2.0F + 0.5F);
-            controller->endStroke();
-        });
+                controller->setBrushColor(QColor(200, 40, 60));
+                controller->setBrushSize(40.0F);
+                controller->beginStroke(static_cast<float>(w) / 2.0F, static_cast<float>(h) / 2.0F);
+                controller->extendStroke(static_cast<float>(w) / 2.0F + 0.5F,
+                                         static_cast<float>(h) / 2.0F + 0.5F);
+                controller->endStroke();
+            });
 
         QTimer::singleShot(shotDelayMs, &app, [&engine, shotPath, shotOnly]() {
             if (!engine.rootObjects().isEmpty()) {
@@ -3227,7 +3881,9 @@ int main(int argc, char* argv[])
                 }
             }
             if (shotOnly)
-                QCoreApplication::quit();
+                // A verification fixture may deliberately be unsaved. Exit the
+                // test loop directly; production Quit goes through the guard.
+                QCoreApplication::exit(0);
         });
     }
 

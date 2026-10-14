@@ -181,6 +181,11 @@ bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
     out.append("\x21\xFF\x0B", 3);
     out.append("NETSCAPE2.0", 11);
     out.append("\x03\x01\x00\x00\x00", 5);
+    if (file.write(out) != out.size()) {
+        if (error) *error = QObject::tr("Could not write GIF header.");
+        return false;
+    }
+    out.clear();
 
     const int delay = std::max(2, 100 / kTimelapseFps);
     for (int i = 0; i < frames.count; ++i) {
@@ -188,8 +193,10 @@ bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
         qint64 ms = 0;
         if (i == 0)
             frame = first;
-        else if (!frames.fetch(i, frame, ms))
-            continue;
+        else if (!frames.fetch(i, frame, ms)) {
+            if (error) *error = QObject::tr("Could not read frame %1.").arg(i);
+            return false;
+        }
         else
             frame = flattenedOverPaper(frame);
 
@@ -215,10 +222,18 @@ bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
             offset += chunk;
         }
         out.append(static_cast<char>(0));
+        if (file.write(out) != out.size()) {
+            if (error) *error = QObject::tr("Could not write GIF frame %1.").arg(i);
+            return false;
+        }
+        out.clear();
     }
     out.append(static_cast<char>(0x3B)); // trailer
 
-    file.write(out);
+    if (file.write(out) != out.size()) {
+        if (error) *error = QObject::tr("Could not finish GIF.");
+        return false;
+    }
     if (!file.commit()) {
         if (error)
             *error = QObject::tr("Could not write %1.").arg(path);

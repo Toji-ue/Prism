@@ -15,6 +15,7 @@ using prism::core::raster::RasterBuffer;
 struct BrushPreset {
     std::string name;
     BrushSettings brush;
+    std::string id; // Stable UI identity; .prismbrush stores only the brush itself.
 };
 
 /// The built-in starter set. Sizes are in canvas pixels.

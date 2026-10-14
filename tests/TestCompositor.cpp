@@ -39,6 +39,18 @@ TEST_F(CompositorTest, SingleLayerPixelShowsThrough)
     EXPECT_EQ(compositor.result().at(6, 5), raster::kTransparent);
 }
 
+TEST_F(CompositorTest, PreviewOnEmptyLayerMatchesCommittedSemiTransparentPixel) {
+    doc.addRasterLayer("blank");
+    Raster preview(16, 16);
+    const raster::Color ink{23, 91, 177, 73};
+    preview.set(5, 5, ink);
+    (void)compositor.composite({5, 5, 1, 1}, &preview, false, 0);
+    EXPECT_EQ(compositor.result().at(5, 5), ink);
+    doc.layers()[0]->pixels().set(5, 5, ink);
+    (void)compositor.composite({5, 5, 1, 1});
+    EXPECT_EQ(compositor.result().at(5, 5), ink);
+}
+
 TEST_F(CompositorTest, TopLayerCoversBottom)
 {
     addLayerWithPixel(5, 5, raster::Color{ 255, 0, 0, 255 });
@@ -80,6 +92,39 @@ TEST_F(CompositorTest, OutOfBoundsDirtyRectIsClipped)
     EXPECT_EQ(rect.width, 8);
     EXPECT_EQ(rect.height, 8);
     EXPECT_EQ(compositor.result().at(15, 15), raster::kOpaqueWhite);
+}
+
+TEST_F(CompositorTest, NestedGroupsApplyOpacityAtEachBoundary) {
+    auto& child = addLayerWithPixel(5, 5, raster::Color{0, 0, 255, 255});
+    auto inner = std::make_unique<Layer>(Layer::Type::Group, "inner");
+    const auto innerId = inner->id();
+    inner->setOpacity(0.5F);
+    child.setParentId(innerId);
+    auto outer = std::make_unique<Layer>(Layer::Type::Group, "outer");
+    const auto outerId = outer->id();
+    inner->setParentId(outerId);
+    outer->setOpacity(0.5F);
+    doc.addLayer(std::move(inner));
+    doc.addLayer(std::move(outer));
+    (void)compositor.composite({0, 0, 16, 16});
+    const auto result = compositor.result().at(5, 5);
+    EXPECT_NEAR(result.a, 64, 1);
+    EXPECT_EQ(result.b, 255);
+}
+
+TEST_F(CompositorTest, ClippingMasksPaintAndLiveOverlay) {
+    addLayerWithPixel(5, 5, raster::Color{255, 0, 0, 255});
+    auto& clipped = addLayerWithPixel(5, 5, raster::Color{0, 0, 255, 255});
+    clipped.pixels().set(6, 5, raster::Color{0, 0, 255, 255});
+    clipped.setClipped(true);
+    (void)compositor.composite({0, 0, 16, 16});
+    EXPECT_EQ(compositor.result().at(5, 5).b, 255);
+    EXPECT_EQ(compositor.result().at(6, 5).a, 0);
+
+    Raster preview(16, 16);
+    preview.set(6, 5, raster::Color{0, 255, 0, 255});
+    (void)compositor.composite({5, 5, 2, 1}, &preview, false, 1);
+    EXPECT_EQ(compositor.result().at(6, 5).a, 0);
 }
 
 } // namespace

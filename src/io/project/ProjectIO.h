@@ -16,7 +16,7 @@ namespace prism::io {
 /// Versioned so old files keep loading — see AGENTS.md "file format".
 class ProjectIO {
 public:
-    static constexpr int kFormatVersion = 1;
+    static constexpr int kFormatVersion = 2;
 
     /// Serializes \p doc to \p path. Returns true on success.
     [[nodiscard]] static bool save(const prism::core::Document& doc, const QString& path);

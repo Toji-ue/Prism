@@ -1,0 +1,1270 @@
+{
+  "schemaVersion": 1,
+  "recordedUtc": "2026-10-13T17:36:24.1675379Z",
+  "origin": "Installed MSYS2 pacman database and byte-matched DLLs, not a compliance certification",
+  "packages": [
+    {
+      "name": "mingw-w64-ucrt-x86_64-brotli",
+      "version": "1.2.0-1",
+      "licenseFromPacman": "spdx:MIT",
+      "upstream": "https://github.com/google/brotli",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-brotli",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/brotli/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-bzip2",
+      "version": "1.0.8-3",
+      "licenseFromPacman": "custom",
+      "upstream": "https://sourceware.org/bzip2/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-bzip2",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/bzip2/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-double-conversion",
+      "version": "3.4.0-1",
+      "licenseFromPacman": "spdx:BSD-3-Clause",
+      "upstream": "https://github.com/google/double-conversion",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-double-conversion",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/double-conversion/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-freetype",
+      "version": "2.14.3-1",
+      "licenseFromPacman": "spdx:GPL-2.0-or-later OR FTL",
+      "upstream": "https://www.freetype.org/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-freetype",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/freetype/FTL.TXT",
+        "ucrt64/share/licenses/freetype/GPLv2.TXT"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-gcc-libs",
+      "version": "16.1.0-7",
+      "licenseFromPacman": "spdx:GPL-3.0-or-later WITH GCC-exception-3.1 AND LGPL-2.1-or-later",
+      "upstream": "https://gcc.gnu.org",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-gcc",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/gcc-libs/COPYING.LIB",
+        "ucrt64/share/licenses/gcc-libs/COPYING.RUNTIME",
+        "ucrt64/share/licenses/gcc-libs/COPYING3",
+        "ucrt64/share/licenses/gcc-libs/README"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-gettext-runtime",
+      "version": "1.0-1",
+      "licenseFromPacman": "spdx:GPL-3.0-or-later AND LGPL-2.1-or-later",
+      "upstream": "https://www.gnu.org/software/gettext/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-gettext",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/gettext-runtime/COPYING",
+        "ucrt64/share/licenses/gettext-runtime/intl/COPYING.LIB",
+        "ucrt64/share/licenses/gettext-runtime/libasprintf/COPYING",
+        "ucrt64/share/licenses/gettext-runtime/libasprintf/COPYING.LIB"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-glib2",
+      "version": "2.88.3-1",
+      "licenseFromPacman": "spdx:LGPL-2.1-or-later",
+      "upstream": "https://gitlab.gnome.org/GNOME/glib",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-glib2",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/glib2/COPYING"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-graphite2",
+      "version": "1.3.15-1",
+      "licenseFromPacman": "spdx:LGPL-2.1-or-later",
+      "upstream": "https://github.com/silnrsi/graphite",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-graphite2",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/graphite2/COPYING",
+        "ucrt64/share/licenses/graphite2/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-harfbuzz",
+      "version": "14.3.0-1",
+      "licenseFromPacman": "spdx:MIT",
+      "upstream": "https://harfbuzz.github.io/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-harfbuzz",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/harfbuzz/COPYING"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-icu",
+      "version": "78.3-4",
+      "licenseFromPacman": "spdx:ICU",
+      "upstream": "https://icu.unicode.org/home/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-icu",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/icu/78.3/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-jasper",
+      "version": "4.2.9-3",
+      "licenseFromPacman": "spdx:JasPer-2.0",
+      "upstream": "https://www.ece.uvic.ca/~mdadams/jasper",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-jasper",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/jasper/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-jbigkit",
+      "version": "2.1-5",
+      "licenseFromPacman": "spdx:GPL-2.0",
+      "upstream": "https://www.cl.cam.ac.uk/~mgk25/jbigkit/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-jbigkit",
+      "review": "blocked-GPL-signoff-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/jbigkit/COPYING"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-lcms2",
+      "version": "2.19.1-1",
+      "licenseFromPacman": "spdx:MIT AND GPL-3.0-or-later",
+      "upstream": "https://www.littlecms.com/color-engine/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-lcms2",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/lcms2/LICENSE",
+        "ucrt64/share/licenses/lcms2/LICENSE-fast_float"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-lerc",
+      "version": "4.1.1-1",
+      "licenseFromPacman": "spdx:Apache-2.0",
+      "upstream": "https://github.com/Esri/lerc",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-lerc",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/lerc/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libb2",
+      "version": "0.98.1-3",
+      "licenseFromPacman": "custom:CC0",
+      "upstream": "https://blake2.net/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libb2",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libb2/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libdeflate",
+      "version": "1.25-1",
+      "licenseFromPacman": "spdx:MIT",
+      "upstream": "https://github.com/ebiggers/libdeflate",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libdeflate",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libdeflate/COPYING"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libiconv",
+      "version": "1.19-1",
+      "licenseFromPacman": "spdx:LGPL-2.1-or-later documentation:spdx:GPL-3.0-or-later",
+      "upstream": "https://www.gnu.org/software/libiconv/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libiconv",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libiconv/COPYING",
+        "ucrt64/share/licenses/libiconv/COPYING.LIB",
+        "ucrt64/share/licenses/libiconv/libcharset/COPYING.LIB",
+        "ucrt64/share/licenses/libiconv/README"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libjpeg-turbo",
+      "version": "3.2.0-1",
+      "licenseFromPacman": "custom:BSD-like",
+      "upstream": "https://libjpeg-turbo.virtualgl.org/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libjpeg-turbo",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libjpeg-turbo/LICENSE.md",
+        "ucrt64/share/licenses/libjpeg-turbo/README.ijg",
+        "ucrt64/share/licenses/libjpeg-turbo/README.md",
+        "ucrt64/share/licenses/libjpeg-turbo/simd/jsimdext.inc"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libmng",
+      "version": "2.0.3-7",
+      "licenseFromPacman": "spdx:Zlib",
+      "upstream": "https://sourceforge.net/projects/libmng",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libmng",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/doc/mng-2.0/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libpng",
+      "version": "1.6.58-1",
+      "licenseFromPacman": "custom",
+      "upstream": "http://www.libpng.org/pub/png/libpng.html",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libpng",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libpng/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libtiff",
+      "version": "4.7.2-1",
+      "licenseFromPacman": "spdx:MIT",
+      "upstream": "https://libtiff.gitlab.io/libtiff/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libtiff",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libtiff/LICENSE.md"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libwebp",
+      "version": "1.6.0-1",
+      "licenseFromPacman": "spdx:BSD-3-Clause",
+      "upstream": "https://developers.google.com/speed/webp/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-libwebp",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libwebp/COPYING"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libwinpthread",
+      "version": "14.0.0.r248.g7735a1a63-1",
+      "licenseFromPacman": "spdx:MIT AND BSD-3-Clause-Clear",
+      "upstream": "https://www.mingw-w64.org/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-winpthreads",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/libwinpthread/COPYING"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-md4c",
+      "version": "0.5.3-1",
+      "licenseFromPacman": "spdx:MIT",
+      "upstream": "https://github.com/mity/md4c",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-md4c",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/md4c/LICENSE.md"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-pcre2",
+      "version": "10.47-1",
+      "licenseFromPacman": "spdx:BSD-3-Clause",
+      "upstream": "https://pcre.org/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-pcre2",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/pcre2/COPYING",
+        "ucrt64/share/licenses/pcre2/LICENCE.md"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-qt6-base",
+      "version": "6.11.1-1",
+      "licenseFromPacman": "spdx:LGPL-3.0-only WITH Qt-GPL-exception-1.0 AND AFL-2.1 AND Apache-2.0 AND BSL-1.0 AND CC0-1.0 AND BSD-3-Clause AND CC-BY-4.0 AND GFDL-1.3-no-invariants-only AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-only AND custom",
+      "upstream": "https://www.qt.io",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-qt6-base",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/qt6-base/AFL-2.1.txt",
+        "ucrt64/share/licenses/qt6-base/Apache-2.0.txt",
+        "ucrt64/share/licenses/qt6-base/Bitstream-Vera.txt",
+        "ucrt64/share/licenses/qt6-base/blessing.txt",
+        "ucrt64/share/licenses/qt6-base/BSD-2-Clause.txt",
+        "ucrt64/share/licenses/qt6-base/BSD-3-Clause.txt",
+        "ucrt64/share/licenses/qt6-base/BSD-4-Clause.txt",
+        "ucrt64/share/licenses/qt6-base/BSL-1.0.txt",
+        "ucrt64/share/licenses/qt6-base/CC0-1.0.txt",
+        "ucrt64/share/licenses/qt6-base/FTL.txt",
+        "ucrt64/share/licenses/qt6-base/GFDL-1.3-no-invariants-only.txt",
+        "ucrt64/share/licenses/qt6-base/GPL-2.0-only.txt",
+        "ucrt64/share/licenses/qt6-base/GPL-2.0-or-later.txt",
+        "ucrt64/share/licenses/qt6-base/GPL-3.0-only.txt",
+        "ucrt64/share/licenses/qt6-base/HPND.txt",
+        "ucrt64/share/licenses/qt6-base/IJG.txt",
+        "ucrt64/share/licenses/qt6-base/Imlib2.txt",
+        "ucrt64/share/licenses/qt6-base/IPL-1.0.txt",
+        "ucrt64/share/licenses/qt6-base/LGPL-2.1-or-later.txt",
+        "ucrt64/share/licenses/qt6-base/LGPL-3.0-only.txt",
+        "ucrt64/share/licenses/qt6-base/libpng-2.0.txt",
+        "ucrt64/share/licenses/qt6-base/Libpng.txt",
+        "ucrt64/share/licenses/qt6-base/LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception.txt",
+        "ucrt64/share/licenses/qt6-base/LicenseRef-ICC-License.txt",
+        "ucrt64/share/licenses/qt6-base/LicenseRef-Lcs-Telegraphics.txt",
+        "ucrt64/share/licenses/qt6-base/LicenseRef-Qt-Commercial.txt",
+        "ucrt64/share/licenses/qt6-base/LicenseRef-SHA1-Public-Domain.txt",
+        "ucrt64/share/licenses/qt6-base/Linux-syscall-note.txt",
+        "ucrt64/share/licenses/qt6-base/MIT-Khronos-old.txt",
+        "ucrt64/share/licenses/qt6-base/MIT-open-group.txt",
+        "ucrt64/share/licenses/qt6-base/MIT.txt",
+        "ucrt64/share/licenses/qt6-base/MPL-2.0.txt",
+        "ucrt64/share/licenses/qt6-base/Qt-GPL-exception-1.0.txt",
+        "ucrt64/share/licenses/qt6-base/SPL-1.0.txt",
+        "ucrt64/share/licenses/qt6-base/Unicode-3.0.txt",
+        "ucrt64/share/licenses/qt6-base/X11.txt",
+        "ucrt64/share/licenses/qt6-base/Xerox.txt",
+        "ucrt64/share/licenses/qt6-base/Zlib.txt"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "version": "6.11.1-1",
+      "licenseFromPacman": "spdx:LGPL-3.0-only WITH Qt-GPL-exception-1.0 AND BSD-3-Clause AND GFDL-1.3-no-invariants-only AND GPL-2.0-only AND GPL-3.0-only",
+      "upstream": "https://www.qt.io",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-qt6-declarative",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/qt6-declarative/Apache-2.0.txt",
+        "ucrt64/share/licenses/qt6-declarative/BSD-2-Clause.txt",
+        "ucrt64/share/licenses/qt6-declarative/BSD-3-Clause.txt",
+        "ucrt64/share/licenses/qt6-declarative/CC-BY-3.0.txt",
+        "ucrt64/share/licenses/qt6-declarative/CC0-1.0.txt",
+        "ucrt64/share/licenses/qt6-declarative/GFDL-1.3-no-invariants-only.txt",
+        "ucrt64/share/licenses/qt6-declarative/GPL-2.0-only.txt",
+        "ucrt64/share/licenses/qt6-declarative/GPL-3.0-only.txt",
+        "ucrt64/share/licenses/qt6-declarative/LGPL-3.0-only.txt",
+        "ucrt64/share/licenses/qt6-declarative/LicenseRef-Qt-Commercial.txt",
+        "ucrt64/share/licenses/qt6-declarative/MIT.txt",
+        "ucrt64/share/licenses/qt6-declarative/OFL-1.1.txt",
+        "ucrt64/share/licenses/qt6-declarative/Qt-GPL-exception-1.0.txt",
+        "ucrt64/share/licenses/qt6-declarative/Unlicense.txt"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "version": "6.11.1-1",
+      "licenseFromPacman": "spdx:LGPL-3.0-only WITH Qt-GPL-exception-1.0 AND BSD-3-Clause AND GFDL-1.3-no-invariants-only AND GPL-2.0-only AND GPL-3.0-only",
+      "upstream": "https://www.qt.io",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-qt6-imageformats",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/qt6-imageformats/BSD-3-Clause.txt",
+        "ucrt64/share/licenses/qt6-imageformats/GFDL-1.3-no-invariants-only.txt",
+        "ucrt64/share/licenses/qt6-imageformats/GPL-2.0-only.txt",
+        "ucrt64/share/licenses/qt6-imageformats/GPL-3.0-only.txt",
+        "ucrt64/share/licenses/qt6-imageformats/LGPL-3.0-only.txt",
+        "ucrt64/share/licenses/qt6-imageformats/libtiff.txt",
+        "ucrt64/share/licenses/qt6-imageformats/LicenseRef-Qt-Commercial.txt"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-xz",
+      "version": "5.8.3-1",
+      "licenseFromPacman": "spdx:0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later",
+      "upstream": "https://tukaani.org/xz",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-xz",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/doc/xz/COPYING",
+        "ucrt64/share/doc/xz/COPYING.0BSD",
+        "ucrt64/share/doc/xz/COPYING.GPLv2",
+        "ucrt64/share/licenses/xz/COPYING",
+        "ucrt64/share/licenses/xz/COPYING.0BSD",
+        "ucrt64/share/licenses/xz/COPYING.GPLv2",
+        "ucrt64/share/licenses/xz/COPYING.GPLv3",
+        "ucrt64/share/licenses/xz/COPYING.LGPLv2.1"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-zlib",
+      "version": "1.3.2-2",
+      "licenseFromPacman": "spdx:Zlib",
+      "upstream": "https://www.zlib.net/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-zlib",
+      "review": "recorded-permissive",
+      "licenseFiles": [
+        "ucrt64/share/licenses/zlib/LICENSE"
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-zstd",
+      "version": "1.5.7-2",
+      "licenseFromPacman": "spdx:BSD-3-Clause OR GPL-2.0-or-later",
+      "upstream": "https://facebook.github.io/zstd/",
+      "recipe": "https://github.com/msys2/MINGW-packages/tree/master/mingw-w64-zstd",
+      "review": "distribution-review-required",
+      "licenseFiles": [
+        "ucrt64/share/licenses/zstd/LICENSE"
+      ]
+    }
+  ],
+  "runtimeFiles": [
+    {
+      "path": "libb2-1.dll",
+      "sha256": "01bbf64090367d511f41d9fc8f34c557f61d4a227b7c9e47ce04052cbfdc3e7d",
+      "package": "mingw-w64-ucrt-x86_64-libb2",
+      "sourcePath": "ucrt64/bin/libb2-1.dll"
+    },
+    {
+      "path": "libbrotlicommon.dll",
+      "sha256": "c62c08223e450dfc2fff33c752cc228505ffd9d755201958ba800d5d30481a2c",
+      "package": "mingw-w64-ucrt-x86_64-brotli",
+      "sourcePath": "ucrt64/bin/libbrotlicommon.dll"
+    },
+    {
+      "path": "libbrotlidec.dll",
+      "sha256": "e270b6e576594ee8ee6e33ccc54e34a54304616dd6225652e11e49d6f17ef896",
+      "package": "mingw-w64-ucrt-x86_64-brotli",
+      "sourcePath": "ucrt64/bin/libbrotlidec.dll"
+    },
+    {
+      "path": "libbz2-1.dll",
+      "sha256": "669a4bf9266d5f020e843aa5fd75b93ce8ebde27014d5ac466a8b3cf39d8aba7",
+      "package": "mingw-w64-ucrt-x86_64-bzip2",
+      "sourcePath": "ucrt64/bin/libbz2-1.dll"
+    },
+    {
+      "path": "libdeflate.dll",
+      "sha256": "fb54be03668f41fae3f5d8bbabeedbc24e71b37e637e3cd34acd54f89f128ac1",
+      "package": "mingw-w64-ucrt-x86_64-libdeflate",
+      "sourcePath": "ucrt64/bin/libdeflate.dll"
+    },
+    {
+      "path": "libdouble-conversion.dll",
+      "sha256": "aecc5a09c4657a969be2969269029664898b3d1ac037b0795614d685a7ca6c1e",
+      "package": "mingw-w64-ucrt-x86_64-double-conversion",
+      "sourcePath": "ucrt64/bin/libdouble-conversion.dll"
+    },
+    {
+      "path": "libfreetype-6.dll",
+      "sha256": "a3271784f8366b3c6412e0c35474884fa12899c392bacb08bc8eac00f4be7e64",
+      "package": "mingw-w64-ucrt-x86_64-freetype",
+      "sourcePath": "ucrt64/bin/libfreetype-6.dll"
+    },
+    {
+      "path": "libgcc_s_seh-1.dll",
+      "sha256": "d18e8877fa30eee6f09d753da2c8734f90d041cbe6f219bc391e38f52437e8e2",
+      "package": "mingw-w64-ucrt-x86_64-gcc-libs",
+      "sourcePath": "ucrt64/bin/libgcc_s_seh-1.dll"
+    },
+    {
+      "path": "libglib-2.0-0.dll",
+      "sha256": "052e1d5e9cb072c7d2fb9db3ea6c29c1889b05110b1228e4fb846884eed387dd",
+      "package": "mingw-w64-ucrt-x86_64-glib2",
+      "sourcePath": "ucrt64/bin/libglib-2.0-0.dll"
+    },
+    {
+      "path": "libgraphite2.dll",
+      "sha256": "93953e4744bcfce9a7bc439b956544bc213095cb1349c3602a58370f32b25c18",
+      "package": "mingw-w64-ucrt-x86_64-graphite2",
+      "sourcePath": "ucrt64/bin/libgraphite2.dll"
+    },
+    {
+      "path": "libharfbuzz-0.dll",
+      "sha256": "7eecdb84e4b91f4e472620475459a32c0c6fc40bdde1de0e09204438cc005843",
+      "package": "mingw-w64-ucrt-x86_64-harfbuzz",
+      "sourcePath": "ucrt64/bin/libharfbuzz-0.dll"
+    },
+    {
+      "path": "libiconv-2.dll",
+      "sha256": "94ec68fb8d342b6c91b6b48a8d95092819cdcd006a7166e0b68062f946afd08a",
+      "package": "mingw-w64-ucrt-x86_64-libiconv",
+      "sourcePath": "ucrt64/bin/libiconv-2.dll"
+    },
+    {
+      "path": "libicudt78.dll",
+      "sha256": "29b2f925adf4531d7b3ee0edc037f3559996de499dff663819f07000a79d72fa",
+      "package": "mingw-w64-ucrt-x86_64-icu",
+      "sourcePath": "ucrt64/bin/libicudt78.dll"
+    },
+    {
+      "path": "libicuin78.dll",
+      "sha256": "cb87dfb05ae183ea96f2295174d993430094cc0f0d6ba99fd4f253d5079b0890",
+      "package": "mingw-w64-ucrt-x86_64-icu",
+      "sourcePath": "ucrt64/bin/libicuin78.dll"
+    },
+    {
+      "path": "libicuuc78.dll",
+      "sha256": "9d5fd51a4647f759067568ae82dc391b56af144966a588cd98aab77ef045835a",
+      "package": "mingw-w64-ucrt-x86_64-icu",
+      "sourcePath": "ucrt64/bin/libicuuc78.dll"
+    },
+    {
+      "path": "libintl-8.dll",
+      "sha256": "0e5a178731e6be6d115442a6ade3df7f03265cd1fc4338f8b6f86a8001cbf582",
+      "package": "mingw-w64-ucrt-x86_64-gettext-runtime",
+      "sourcePath": "ucrt64/bin/libintl-8.dll"
+    },
+    {
+      "path": "libjasper.dll",
+      "sha256": "a39dc8f5b4e30b3eae7beac9821db760afd462086e729f112111ebc366582357",
+      "package": "mingw-w64-ucrt-x86_64-jasper",
+      "sourcePath": "ucrt64/bin/libjasper.dll"
+    },
+    {
+      "path": "libjbig-0.dll",
+      "sha256": "6d1657e08318630738fb0841ee28bbe7272b41b3b2ef93adaa228c4cd10092c6",
+      "package": "mingw-w64-ucrt-x86_64-jbigkit",
+      "sourcePath": "ucrt64/bin/libjbig-0.dll"
+    },
+    {
+      "path": "libjpeg-8.dll",
+      "sha256": "c63acd5a3231725aa96aa35444b74cd8d607a6fbdab1dd18b0e0ada7e39476d4",
+      "package": "mingw-w64-ucrt-x86_64-libjpeg-turbo",
+      "sourcePath": "ucrt64/bin/libjpeg-8.dll"
+    },
+    {
+      "path": "liblcms2-2.dll",
+      "sha256": "03314471fadd04cdd63c108472ff85d058903d236a0356c14eda363f0e1ccb65",
+      "package": "mingw-w64-ucrt-x86_64-lcms2",
+      "sourcePath": "ucrt64/bin/liblcms2-2.dll"
+    },
+    {
+      "path": "libLerc.dll",
+      "sha256": "1ffee78579c25b073267bcac8d0a6045d9bd446e010c7953b569b2629ca8a58a",
+      "package": "mingw-w64-ucrt-x86_64-lerc",
+      "sourcePath": "ucrt64/bin/libLerc.dll"
+    },
+    {
+      "path": "liblzma-5.dll",
+      "sha256": "ad9656bf86fb3673fa6af18fa357531096af3d76eccb4a56c4cd6a6171da1554",
+      "package": "mingw-w64-ucrt-x86_64-xz",
+      "sourcePath": "ucrt64/bin/liblzma-5.dll"
+    },
+    {
+      "path": "libmd4c.dll",
+      "sha256": "e3dd74122044e243d7aab26ccbc74b64e749f449e99a7cf5c448f1eb2a609666",
+      "package": "mingw-w64-ucrt-x86_64-md4c",
+      "sourcePath": "ucrt64/bin/libmd4c.dll"
+    },
+    {
+      "path": "libmng-2.dll",
+      "sha256": "af1c4e2787a3bef74ae8ef4aec387df5dc63db9066521c565b2ebffd50592c09",
+      "package": "mingw-w64-ucrt-x86_64-libmng",
+      "sourcePath": "ucrt64/bin/libmng-2.dll"
+    },
+    {
+      "path": "libpcre2-16-0.dll",
+      "sha256": "e076240764fe97cfeba9bc3cbc2af94dfaf50a7f46d3a6befd69e2e1108272b2",
+      "package": "mingw-w64-ucrt-x86_64-pcre2",
+      "sourcePath": "ucrt64/bin/libpcre2-16-0.dll"
+    },
+    {
+      "path": "libpcre2-8-0.dll",
+      "sha256": "52ccc7e4ec5ad0aecf307c0328826340f5d504aa59f7c4143b9a1b9fff16ccda",
+      "package": "mingw-w64-ucrt-x86_64-pcre2",
+      "sourcePath": "ucrt64/bin/libpcre2-8-0.dll"
+    },
+    {
+      "path": "libpng16-16.dll",
+      "sha256": "5c1dd5410af563f4a3c4aee10d1f749aa71e0d7fb3b4fac240eb9e96cadebd26",
+      "package": "mingw-w64-ucrt-x86_64-libpng",
+      "sourcePath": "ucrt64/bin/libpng16-16.dll"
+    },
+    {
+      "path": "libsharpyuv-0.dll",
+      "sha256": "d29380c7056383f3e7a80bf9e150f0b8c425c1cf2568d1336e88979ddc2307af",
+      "package": "mingw-w64-ucrt-x86_64-libwebp",
+      "sourcePath": "ucrt64/bin/libsharpyuv-0.dll"
+    },
+    {
+      "path": "libstdc++-6.dll",
+      "sha256": "887050bdacb07824b9ea37761a0bb23a0b93de775fdc772e778dcd6716e5e5f9",
+      "package": "mingw-w64-ucrt-x86_64-gcc-libs",
+      "sourcePath": "ucrt64/bin/libstdc++-6.dll"
+    },
+    {
+      "path": "libtiff-6.dll",
+      "sha256": "ce0eb686a9b03a8586d7d1f833fadcbe67ad2f6ff8538c3f431d4edb072f935d",
+      "package": "mingw-w64-ucrt-x86_64-libtiff",
+      "sourcePath": "ucrt64/bin/libtiff-6.dll"
+    },
+    {
+      "path": "libwebp-7.dll",
+      "sha256": "8dfe40c4e0abc90ddf18f080898987e01253d099b2b2d6daf7db521e55c00446",
+      "package": "mingw-w64-ucrt-x86_64-libwebp",
+      "sourcePath": "ucrt64/bin/libwebp-7.dll"
+    },
+    {
+      "path": "libwebpdemux-2.dll",
+      "sha256": "d9ac8b88387cea7ac943c38c7610314d7a41e7d6d86a8a22582ff8b8a6b99c72",
+      "package": "mingw-w64-ucrt-x86_64-libwebp",
+      "sourcePath": "ucrt64/bin/libwebpdemux-2.dll"
+    },
+    {
+      "path": "libwebpmux-3.dll",
+      "sha256": "9bd85116a22923d648d6b0ad09f21d08df7bd3d8860b24a5b4a6d4ac788b7340",
+      "package": "mingw-w64-ucrt-x86_64-libwebp",
+      "sourcePath": "ucrt64/bin/libwebpmux-3.dll"
+    },
+    {
+      "path": "libwinpthread-1.dll",
+      "sha256": "65d900ffeb65362812f77b9473db1b96d40155f8096826148985a41f4b2bab65",
+      "package": "mingw-w64-ucrt-x86_64-libwinpthread",
+      "sourcePath": "ucrt64/bin/libwinpthread-1.dll"
+    },
+    {
+      "path": "libzstd.dll",
+      "sha256": "48368ab0ca622d0ec12f41ce85d91f22866bf5da92c77a69a06483564c93816c",
+      "package": "mingw-w64-ucrt-x86_64-zstd",
+      "sourcePath": "ucrt64/bin/libzstd.dll"
+    },
+    {
+      "path": "Qt6Concurrent.dll",
+      "sha256": "12bec2802b6d6bb6e0e7d81538252f89956c91341f434fdf72dc0dcdf00cace4",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Concurrent.dll"
+    },
+    {
+      "path": "Qt6Core.dll",
+      "sha256": "c76618448d8e6ed5d1c9d21d1b160acfb85b33bb73dbc3674dfc6a5fef16868b",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Core.dll"
+    },
+    {
+      "path": "Qt6DBus.dll",
+      "sha256": "09fe49402710c03adb2fbc1c39b7aa5cbbbc3c150637d8436696f98050fc743d",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6DBus.dll"
+    },
+    {
+      "path": "Qt6Gui.dll",
+      "sha256": "8fb9447ea33217fce7ee7b4807b57b3304f22c54218649824ad6c58857766112",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Gui.dll"
+    },
+    {
+      "path": "Qt6LabsAnimation.dll",
+      "sha256": "b6d1c8e325a70e9d5b068516d8a24c5cac990c9e3bb4eb5fb88c99ac2fd9d660",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsAnimation.dll"
+    },
+    {
+      "path": "Qt6LabsFolderListModel.dll",
+      "sha256": "e45f8198ae9bf29fd09e6cf3636a56b85e21a09d8129f83060aec56f2d8609e9",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsFolderListModel.dll"
+    },
+    {
+      "path": "Qt6LabsPlatform.dll",
+      "sha256": "10dd4d3719502a7e685365b107e7f398c2fcb77fb71d0f1eb5a4aa422f0085a4",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsPlatform.dll"
+    },
+    {
+      "path": "Qt6LabsQmlModels.dll",
+      "sha256": "616d40e65761b1a85e11b9aec6ece9410eea3adbe904c50582a7563a43cfeed7",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsQmlModels.dll"
+    },
+    {
+      "path": "Qt6LabsSettings.dll",
+      "sha256": "0255e78471794aabfbe88bfd07c067899c04966b0a4a7963e4539bb303d96b91",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsSettings.dll"
+    },
+    {
+      "path": "Qt6LabsSharedImage.dll",
+      "sha256": "8e3da132dd0d2c4dfac912063cec6e4182280d0c70646d18cad65c7624f0e93c",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsSharedImage.dll"
+    },
+    {
+      "path": "Qt6LabsStyleKit.dll",
+      "sha256": "de2bb66802c2832ac838b97b194d69f1a76c69f789a7d8a73c1a1943f7de1a8b",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsStyleKit.dll"
+    },
+    {
+      "path": "Qt6LabsStyleKitImpl.dll",
+      "sha256": "d79ce93e822f1dd0e5000b24fe966a4090d093f326e2e51c2b6808fe2d0718b3",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsStyleKitImpl.dll"
+    },
+    {
+      "path": "Qt6LabsSynchronizer.dll",
+      "sha256": "087721826c9ed8a76a45f6c4a7375bb89b81b8b4264d8aa90aae5278842551e1",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsSynchronizer.dll"
+    },
+    {
+      "path": "Qt6LabsWavefrontMesh.dll",
+      "sha256": "3de351954404a3d09fe8cd1682f6d606c65ecec3198275a46a16244c3fa2761d",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6LabsWavefrontMesh.dll"
+    },
+    {
+      "path": "Qt6Network.dll",
+      "sha256": "c7da4b12e6f1eebf88b7e9d71dca474735dd8c3fb197389840035450ed0cee90",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Network.dll"
+    },
+    {
+      "path": "Qt6OpenGL.dll",
+      "sha256": "daabdcae259c313a5382ad36c4f90ca5e01c842e7d0677e7babf11f6aa78bcdc",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6OpenGL.dll"
+    },
+    {
+      "path": "Qt6OpenGLWidgets.dll",
+      "sha256": "d27f9520fb9ca7df16a515cdd1c6d3ff7731289235f4fe63af9602927b5c3022",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6OpenGLWidgets.dll"
+    },
+    {
+      "path": "Qt6PrintSupport.dll",
+      "sha256": "a5036a9c2a28b54e63e6488fb6d7415a1f8948c1d7b4e9144f1ac39005e88805",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6PrintSupport.dll"
+    },
+    {
+      "path": "Qt6Qml.dll",
+      "sha256": "69b538096fafa8b6d27d48b948826fcff591432e0c5bd63cc363f71530207ec0",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6Qml.dll"
+    },
+    {
+      "path": "Qt6QmlCompiler.dll",
+      "sha256": "442d95d28dd7f4d710dd036a8b2de074efe9be8c3b9871664cb495cee1588bce",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlCompiler.dll"
+    },
+    {
+      "path": "Qt6QmlCore.dll",
+      "sha256": "94c9ec0bf75ce4ffc277ce6b355818e779afe3a8ef385629ab060074c1ff5816",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlCore.dll"
+    },
+    {
+      "path": "Qt6QmlLocalStorage.dll",
+      "sha256": "c89207eaf0608776694502fec41be07938b87e9e74e6b56a42a880dbf34c4637",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlLocalStorage.dll"
+    },
+    {
+      "path": "Qt6QmlMeta.dll",
+      "sha256": "d264aa81d073251b001920d2ee8c7ae66a5e6f668bb92c77fa319f0f5462aa82",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlMeta.dll"
+    },
+    {
+      "path": "Qt6QmlModels.dll",
+      "sha256": "5dfd411553891f13b79149fbe4fbbe128b208f3959165af7a6d03d4ad523411c",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlModels.dll"
+    },
+    {
+      "path": "Qt6QmlNetwork.dll",
+      "sha256": "0a50b55f7e1435b9b827f53162b301a35bedbcd56ed31699d7b1915dbccef276",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlNetwork.dll"
+    },
+    {
+      "path": "Qt6QmlWorkerScript.dll",
+      "sha256": "9c43ce880831bc3678a94d9064dc2fe0500379a21289927cb3f28420445e59d8",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlWorkerScript.dll"
+    },
+    {
+      "path": "Qt6QmlXmlListModel.dll",
+      "sha256": "7043ac66ed0753a7e29cdb025104f6465c0508b0a85bd3ca6c9a8c83852855e6",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QmlXmlListModel.dll"
+    },
+    {
+      "path": "Qt6Quick.dll",
+      "sha256": "b7869486543010b5229c53f77df14fcde553af5054c38f207ad5ead8327259af",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6Quick.dll"
+    },
+    {
+      "path": "Qt6QuickControls2.dll",
+      "sha256": "c34df636efaeafae95b2280a40d59b6749e15de44affb9fb2203ed5b79331279",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2.dll"
+    },
+    {
+      "path": "Qt6QuickControls2Basic.dll",
+      "sha256": "5bc4d79427ac2d8b471911c44965186b8725b942e6a5ecee8128a864ddbd1f02",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2Basic.dll"
+    },
+    {
+      "path": "Qt6QuickControls2BasicStyleImpl.dll",
+      "sha256": "e799ef646451ac6389870353d9309ee95aa68135d099ec8816f171ec4523a2f0",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2BasicStyleImpl.dll"
+    },
+    {
+      "path": "Qt6QuickControls2FluentWinUI3StyleImpl.dll",
+      "sha256": "e5cf1f604c65adb50fe5eb4df9076fe1a7767addfa1dc5a59a1f6c479a74705e",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2FluentWinUI3StyleImpl.dll"
+    },
+    {
+      "path": "Qt6QuickControls2Fusion.dll",
+      "sha256": "e4663d96f1862bedea86c76cff049d9cd6ce749d578b61c8971bb782904190ad",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2Fusion.dll"
+    },
+    {
+      "path": "Qt6QuickControls2FusionStyleImpl.dll",
+      "sha256": "a52018db48b0427e51351d8b526cb25fc3e238071fdd350936b8824207a85302",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2FusionStyleImpl.dll"
+    },
+    {
+      "path": "Qt6QuickControls2Imagine.dll",
+      "sha256": "ef5a29ece90ea5bb28ad810e9a367f232424a7d5b99a9c6b031dab59b7a143b1",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2Imagine.dll"
+    },
+    {
+      "path": "Qt6QuickControls2ImagineStyleImpl.dll",
+      "sha256": "bca2bcd08f1de0462282d010691b39afe6d8c26ecb9ced287b59a0f234ada446",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2ImagineStyleImpl.dll"
+    },
+    {
+      "path": "Qt6QuickControls2Impl.dll",
+      "sha256": "7e56ba8a6f78b6c1c92d57d512d3c1b40ab2580ca91e27167359be079cf82c67",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2Impl.dll"
+    },
+    {
+      "path": "Qt6QuickControls2Material.dll",
+      "sha256": "850efb97485ce6f87aca4d5ab91d74c1f8fa2506225b75b976b5d816f44fb207",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2Material.dll"
+    },
+    {
+      "path": "Qt6QuickControls2MaterialStyleImpl.dll",
+      "sha256": "7b3b62c635b940cf4712e08851adc130f3a55e8527f09eb8cad3054e11793ec9",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2MaterialStyleImpl.dll"
+    },
+    {
+      "path": "Qt6QuickControls2Universal.dll",
+      "sha256": "18828f3dee2e228ac436184dbbef321cafae00bf65a236df6e83dd590ea70136",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2Universal.dll"
+    },
+    {
+      "path": "Qt6QuickControls2UniversalStyleImpl.dll",
+      "sha256": "853538a2bead9653069087b92871555b023e7732e8ca5926542d8b9e161becbf",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2UniversalStyleImpl.dll"
+    },
+    {
+      "path": "Qt6QuickControls2WindowsStyleImpl.dll",
+      "sha256": "bd98b2cca76fb591042dd169e66be7687f4bb5cf7be714812c77ad7d1f62d881",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickControls2WindowsStyleImpl.dll"
+    },
+    {
+      "path": "Qt6QuickDialogs2.dll",
+      "sha256": "e8e875802c1c5f8e7ce7961c028a0ad871c9db0c7b4bec72da672f4eb4874d6a",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickDialogs2.dll"
+    },
+    {
+      "path": "Qt6QuickDialogs2QuickImpl.dll",
+      "sha256": "13f80dbb9458e4827b342af2776574754e3f54efa0501912dbe6b8c1f1806484",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickDialogs2QuickImpl.dll"
+    },
+    {
+      "path": "Qt6QuickDialogs2Utils.dll",
+      "sha256": "3987aa1685fdcdacdfc0c20f61b488117b82d18a1dffe4fde0ad837916a43387",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickDialogs2Utils.dll"
+    },
+    {
+      "path": "Qt6QuickEffects.dll",
+      "sha256": "d33d35c2ce0227d037db14aebac4ad1ea345f1cb707130aae2f640fcbe9cf98e",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickEffects.dll"
+    },
+    {
+      "path": "Qt6QuickLayouts.dll",
+      "sha256": "89d2fbcce328f0b0e02c91ffc8dc0ecec1d80599e2f626c4ae939d913ad3e77c",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickLayouts.dll"
+    },
+    {
+      "path": "Qt6QuickParticles.dll",
+      "sha256": "456354c9800bb5ea2b11744946c7528f237af9d350379f60ce72e9137671844c",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickParticles.dll"
+    },
+    {
+      "path": "Qt6QuickShapes.dll",
+      "sha256": "bbfcb11a602e03859292896df4c1b7e201622b609d857a42dc5a661cbf27532b",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickShapes.dll"
+    },
+    {
+      "path": "Qt6QuickShapesDesignHelpers.dll",
+      "sha256": "fbd0c5ba4d81ef68009664b6a73e605ebae071381d5d830f00c617ab6b14f439",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickShapesDesignHelpers.dll"
+    },
+    {
+      "path": "Qt6QuickTemplates2.dll",
+      "sha256": "fcecf5591c00aa98c8f73ba4933e798e7d4f30f3c073ace1cc0890d14430284b",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickTemplates2.dll"
+    },
+    {
+      "path": "Qt6QuickTest.dll",
+      "sha256": "68541295987fa38bd6572015d849e622c884a876cf3b93f686e749080d9df6d8",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickTest.dll"
+    },
+    {
+      "path": "Qt6QuickVectorImage.dll",
+      "sha256": "87fec0b1a0f824cc531a81f60f2c17dcbcfca2ec95aae953c04e79586944b9f9",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickVectorImage.dll"
+    },
+    {
+      "path": "Qt6QuickVectorImageGenerator.dll",
+      "sha256": "fb16c04b776b4ea86be19b940eae4284fcd20b0819204cd5ed037cb6b2c7cbb1",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickVectorImageGenerator.dll"
+    },
+    {
+      "path": "Qt6QuickVectorImageHelpers.dll",
+      "sha256": "39b6c476c6409fd468ff083e12ff00b7683a420548ec2bf786f4f3bab938b330",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickVectorImageHelpers.dll"
+    },
+    {
+      "path": "Qt6QuickWidgets.dll",
+      "sha256": "4296ae8819b92ff662fa29c09e2dbebf6178bb98a1e43c5d48b15524947094b2",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/bin/Qt6QuickWidgets.dll"
+    },
+    {
+      "path": "Qt6Sql.dll",
+      "sha256": "697362faa5d199abedd034552dc297f37def317c9cfdc9330b79cf368c65e5a1",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Sql.dll"
+    },
+    {
+      "path": "Qt6Test.dll",
+      "sha256": "771973e3a41d0c82f9e789fb7be8aedd916f38a485ea6db1d70f50228dd9cc3f",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Test.dll"
+    },
+    {
+      "path": "Qt6Widgets.dll",
+      "sha256": "3131e9836e20a4eb5bb44ba22fd4f128b2df9d402de0bbe418cc322257aee287",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Widgets.dll"
+    },
+    {
+      "path": "Qt6Xml.dll",
+      "sha256": "d7282caddd18a66316eea622a96dbd9af614931c56fab2a9d289cbd847dc9125",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/bin/Qt6Xml.dll"
+    },
+    {
+      "path": "zlib1.dll",
+      "sha256": "11cd91171765cd65f1c3362e3df67e5f5a618a6b88c8cdec899b802eaf1c7b0d",
+      "package": "mingw-w64-ucrt-x86_64-zlib",
+      "sourcePath": "ucrt64/bin/zlib1.dll"
+    },
+    {
+      "path": "plugins/imageformats/qgif.dll",
+      "sha256": "de451dc6ac1366256d7f5024abd14537473c500542b63e259765ee3615188abc",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qgif.dll"
+    },
+    {
+      "path": "plugins/imageformats/qicns.dll",
+      "sha256": "94111173de265e3509d3d2d1283f22214963183f5ede24e9cba0b37e44ac40ea",
+      "package": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qicns.dll"
+    },
+    {
+      "path": "plugins/imageformats/qico.dll",
+      "sha256": "526b714c2bf66df72fcf79d81dedd7fd87167ec619d0403a6bfd447361705dad",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qico.dll"
+    },
+    {
+      "path": "plugins/imageformats/qjp2.dll",
+      "sha256": "7c57db8c8de82d99dd9063629cbd195ec05d643b7919e045f39daa616701f9e7",
+      "package": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qjp2.dll"
+    },
+    {
+      "path": "plugins/imageformats/qjpeg.dll",
+      "sha256": "a0ad81287cf48392a0fd8b6b226d8705b1dd199495f90e0bb09624c88e6b8ba4",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qjpeg.dll"
+    },
+    {
+      "path": "plugins/imageformats/qmng.dll",
+      "sha256": "74b5e88f97a087a0e3224e48866b6b4c058226b93b5e66204fb8ba25a0c45424",
+      "package": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qmng.dll"
+    },
+    {
+      "path": "plugins/imageformats/qtga.dll",
+      "sha256": "fccecc725d1ce430de46cb7005124581741587c1a1fb001c6e3230b06fde9558",
+      "package": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qtga.dll"
+    },
+    {
+      "path": "plugins/imageformats/qtiff.dll",
+      "sha256": "724f9abf2fc607acba3e20ba841afc6cb15ff2758d7586efd5e7091f28119e95",
+      "package": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qtiff.dll"
+    },
+    {
+      "path": "plugins/imageformats/qwbmp.dll",
+      "sha256": "a899a137a87435b7c5d99160170032eb7bdf4d2e19221a2d79e32b92b7605b6f",
+      "package": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qwbmp.dll"
+    },
+    {
+      "path": "plugins/imageformats/qwebp.dll",
+      "sha256": "b2b677bb76102080656d4232337150733dc97b62c7254b102cf9b5e421220cbc",
+      "package": "mingw-w64-ucrt-x86_64-qt6-imageformats",
+      "sourcePath": "ucrt64/share/qt6/plugins/imageformats/qwebp.dll"
+    },
+    {
+      "path": "plugins/platforms/qdirect2d.dll",
+      "sha256": "22bea9b072aa77ffd9deb994c2645f381e4e08328118532a00360a7fa895989f",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/platforms/qdirect2d.dll"
+    },
+    {
+      "path": "plugins/platforms/qminimal.dll",
+      "sha256": "04f790828c50b6876b3c49e3c2e4a56755a702430f33b1863cbf1ea50f17c4bb",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/platforms/qminimal.dll"
+    },
+    {
+      "path": "plugins/platforms/qoffscreen.dll",
+      "sha256": "cc231d1ddbc1f6d5c4b67f734791f63c813143ab5c62010eabd4775263194a25",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/platforms/qoffscreen.dll"
+    },
+    {
+      "path": "plugins/platforms/qwindows.dll",
+      "sha256": "ba44a583b1dd8b07cabed61289a4d5c258f51f4bd6703ba0ea7d9e7a3adb51df",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/platforms/qwindows.dll"
+    },
+    {
+      "path": "plugins/styles/qmodernwindowsstyle.dll",
+      "sha256": "e321d98f11c30ed3c313d2f1eea8facd54678abbd4707ebf9e6f3b65fdd919bf",
+      "package": "mingw-w64-ucrt-x86_64-qt6-base",
+      "sourcePath": "ucrt64/share/qt6/plugins/styles/qmodernwindowsstyle.dll"
+    },
+    {
+      "path": "qml/Qt/labs/animation/labsanimationplugin.dll",
+      "sha256": "f01cae779dce9c9c056f709faba3eb47693cc3043e7a610070a46380334380c9",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/animation/labsanimationplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/folderlistmodel/qmlfolderlistmodelplugin.dll",
+      "sha256": "3521d85ae18e8d0c695dd84311ec658de339ca0d614c8d7f85adfd9d757040c7",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/folderlistmodel/qmlfolderlistmodelplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/platform/labsplatformplugin.dll",
+      "sha256": "2f46e839dcaabe82b8a351841004ca63c83dade20764e74360a79a438a7967ef",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/platform/labsplatformplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/qmlmodels/labsmodelsplugin.dll",
+      "sha256": "7b979149d3e15926287ce6e002bb7fa345ac570fd849d4d5f79037063443071b",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/qmlmodels/labsmodelsplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/settings/qmlsettingsplugin.dll",
+      "sha256": "52612f80a7b04d429f8b7c499f11992b068b8e3cce360cd033d566d883f7fb3b",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/settings/qmlsettingsplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/sharedimage/sharedimageplugin.dll",
+      "sha256": "45d9c32e83425da156148e8b343b04e82e5df36cfe9a13f679e8c2e0b0218642",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/sharedimage/sharedimageplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/StyleKit/labsstylekitplugin.dll",
+      "sha256": "8401934079c773ad3c813e3f01490d65802507edd4354b7302595c6d988a1465",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/StyleKit/labsstylekitplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/StyleKit/impl/labsstylekitimplplugin.dll",
+      "sha256": "737efb9421de1e5392d169b7e192b20da1243518829e81cac3afc7acca9c87c8",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/StyleKit/impl/labsstylekitimplplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/synchronizer/labssynchronizerplugin.dll",
+      "sha256": "63262b4efb3f68254c89f97eab79ae3632b18f4b9a64b8ba50e319fc841a5a1d",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/synchronizer/labssynchronizerplugin.dll"
+    },
+    {
+      "path": "qml/Qt/labs/wavefrontmesh/qmlwavefrontmeshplugin.dll",
+      "sha256": "52f5d089377bb4b7df74fe4ae1b18bb15a5539041a2fb9851c0850ada88f4c6d",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/labs/wavefrontmesh/qmlwavefrontmeshplugin.dll"
+    },
+    {
+      "path": "qml/Qt/test/controls/quickcontrolstestutilsprivateplugin.dll",
+      "sha256": "713a040d45f86e0843e43ca0b51eadf824f363ed26efd9ed04e03cea023bc03e",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/Qt/test/controls/quickcontrolstestutilsprivateplugin.dll"
+    },
+    {
+      "path": "qml/QtCore/qtqmlcoreplugin.dll",
+      "sha256": "ae9019a98908056affe48ddd393173dcc405fc41e0e625deb9ea9d466713f772",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtCore/qtqmlcoreplugin.dll"
+    },
+    {
+      "path": "qml/QtNetwork/qmlnetworkplugin.dll",
+      "sha256": "9ef03e46f2417b8e639e1aeaca1908ba5b53f2321e76c02d5e991d7cb0da12c7",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtNetwork/qmlnetworkplugin.dll"
+    },
+    {
+      "path": "qml/QtQml/qmlplugin.dll",
+      "sha256": "3f3091b674545449b7d80bff5a4b4391d9e364e9895eedcff43db6b206eca288",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQml/qmlplugin.dll"
+    },
+    {
+      "path": "qml/QtQml/Models/modelsplugin.dll",
+      "sha256": "6dd8befe64f8ceb5988706869a63fdb5951404eebb4aa273f0cc169346cf3910",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQml/Models/modelsplugin.dll"
+    },
+    {
+      "path": "qml/QtQml/WorkerScript/workerscriptplugin.dll",
+      "sha256": "a1a0cf18952a7fee4bd5c126419a440bc62b4134bcef8b19c9adb24fbe3bd352",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQml/WorkerScript/workerscriptplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/qtquick2plugin.dll",
+      "sha256": "0a6f1e9a682ce134129a1e62c5adb174f84eac67176ceadc05771456998a9f76",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/qtquick2plugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Controls/qtquickcontrols2plugin.dll",
+      "sha256": "1248b6e3d63aa644c9799c49f4b2a1f02115d792a4a6a3031d027b4f2c331c21",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Controls/qtquickcontrols2plugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Controls/Basic/qtquickcontrols2basicstyleplugin.dll",
+      "sha256": "6e06bbef1e3981924d68cf7a106d48a7770be0cdcf5a22f471959aa5b4922584",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Controls/Basic/qtquickcontrols2basicstyleplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Controls/Basic/impl/qtquickcontrols2basicstyleimplplugin.dll",
+      "sha256": "f1bf8b8c965326e3cadb77ab6861ae6ee2281bf215aa9386494a93d152f406fa",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Controls/Basic/impl/qtquickcontrols2basicstyleimplplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Controls/impl/qtquickcontrols2implplugin.dll",
+      "sha256": "0de28184f2a5d559bfdc919a3f739324b81be9a0597ab30500c78618e7d3ad86",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Controls/impl/qtquickcontrols2implplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Dialogs/qtquickdialogsplugin.dll",
+      "sha256": "d0ad682f09e1535f2b1d3f236d95cfb9b1e05b2a279e608050bc95e4f2807fa1",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Dialogs/qtquickdialogsplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Dialogs/quickimpl/qtquickdialogs2quickimplplugin.dll",
+      "sha256": "4b5c4313266e94e826fe0f7fb3754f5255fa9c23016c79fac2dd41b3e85f7b40",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Dialogs/quickimpl/qtquickdialogs2quickimplplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Effects/effectsplugin.dll",
+      "sha256": "b0f45a0915a589d4667e005c1650167ac7f8dbc0a8f0fae107923b3c3ce874b1",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Effects/effectsplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Layouts/qquicklayoutsplugin.dll",
+      "sha256": "892aa82115a19413e627c7fd5099b9fad98c0e0cf3dfa16b7ae0b2a9bf4aadbc",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Layouts/qquicklayoutsplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/NativeStyle/qtquickcontrols2nativestyleplugin.dll",
+      "sha256": "07613c9acb8a9ecb95787823d3caf5340647c13bd1f10c47547461e37b44fa7f",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/NativeStyle/qtquickcontrols2nativestyleplugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Templates/qtquicktemplates2plugin.dll",
+      "sha256": "945afd133df38657ac320282e6df1e772b6fb5ea8d93852932725438f8b5ad36",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Templates/qtquicktemplates2plugin.dll"
+    },
+    {
+      "path": "qml/QtQuick/Window/quickwindowplugin.dll",
+      "sha256": "f4ac0401fccb50a43bb1f2ed4a1c73c495077aa8d94b17f46e760a1b0629d786",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtQuick/Window/quickwindowplugin.dll"
+    },
+    {
+      "path": "qml/QtTest/quicktestplugin.dll",
+      "sha256": "bc8910b25755328f8ab4be1b672ec1f08a1e44d50e3c61b28b1c57403fa63461",
+      "package": "mingw-w64-ucrt-x86_64-qt6-declarative",
+      "sourcePath": "ucrt64/share/qt6/qml/QtTest/quicktestplugin.dll"
+    }
+  ],
+  "unmatchedDlls": []
+}

@@ -2,86 +2,151 @@
 
 #include "application/RecordExport.h"
 
-#include <QByteArray>
 #include <QElapsedTimer>
 #include <QImage>
-#include <QList>
 #include <QObject>
+#include <QSize>
 #include <QString>
 
-/// Records the drawing session so the artist can hand out a proof of process.
-///
-/// Frames are the flattened canvas, captured at most every kMinIntervalMs, so a
-/// timelapse shows the picture being built stroke by stroke. Each frame is
-/// hashed together with the previous frame's hash, which makes the exported file
-/// tamper-evident: editing or dropping a frame breaks the chain, and `verify()`
-/// reports where.
-///
-/// What it does NOT do: prove who drew the artwork. It proves that the file it
-/// ships is the same sequence this app wrote, given that the file itself was
-/// published as it was. Say that plainly when handing it to a client.
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+/// An append-only drawing record. PNG encoding and disk writes run on an I/O
+/// worker; the GUI keeps only frame offsets and hashes, even after eight hours.
 class SessionRecorder : public QObject {
     Q_OBJECT
-
 public:
-    /// One frame per interval: a stroke lasting a second still shows as it grows,
-    /// and a three-hour session stays inside the frame budget.
     static constexpr int kMinIntervalMs = 1500;
-    /// Long side of a stored frame. Small enough for a shareable file, big
-    /// enough to read the drawing.
     static constexpr int kMaxFrameSide = 720;
-    /// ponytail: hard cap, ~12 MB of PNGs at the sizes seen so far. Recording
-    /// stops there and says so; streaming to disk is the upgrade path.
-    static constexpr int kMaxFrames = 400;
+    static constexpr int kMaxTimelapseFrames = 4 * 60 * 12;
 
     explicit SessionRecorder(QObject* parent = nullptr);
+    ~SessionRecorder() override;
 
-    [[nodiscard]] bool isActive() const noexcept { return m_active; }
-    void setActive(bool active);
-    [[nodiscard]] int frameCount() const noexcept { return m_frames.size(); }
-    [[nodiscard]] bool isFull() const noexcept { return m_frames.size() >= kMaxFrames; }
-
-    /// Stores the canvas, unless the last frame is younger than the interval
-    /// (pass force = true for the first and the final frame).
-    void capture(const QImage& canvas, const QString& label, bool force = false);
-    /// Forget every frame and start a new session id.
+    [[nodiscard]] bool isActive() const;
+    [[nodiscard]] bool hasError() const;
+    [[nodiscard]] QString lastError() const;
+    [[nodiscard]] bool hasGaps() const;
+    [[nodiscard]] quint64 lastStoredCaptureId() const noexcept {
+        return m_frames.empty() ? 0 : m_frames.back().captureId;
+    }
+    [[nodiscard]] int frameCount() const noexcept { return static_cast<int>(m_frames.size()); }
+    [[nodiscard]] QString spoolPath() const { return m_spoolPath; }
+    [[nodiscard]] qint64 validBytes() const noexcept { return m_validBytes; }
+    quint64 capture(const QImage& canvas, const QString& label, bool force = false);
+    [[nodiscard]] bool captureDue() const;
     void restart();
+    bool flush();
+    bool retry();
+    bool retryAsync();
+    [[nodiscard]] bool isRepairing() const;
+    void setDocumentName(const QString& name);
+    void markFinished();
 
-    /// Writes a `.prismrec` (JSON with base64 PNG frames and the hash chain).
-    [[nodiscard]] bool save(const QString& path, const QSize& canvasSize,
-                            QString* error = nullptr) const;
-    /// Decodes frame \p index for the video/GIF writers; false when out of range.
+    /// Copy the complete valid prefix to a v2 .prismrec without loading it all.
+    [[nodiscard]] bool save(const QString& path, const QSize& canvasSize, QString* error = nullptr);
+    [[nodiscard]] static bool saveSnapshot(const QString& path, const QString& spoolPath,
+                                           qint64 validBytes, QString* error = nullptr);
+    [[nodiscard]] static bool exportRecovered(const QString& source, const QString& destination,
+                                              QString* error = nullptr);
     [[nodiscard]] bool frameAt(int index, QImage& out, qint64& ms) const;
-    /// The frames as a source the writers pull from, one at a time.
-    [[nodiscard]] RecordedFrames recordedFrames() const;
-    /// Recomputes the chain of a `.prismrec`. Returns false and fills \p error
-    /// with the first broken frame when the file was edited.
+    [[nodiscard]] RecordedFrames recordedFrames(int maxFrames = 0, quint64 throughCaptureId = 0);
+    [[nodiscard]] qint64 validBytesThroughCaptureId(quint64 captureId) const;
+    [[nodiscard]] int frameCountThroughCaptureId(quint64 captureId) const;
+    /// Open a crashed session. A truncated last line is ignored, keeping every
+    /// earlier frame and its hash chain.
+    [[nodiscard]] bool adoptRecovered(const QString& path, QString* error = nullptr);
+    bool adoptRecoveredAsync(const QString& path);
     [[nodiscard]] static bool verify(const QString& path, QString* error = nullptr,
                                      int* frames = nullptr);
 
 signals:
-    /// A frame was stored. The UI reads `recordedFrames` from this: without it
-    /// the export menu stayed disabled for the whole session.
     void frameStored();
-    /// Emitted once when the frame budget is reached, so the UI can say so.
-    void full();
+    void stateChanged();
+    void retryFinished(bool success);
+    void archiveLoaded(bool success, const QString& error);
 
 private:
     struct Frame {
         qint64 ms = 0;
-        QString label;
-        QByteArray png;
+        qint64 offset = 0;
+        qint64 endOffset = 0;
         QString hash;
-        QString previousHash;
+        quint64 captureId = 0;
     };
+    struct Pending {
+        qint64 ms = 0;
+        QString label;
+        QImage image;
+        QSize canvasSize;
+        quint64 captureId = 0;
+    };
+    struct RepairResult {
+        std::vector<Frame> frames;
+        qint64 bytes = 0;
+        quint64 nextCaptureId = 0;
+        QString error;
+    };
+    struct ArchiveResult {
+        std::vector<Frame> frames;
+        qint64 bytes = 0;
+        QString session, name, created, error;
+        QSize size;
+        bool gaps = false;
+    };
+    static void readArchive(const QString& path, ArchiveResult& result);
+    void acceptArchive(const QString& path, ArchiveResult& result);
+    void startArchiveWhenReady(const QString& path, bool wasFinished);
+    void startRepairWhenReady();
+    void finishRepair(const std::shared_ptr<RepairResult>& result);
+    void finishRetryStartup();
+    static void repairSpool(const QString& path, const std::vector<Frame>& acknowledged,
+                            RepairResult& result);
+    static QString hashParts(const QString& previous, qint64 ms, const QByteArray& png);
+    static bool scanV2(const QString& path, std::vector<Frame>* found, qint64* validBytes,
+                       QString* session, QSize* canvasSize, QString* error, bool allowTail,
+                       bool allowEmpty = false);
+    void writerLoop(QString previous, int storedFrames);
+    void drainCompleted();
+    void stopWorker();
+    void startWorker();
+    void failWorker(const QString& error);
+    bool persistMetadata();
+    void removeEmptySpool();
 
-    [[nodiscard]] static QString hashFrame(const Frame& frame);
-    [[nodiscard]] static QString hashParts(const QString& previous, qint64 ms,
-                                           const QByteArray& png);
-
-    bool m_active = true;
+    bool m_recovered = false;
+    bool m_finished = false;
     QElapsedTimer m_clock;
     qint64 m_lastCaptureMs = -100000;
+    qint64 m_timestampOffset = 0;
+    quint64 m_nextCaptureId = 1;
     QString m_sessionId;
-    QList<Frame> m_frames;
+    QString m_documentName;
+    QString m_created;
+    QString m_spoolPath;
+    QSize m_canvasSize;
+    qint64 m_validBytes = 0;
+    std::vector<Frame> m_frames;
+    std::jthread m_worker;
+    mutable std::mutex m_mutex;
+    std::condition_variable m_condition;
+    std::deque<Pending> m_pending;
+    std::deque<Frame> m_completed;
+    bool m_workerBusy = false;
+    bool m_workerFailed = false;
+    bool m_workerStarting = false;
+    bool m_hasGaps = false;
+    QString m_lastError;
+    bool m_metadataDirty = false;
+    qint64 m_lastMetadataWriteMs = 0;
+    QString m_testFault;
+    int m_testFailAfter = 0;
+    bool m_stop = false;
+    bool m_repairing = false;
+    std::atomic_bool m_workerExited{true};
 };

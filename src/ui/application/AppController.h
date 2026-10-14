@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/ArtworkSession.h"
 #include "application/LayerListModel.h"
 #include "application/SessionRecorder.h"
 #include "brush/BrushPresets.h"
@@ -10,15 +11,16 @@
 #include "raster/ColorMath.h"
 #include "selection/Selection.h"
 
-#include <QObject>
+#include <QColor>
 #include <QElapsedTimer>
 #include <QImage>
-#include <QColor>
 #include <QJsonObject>
 #include <QMutex>
+#include <QObject>
+#include <QStringList>
+#include <QThread>
 #include <QTimer>
 #include <QUrl>
-#include <QStringList>
 #include <QVariantList>
 #include <QVector>
 
@@ -29,21 +31,37 @@
 class AppController : public QObject {
     Q_OBJECT
     Q_PROPERTY(LayerListModel* layers READ layers CONSTANT)
-    Q_PROPERTY(int activeLayerIndex READ activeLayerIndex WRITE setActiveLayerIndex
-                   NOTIFY layersChanged)
+    Q_PROPERTY(
+        int activeLayerIndex READ activeLayerIndex WRITE setActiveLayerIndex NOTIFY layersChanged)
+    Q_PROPERTY(QVariantMap activeLayerInfo READ activeLayerInfo NOTIFY layersChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(QString undoLabel READ undoLabel NOTIFY historyChanged)
     Q_PROPERTY(int canvasWidth READ canvasWidth NOTIFY canvasChanged)
     Q_PROPERTY(int canvasHeight READ canvasHeight NOTIFY canvasChanged)
+    Q_PROPERTY(int canvasDpi READ canvasDpi NOTIFY canvasChanged)
     Q_PROPERTY(QColor brushColor READ brushColor WRITE setBrushColor NOTIFY brushChanged)
     Q_PROPERTY(float brushSize READ brushSize WRITE setBrushSize NOTIFY brushChanged)
     Q_PROPERTY(float brushHardness READ brushHardness WRITE setBrushHardness NOTIFY brushChanged)
     Q_PROPERTY(float brushFlow READ brushFlow WRITE setBrushFlow NOTIFY brushChanged)
+    Q_PROPERTY(float brushSpacing READ brushSpacing WRITE setBrushSpacing NOTIFY brushChanged)
+    Q_PROPERTY(bool brushGraphite READ brushGraphite WRITE setBrushGraphite NOTIFY brushChanged)
+    Q_PROPERTY(float brushGrain READ brushGrain WRITE setBrushGrain NOTIFY brushChanged)
+    Q_PROPERTY(
+        float brushGrainScale READ brushGrainScale WRITE setBrushGrainScale NOTIFY brushChanged)
+    Q_PROPERTY(
+        float brushTiltShading READ brushTiltShading WRITE setBrushTiltShading NOTIFY brushChanged)
+    Q_PROPERTY(float brushEndTaper READ brushEndTaper WRITE setBrushEndTaper NOTIFY brushChanged)
+    Q_PROPERTY(float brushStabilization READ brushStabilization WRITE setBrushStabilization NOTIFY
+                   brushChanged)
+    Q_PROPERTY(
+        float pressureSizeMin READ pressureSizeMin WRITE setPressureSizeMin NOTIFY brushChanged)
     Q_PROPERTY(bool brushTipSquare READ brushTipSquare WRITE setBrushTipSquare NOTIFY brushChanged)
-    Q_PROPERTY(float brushTipRoundness READ brushTipRoundness WRITE setBrushTipRoundness NOTIFY brushChanged)
+    Q_PROPERTY(float brushTipRoundness READ brushTipRoundness WRITE setBrushTipRoundness NOTIFY
+                   brushChanged)
     Q_PROPERTY(float brushTipAngle READ brushTipAngle WRITE setBrushTipAngle NOTIFY brushChanged)
-    Q_PROPERTY(bool pressureOpacity READ pressureOpacity WRITE setPressureOpacity NOTIFY brushChanged)
+    Q_PROPERTY(
+        bool pressureOpacity READ pressureOpacity WRITE setPressureOpacity NOTIFY brushChanged)
     Q_PROPERTY(bool tipIsImage READ tipIsImage NOTIFY brushChanged)
     /// Pressure curve gamma (0.3 soft .. 3.0 hard). Applied to incoming pen
     /// pressure before the engine sees it.
@@ -52,7 +70,11 @@ class AppController : public QObject {
     Q_PROPERTY(qreal zoom READ zoom WRITE setZoom NOTIFY viewChanged)
     Q_PROPERTY(int tool READ tool WRITE setTool NOTIFY toolChanged)
     Q_PROPERTY(QString brushName READ brushName NOTIFY brushChanged)
+    Q_PROPERTY(int brushPreviewRevision READ brushPreviewRevision NOTIFY brushPreviewChanged)
     Q_PROPERTY(int activePresetIndex READ activePresetIndex NOTIFY brushChanged)
+    Q_PROPERTY(int builtinPresetCount READ builtinPresetCount CONSTANT)
+    Q_PROPERTY(QVariantList quickPresets READ quickPresets NOTIFY quickPresetsChanged)
+    Q_PROPERTY(QStringList recentColors READ recentColors NOTIFY recentColorsChanged)
     Q_PROPERTY(QString statusInfo READ statusInfo NOTIFY canvasChanged)
     Q_PROPERTY(bool hasSelection READ hasSelection NOTIFY selectionChanged)
     Q_PROPERTY(int selectionX READ selectionX NOTIFY selectionChanged)
@@ -126,18 +148,21 @@ public:
     Q_ENUM(Tool)
 
     explicit AppController(QObject* parent = nullptr);
+    ~AppController() override;
 
     // --- model ------------------------------------------------------------
     LayerListModel* layers() const { return m_layersModel; }
 
     // --- properties -------------------------------------------------------
     int activeLayerIndex() const;
+    QVariantMap activeLayerInfo() const;
     void setActiveLayerIndex(int index);
     bool canUndo() const;
     bool canRedo() const;
     QString undoLabel() const;
     int canvasWidth() const;
     int canvasHeight() const;
+    int canvasDpi() const;
     QColor brushColor() const;
     void setBrushColor(const QColor& color);
     float brushSize() const;
@@ -146,6 +171,22 @@ public:
     void setBrushHardness(float hardness);
     float brushFlow() const;
     void setBrushFlow(float flow);
+    float brushSpacing() const;
+    void setBrushSpacing(float spacing);
+    bool brushGraphite() const;
+    void setBrushGraphite(bool enabled);
+    float brushGrain() const;
+    void setBrushGrain(float grain);
+    float brushGrainScale() const;
+    void setBrushGrainScale(float scale);
+    float brushTiltShading() const;
+    void setBrushTiltShading(float shading);
+    float brushEndTaper() const;
+    void setBrushEndTaper(float diameters);
+    float brushStabilization() const;
+    void setBrushStabilization(float amount);
+    float pressureSizeMin() const;
+    void setPressureSizeMin(float minimum);
     bool brushTipSquare() const;
     void setBrushTipSquare(bool square);
     float brushTipRoundness() const;
@@ -178,11 +219,18 @@ public:
 
     // --- brush presets ----------------------------------------------------
     Q_INVOKABLE int presetCount() const;
+    int builtinPresetCount() const;
+    QVariantList quickPresets() const;
+    QStringList recentColors() const { return m_recentColors; }
+    Q_INVOKABLE void togglePinnedPreset(int index);
     Q_INVOKABLE QString presetName(int index) const;
     Q_INVOKABLE QImage presetThumbnail(int index, int width, int height) const;
     Q_INVOKABLE void selectPreset(int index);
     /// Saves the current brush settings as a new user preset.
     Q_INVOKABLE void addPreset();
+    Q_INVOKABLE void resetBrushToPreset();
+    Q_INVOKABLE QImage activeBrushPreview(int width, int height) const;
+    int brushPreviewRevision() const { return m_brushPreviewRevision; }
     Q_INVOKABLE void removePreset(int index);
     Q_INVOKABLE void movePreset(int index, int delta);
     /// Import/Export brush presets as .prismbrush JSON files.
@@ -209,8 +257,8 @@ public:
     /// Translates the active layer's content by (dx, dy) canvas pixels.
     Q_INVOKABLE void moveActiveLayer(int dx, int dy);
     /// Bounding box of a buffer's non-transparent pixels (empty when blank).
-    static prism::core::geometry::Rect contentBounds(
-        const prism::core::raster::RasterBuffer& buffer);
+    static prism::core::geometry::Rect
+    contentBounds(const prism::core::raster::RasterBuffer& buffer);
     /// Live edits (erase, blend) paint straight into the layer buffer, which can
     /// be larger than the canvas after a crop. Anything spilled outside the
     /// canvas is put back from \p before, or it shows up as a stray mark when
@@ -284,6 +332,7 @@ public:
     /// Crop tool: shrink the canvas to the framed region, keeping every layer
     /// pixel (the cropped-away content comes back when a layer moves).
     Q_INVOKABLE void cropTo(float x, float y, float w, float h);
+    Q_INVOKABLE void resizeCanvas(int width, int height);
     /// Transform the active layer: rotation in degrees and uniform scale about
     /// the layer centre.
     Q_INVOKABLE void transformLayer(float degrees, float scale);
@@ -317,19 +366,20 @@ public:
     QImage selectionOverlay() const;
 
     // --- view -------------------------------------------------------------
-    Q_PROPERTY(bool mirrorHorizontal READ mirrorHorizontal WRITE setMirrorHorizontal
-                   NOTIFY viewChanged)
-    Q_PROPERTY(bool mirrorVertical READ mirrorVertical WRITE setMirrorVertical
-                   NOTIFY viewChanged)
+    Q_PROPERTY(
+        bool mirrorHorizontal READ mirrorHorizontal WRITE setMirrorHorizontal NOTIFY viewChanged)
+    Q_PROPERTY(bool mirrorVertical READ mirrorVertical WRITE setMirrorVertical NOTIFY viewChanged)
     bool mirrorHorizontal() const { return m_mirrorH; }
     void setMirrorHorizontal(bool on);
     bool mirrorVertical() const { return m_mirrorV; }
     void setMirrorVertical(bool on);
 
     // --- start page / recent files ---------------------------------------
-    Q_PROPERTY(bool startPageVisible READ startPageVisible WRITE setStartPageVisible
-                   NOTIFY startPageChanged)
+    Q_PROPERTY(bool startPageVisible READ startPageVisible WRITE setStartPageVisible NOTIFY
+                   startPageChanged)
     Q_PROPERTY(QVariantList recentFiles READ recentFiles NOTIFY recentFilesChanged)
+    Q_PROPERTY(QVariantList recoverableArtworks READ recoverableArtworks NOTIFY recoveryChanged)
+    Q_PROPERTY(QVariantList recoverableRecordings READ recoverableRecordings NOTIFY recoveryChanged)
     /// Last file error, shown in the status bar. Empty when all is well — a
     /// failed open must never look like nothing happened.
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
@@ -340,17 +390,58 @@ public:
     bool startPageVisible() const { return m_startPageVisible; }
     void setStartPageVisible(bool visible);
     QVariantList recentFiles() const;
+    QVariantList recoverableArtworks() const;
+    QVariantList recoverableRecordings() const;
+    Q_INVOKABLE bool recoverArtwork(const QUrl& url);
+    Q_INVOKABLE bool recoverRecording(const QUrl& url);
+    Q_INVOKABLE bool recoverRecordingAsync(const QUrl& url);
+    Q_INVOKABLE void discardRecovery(const QUrl& url);
     Q_INVOKABLE void clearRecentFiles();
     /// Drops recent entries whose path lives under \p directory — the selftest
     /// uses it to clean up test files earlier runs left in the list.
     void forgetRecentFilesUnder(const QString& directory);
     /// Selftest mode: drive the real code paths, but keep throwaway documents
     /// out of the persisted Recent list.
-    void setSelfTestMode(bool on) { m_selfTestMode = on; }
+    void setSelfTestMode(bool on) {
+        m_selfTestMode = on;
+        if (m_artwork)
+            m_artwork->setEnabled(!on);
+    }
     /// Version string shown on the start page.
     Q_INVOKABLE QString versionString() const;
+    Q_PROPERTY(bool hasUnsavedChanges READ hasUnsavedChanges NOTIFY artworkStateChanged)
+    Q_PROPERTY(QString projectPath READ projectPath NOTIFY artworkStateChanged)
+    Q_PROPERTY(QString saveStatus READ saveStatus NOTIFY artworkStateChanged)
+    Q_PROPERTY(QString autosaveStatus READ autosaveStatus NOTIFY artworkStateChanged)
+    Q_PROPERTY(QString lastProtectedTime READ lastProtectedTime NOTIFY artworkStateChanged)
+    Q_PROPERTY(bool saving READ saving NOTIFY artworkStateChanged)
+    Q_PROPERTY(bool documentDecisionPending READ documentDecisionPending NOTIFY artworkStateChanged)
+    Q_PROPERTY(bool documentActionPending READ documentActionPending NOTIFY artworkStateChanged)
+    bool hasUnsavedChanges() const { return m_history.isModified(); }
+    QString projectPath() const { return m_artwork ? m_artwork->projectPath() : QString(); }
+    QString saveStatus() const { return m_artwork ? m_artwork->saveStatus() : QString(); }
+    QString autosaveStatus() const { return m_artwork ? m_artwork->autosaveStatus() : QString(); }
+    QString lastProtectedTime() const {
+        return m_artwork ? m_artwork->lastProtectedTime() : QString();
+    }
+    bool saving() const { return m_artwork && m_artwork->isSaving(); }
+    bool documentDecisionPending() const { return m_awaitingDocumentDecision; }
+    bool documentActionPending() const { return !m_pendingDocumentAction.isEmpty(); }
+    Q_PROPERTY(bool documentEditing READ documentEditing NOTIFY artworkStateChanged)
+    bool documentEditing() const { return m_strokeActive || m_movingLayer || m_opacityPreview; }
+    Q_INVOKABLE bool requestDocumentAction(const QString& action,
+                                           const QVariantMap& arguments = {});
+    Q_INVOKABLE void resolveUnsavedChanges(const QString& choice);
+    Q_INVOKABLE void cancelDocumentAction();
+    Q_INVOKABLE void saveCurrentProject();
+    Q_INVOKABLE bool saveProjectAsync(const QUrl& url);
+    Q_INVOKABLE void retryAutosave();
+    Q_INVOKABLE void confirmCloseRecordingError(bool close);
+    Q_INVOKABLE QVariantList documentSizePresets() const;
+    Q_INVOKABLE void saveDocumentSizePreset(const QString& name, int width, int height, int dpi);
     QString lastError() const { return m_lastError; }
     void setLastError(const QString& error);
+    Q_INVOKABLE void dismissError() { setLastError({}); }
     QString statusMessage() const { return m_statusMessage; }
     /// Q_INVOKABLE because QML sets it (the crop tool's "Enter to crop" hint);
     /// a plain C++ setter is not callable from QML and threw a TypeError.
@@ -372,6 +463,11 @@ public:
 
     // --- actions ----------------------------------------------------------
     Q_INVOKABLE void addLayer();
+    Q_INVOKABLE void groupLayer();
+    Q_INVOKABLE void moveLayerIntoGroupAbove(int index);
+    Q_INVOKABLE void moveLayerOutOfGroup(int index);
+    Q_INVOKABLE void setLayerClipped(int index, bool clipped);
+    Q_INVOKABLE void setLayerAlphaLocked(int index, bool locked);
     Q_INVOKABLE void deleteLayer();
     Q_INVOKABLE void duplicateLayer();
     Q_INVOKABLE void moveLayerUp();
@@ -418,19 +514,40 @@ public:
     // --- drawing record -----------------------------------------------------
     /// Records the session while drawing (see SessionRecorder) so the artist can
     /// hand a proof of process to whoever asks whether the artwork is drawn.
-    Q_PROPERTY(bool recording READ recording WRITE setRecording NOTIFY recordingChanged)
+    Q_PROPERTY(bool recording READ recording NOTIFY recordingChanged)
     Q_PROPERTY(int recordedFrames READ recordedFrames NOTIFY recordingChanged)
+    Q_PROPERTY(bool recordingExporting READ recordingExporting NOTIFY recordingExportingChanged)
+    Q_PROPERTY(QString recordingError READ recordingError NOTIFY recordingChanged)
+    Q_PROPERTY(bool recordingHasGaps READ recordingHasGaps NOTIFY recordingChanged)
+    Q_PROPERTY(bool recordingRepairing READ recordingRepairing NOTIFY recordingChanged)
+    bool recordingRepairing() const { return m_recorder && m_recorder->isRepairing(); }
+    Q_PROPERTY(bool colourPickerPinned READ colourPickerPinned WRITE setColourPickerPinned NOTIFY
+                   colourPickerPinnedChanged)
+    QString recordingError() const { return m_recorder ? m_recorder->lastError() : QString(); }
+    bool recordingHasGaps() const { return m_recorder && m_recorder->hasGaps(); }
+    bool colourPickerPinned() const;
+    void setColourPickerPinned(bool pinned);
+    Q_INVOKABLE bool retryRecording();
+    Q_INVOKABLE QVariantList recordingStorage() const;
+    Q_INVOKABLE bool deleteStoredRecording(const QUrl& url);
+    Q_INVOKABLE void openRecordingFolder();
+    Q_INVOKABLE bool exportStoredRecording(const QUrl& source, const QUrl& destination);
     [[nodiscard]] bool recording() const;
-    void setRecording(bool on);
     [[nodiscard]] int recordedFrames() const;
+    [[nodiscard]] bool recordingExporting() const noexcept { return m_recordingExporting; }
     /// Writes the session as a `.prismrec` the artist can send to a client.
     Q_INVOKABLE bool exportRecording(const QUrl& url);
+    /// Starts a streamed export without blocking the drawing window.
+    Q_INVOKABLE bool exportRecordingAsync(const QUrl& url, bool partial = false);
     // --- theme ---------------------------------------------------------------
     /// "dark" or "light". Persisted in QSettings; QML's ThemeManager picks it
     /// up at startup and writes changes back through here.
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
     [[nodiscard]] QString theme() const { return m_theme; }
     void setTheme(const QString& theme);
+    Q_PROPERTY(bool focusMode READ focusMode WRITE setFocusMode NOTIFY focusModeChanged)
+    [[nodiscard]] bool focusMode() const { return m_focusMode; }
+    void setFocusMode(bool enabled);
     // --- tool shortcuts -----------------------------------------------------
     /// Per-tool hotkey, user-configurable and persisted (QSettings). Tools are
     /// single-key shortcuts like Krita's; an empty key disables the shortcut.
@@ -461,54 +578,85 @@ public:
     Q_INVOKABLE void createDocument(int width, int height, const QString& name, int layerCount,
                                     const QColor& background, int backgroundOpacity,
                                     int backgroundMode);
-    Q_PROPERTY(QString documentName READ documentName WRITE setDocumentName
-                   NOTIFY documentNameChanged)
+    Q_PROPERTY(
+        QString documentName READ documentName WRITE setDocumentName NOTIFY documentNameChanged)
     Q_PROPERTY(QString windowTitle READ windowTitle NOTIFY documentNameChanged)
     /// Picks the zoom that fits the whole canvas into a viewport of the
     /// given size (never above 100%). Called on first layout by the UI.
     Q_INVOKABLE void fitToViewport(qreal viewportWidth, qreal viewportHeight);
 
     // --- stroking ---------------------------------------------------------
-    Q_INVOKABLE void beginStroke(float x, float y, float pressure = 1.0F);
-    Q_INVOKABLE void extendStroke(float x, float y, float pressure = 1.0F);
+    Q_PROPERTY(bool strokeActive READ strokeActive NOTIFY strokeActiveChanged)
+    [[nodiscard]] bool strokeActive() const noexcept { return m_strokeActive; }
+    Q_INVOKABLE void beginStroke(float x, float y, float pressure = 1.0F, float tiltX = 0.0F,
+                                 float tiltY = 0.0F);
+    Q_INVOKABLE void extendStroke(float x, float y, float pressure = 1.0F, float tiltX = 0.0F,
+                                  float tiltY = 0.0F);
     /// Applies the pressure-curve gamma to a raw pressure value.
-    float shapedPressure(float pressure) const;
     Q_INVOKABLE void endStroke();
 
 signals:
+    void artworkStateChanged();
+    void unsavedChangesDecisionRequested();
+    void saveAsRequested();
+    void documentActionCompleted(bool success);
+    void closeReady();
+    void closeRecordingError(const QString& message);
+    void strokeActiveChanged();
     void layersChanged();
     void historyChanged();
     void recordingChanged();
+    void recordingRecovered(bool success);
+    void colourPickerPinnedChanged();
+    void recordingExportingChanged();
     void brushChanged();
+    void brushPreviewChanged();
     void viewChanged();
     void toolChanged();
     void selectionChanged();
     void presetsChanged();
+    void documentReplaced();
+    void quickPresetsChanged();
+    void recentColorsChanged();
     void documentNameChanged();
     void startPageChanged();
     void recentFilesChanged();
+    void recoveryChanged();
     void lastErrorChanged();
     void statusMessageChanged();
     void toolShortcutsChanged();
     void themeChanged();
+    void focusModeChanged();
     void canvasChanged(int x, int y, int w, int h);
 
 private:
     void rebuildFullComposite();
     void rebuildStrokePreview();
     void addRecentFile(const QString& path);
+    void cacheRecentPreview(const QString& path);
     void loadRecentFiles();
     void loadUserPresets();
     void saveUserPresets();
+    void autosaveArtwork();
+    void finishArtworkSession(bool saved);
+    void executeDocumentAction();
+    void settleDocumentDecision();
+    void finishClose();
+    void settleLiveEdit();
+    void awaitRecordingExport(const QString& path, quint64 captureId, bool partial,
+                              const QString& spool);
+    void installDocument(prism::core::Document&& document, const QString& name,
+                         const QString& projectPath, bool initialContents, int activeLayer = 0);
 
-    prism::core::Document m_doc{ prism::core::CanvasSize{ 1280, 800, 72 } };
+    prism::core::Document m_doc{prism::core::CanvasSize{1280, 800, 72}};
     prism::core::History m_history;
-    prism::canvas::Compositor m_compositor{ m_doc };
+    prism::canvas::Compositor m_compositor{m_doc};
     prism::canvas::BrushSettings m_brush;
-    qreal m_pressureCurve = 1.0;
     std::vector<prism::canvas::StrokePoint> m_currentStroke;
+    prism::canvas::BrushStroke::StrokeState m_stampState;
     prism::core::raster::RasterBuffer m_preview;
     prism::core::geometry::Rect m_strokeDirty;
+    bool m_strokeActive = false;
     /// Region of \p m_preview that currently holds pixels, so the next stroke
     /// clears only that instead of the whole canvas.
     prism::core::geometry::Rect m_previewDirty;
@@ -519,6 +667,11 @@ private:
     int m_activePreset = 0;
     /// User presets plus the built-ins; mutable so the docker can add/remove.
     std::vector<prism::canvas::BrushPreset> m_presets;
+    QStringList m_pinnedPresetIds;
+    QStringList m_recentPresetIds;
+    QStringList m_recentColors;
+    bool m_uiPreferencesReady = false;
+    QTimer* m_recentColorTimer = nullptr;
     int m_customPresetCounter = 0;
     int m_layerRevision = 0;
 
@@ -530,11 +683,32 @@ private:
     mutable QMutex m_snapshotMutex;
     QVector<QImage> m_layerThumbs;
     QImage m_selectionSnapshot;
+    QImage m_brushPreview;
+    int m_brushPreviewRevision = 0;
     int m_snapshotRevision = -1;
     QTimer* m_snapshotTimer = nullptr;
+    ArtworkSession* m_artwork = nullptr;
+    QString m_artworkRoot;
+    QString m_pendingDocumentAction;
+    QString m_pendingDocumentName;
+    QString m_pendingProjectPath;
+    std::unique_ptr<prism::core::Document> m_pendingDocument;
+    bool m_pendingInitialContents = false;
+    bool m_pendingRecovery = false;
+    bool m_awaitingDocumentDecision = false;
+    bool m_closePending = false;
+    quint64 m_closeCaptureId = 0;
+    bool m_discardDocument = false;
+    quint64 m_transitionCaptureId = 0;
+    bool m_transitionQueued = false;
+    bool m_allowIncompleteTransition = false;
+    QString m_transitionSpool;
+    QString m_closeSpool;
     void refreshSnapshots();
     /// Drawing-session recorder (frames + hash chain).
     SessionRecorder* m_recorder = nullptr;
+    QThread* m_exportThread = nullptr;
+    bool m_recordingExporting = false;
     /// Drops the collected frames when the document is replaced: a record is the
     /// process of ONE drawing, and exporting after opening another one used to
     /// glue the two together (frames of a different canvas size included).
@@ -557,6 +731,7 @@ private:
     /// noisy signal (and a dip right at tip contact), which otherwise spikes the
     /// stamp size sample to sample.
     float m_smoothedPressure = 1.0F;
+    QElapsedTimer m_strokeClock;
     /// Brush colour remembered per tool group: [0] the painting tools, [1] the
     /// eraser. Switching tools restores the incoming tool's colour, so the
     /// eraser cannot carry a colour change back to the brush.
@@ -566,6 +741,7 @@ private:
     /// Live layer drag: the pre-drag pixels, the content rectangle inside them
     /// and the offset currently previewed.
     bool m_movingLayer = false;
+    bool m_opacityPreview = false;
     prism::core::raster::RasterBuffer m_moveBefore;
     prism::core::geometry::Rect m_moveBbox{};
     int m_moveDx = 0;
@@ -590,10 +766,10 @@ private:
 
     /// Paints one stroke segment, plus its mirror images when the Multibrush
     /// tool is active (Krita mirrors about the canvas centre).
-    prism::core::geometry::Rect paintSegmentSymmetrical(prism::core::raster::RasterBuffer& buffer,
-                                                        const prism::canvas::BrushSettings& brush,
-                                                        const prism::canvas::StrokePoint& a,
-                                                        const prism::canvas::StrokePoint& b);
+    prism::core::geometry::Rect paintSegmentSymmetrical(
+        prism::core::raster::RasterBuffer& buffer, const prism::canvas::BrushSettings& brush,
+        const prism::canvas::StrokePoint& a, const prism::canvas::StrokePoint& b,
+        prism::canvas::BrushStroke::StrokeState* state = nullptr);
     bool m_mirrorH = false;
     bool m_mirrorV = false;
     bool m_startPageVisible = true;
@@ -601,6 +777,7 @@ private:
     bool m_selfTestMode = false;
     QStringList m_recentFiles;
     QString m_theme = "dark";
+    bool m_focusMode = false;
     QString m_documentName = tr("Untitled");
     QString m_lastError;
     QString m_statusMessage;

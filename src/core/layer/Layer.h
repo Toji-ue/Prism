@@ -4,6 +4,7 @@
 #include "raster/RasterBuffer.h"
 
 #include <memory>
+#include <cstdint>
 #include <string>
 
 namespace prism::core {
@@ -27,6 +28,14 @@ public:
     explicit Layer(Type type, std::string name) noexcept;
 
     [[nodiscard]] Type type() const noexcept { return m_type; }
+    [[nodiscard]] std::uint64_t id() const noexcept { return m_id; }
+    void setId(std::uint64_t id) noexcept;
+    [[nodiscard]] std::uint64_t parentId() const noexcept { return m_parentId; }
+    void setParentId(std::uint64_t id) noexcept { m_parentId = id; }
+    [[nodiscard]] bool isClipped() const noexcept { return m_clipped; }
+    void setClipped(bool clipped) noexcept { m_clipped = clipped; }
+    [[nodiscard]] bool isAlphaLocked() const noexcept { return m_alphaLocked; }
+    void setAlphaLocked(bool locked) noexcept { m_alphaLocked = locked; }
     [[nodiscard]] const std::string& name() const noexcept { return m_name; }
     void setName(std::string name) noexcept { m_name = std::move(name); }
 
@@ -53,6 +62,10 @@ public:
 
 private:
     Type m_type;
+    std::uint64_t m_id = 0;
+    std::uint64_t m_parentId = 0;
+    bool m_clipped = false;
+    bool m_alphaLocked = false;
     std::string m_name;
     bool m_visible = true;
     bool m_locked = false;

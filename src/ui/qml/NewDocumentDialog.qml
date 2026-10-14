@@ -1,623 +1,591 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Prism.Ui 1.0
+import Prism.Ui 1.0
 import Prism
 
-// Krita-style "Create new document" dialog: preset categories on the left,
-// Dimensions / Content tabs, Image Size and Color groups, a live summary, and
-// Create / Cancel. Icons are vector (Icon.qml) â€” no emoji.
+// The document form shares the workspace's colour, typography and corner tokens.
 Dialog {
     id: dialog
+    objectName: "newDocumentDialog"
     required property AppController controller
-
-    title: qsTr("Create new document - Prism")
+    title: qsTr("New document")
     modal: true
     anchors.centerIn: Overlay.overlay
-    width: 700
-    height: 660
-    padding: 0
-
-    // Only the two templates that actually work are offered. The rest of
-    // Krita's list would be dead entries until those features exist.
-    readonly property var categories: [
-        { icon: "file-new",  name: qsTr("Create New") },
-        { icon: "duplicate", name: qsTr("Create from Clipboard") }
+    width: Math.min(620, Overlay.overlay.width - 32)
+    height: Math.min(650, Overlay.overlay.height - 32)
+    padding: 20
+    property real dimensionWidth: 1920
+    property real dimensionHeight: 1080
+    property int documentDpi: 72
+    property int unitIndex: 0
+    property bool fromClipboard: false
+    property int clipboardWidth: 0
+    property int clipboardHeight: 0
+    property bool solidBackground: false
+    property string errorMessage: ""
+    property var savedSizes: []
+    property bool showSavePreset: false
+    readonly property real pixelsPerUnit: unitIndex === 1 ? documentDpi : unitIndex === 2 ? documentDpi / 25.4 : 1
+    readonly property int pixelWidth: fromClipboard ? clipboardWidth : Math.round(dimensionWidth * pixelsPerUnit)
+    readonly property int pixelHeight: fromClipboard ? clipboardHeight : Math.round(dimensionHeight * pixelsPerUnit)
+    readonly property bool validDimensions: pixelWidth > 0 && pixelHeight > 0 && pixelWidth <= 16384 && pixelHeight <= 16384 && documentDpi > 0 && documentDpi <= 2400
+    readonly property var builtInSizes: [
+        {
+            name: qsTr("Custom"),
+            width: 0,
+            height: 0,
+            dpi: 72
+        },
+        {
+            name: qsTr("A4 · 300 dpi"),
+            width: 2480,
+            height: 3508,
+            dpi: 300
+        },
+        {
+            name: qsTr("A4 · 72 dpi"),
+            width: 595,
+            height: 842,
+            dpi: 72
+        },
+        {
+            name: qsTr("HD · 1920 × 1080"),
+            width: 1920,
+            height: 1080,
+            dpi: 72
+        },
+        {
+            name: qsTr("Square · 2048 × 2048"),
+            width: 2048,
+            height: 2048,
+            dpi: 72
+        },
+        {
+            name: qsTr("Social · 1080 × 1080"),
+            width: 1080,
+            height: 1080,
+            dpi: 72
+        },
+        {
+            name: qsTr("QHD · 2560 × 1440"),
+            width: 2560,
+            height: 1440,
+            dpi: 72
+        }
     ]
-
-    // Image size presets: [width, height, dpi]
-    readonly property var sizePresets: [
-        [0, 0, 72],
-        [2480, 3508, 300],   // A4 @300
-        [842, 595, 72],      // A4 @72
-        [1920, 1080, 72],    // HD
-        [2480, 3508, 300],   // Full page
-        [2048, 2048, 72],    // Square
-        [1080, 1080, 72],    // Social square
-        [2560, 1440, 72]     // QHD
-    ]
-
+    readonly property var presetModel: builtInSizes.concat(savedSizes)
+    function changeUnits(next) {
+        const w = pixelWidth, h = pixelHeight;
+        unitIndex = next;
+        dimensionWidth = w / pixelsPerUnit;
+        dimensionHeight = h / pixelsPerUnit;
+    }
+    function applyPreset(index) {
+        const preset = presetModel[index];
+        if (!preset || preset.width <= 0 || preset.height <= 0)
+            return;
+        documentDpi = preset.dpi;
+        dimensionWidth = preset.width / pixelsPerUnit;
+        dimensionHeight = preset.height / pixelsPerUnit;
+    }
+    function chooseClipboard() {
+        const size = controller.clipboardImageSize();
+        if (size.width <= 0 || size.height <= 0) {
+            errorMessage = qsTr("The clipboard has no image. Copy an image, then try again.");
+            return;
+        }
+        errorMessage = "";
+        clipboardWidth = size.width;
+        clipboardHeight = size.height;
+        fromClipboard = true;
+        dimensionWidth = size.width / pixelsPerUnit;
+        dimensionHeight = size.height / pixelsPerUnit;
+    }
+    function commitDimensions() {
+        const widthValid = widthField.commitValue();
+        const heightValid = heightField.commitValue();
+        const dpiValid = dpiField.commitValue();
+        return widthValid && heightValid && dpiValid;
+    }
+    function create() {
+        const dimensionsValid = commitDimensions();
+        const layersValid = layersField.commitValue();
+        const opacityValid = !solidBackground || opacityField.commitValue();
+        if (!dimensionsValid || !layersValid || !opacityValid) {
+            errorMessage = qsTr("Complete the numeric fields with valid values before creating the document.");
+            return;
+        }
+        if (!validDimensions) {
+            errorMessage = qsTr("Use dimensions from 1 to 16,384 pixels and a DPI from 1 to 2,400.");
+            return;
+        }
+        if (solidBackground && !backgroundColor.acceptableInput) {
+            errorMessage = qsTr("Enter a background colour as #RRGGBB.");
+            return;
+        }
+        const accepted = controller.requestDocumentAction("new", {
+            width: pixelWidth,
+            height: pixelHeight,
+            dpi: documentDpi,
+            name: documentName.text.trim() || qsTr("Untitled"),
+            layerCount: Math.round(layersField.numericValue),
+            background: solidBackground ? "solid" : "transparent",
+            backgroundColor: backgroundColor.text,
+            backgroundOpacity: Math.round(opacityField.numericValue),
+            clipboard: fromClipboard
+        });
+        if (accepted)
+            close();
+        else
+            errorMessage = controller.lastError || qsTr("The document could not be created. Review the settings and try again.");
+    }
+    onOpened: {
+        savedSizes = controller.documentSizePresets();
+        errorMessage = "";
+        documentName.forceActiveFocus();
+        documentName.selectAll();
+    }
+    onDocumentDpiChanged: {
+        if (fromClipboard) {
+            dimensionWidth = clipboardWidth / pixelsPerUnit;
+            dimensionHeight = clipboardHeight / pixelsPerUnit;
+        }
+    }
+    component Label: Text {
+        color: ThemeManager.themeColor("text")
+        font.pixelSize: ThemeManager.themeColor("fontBody")
+        verticalAlignment: Text.AlignVCenter
+    }
+    component Field: TextField {
+        implicitHeight: 36
+        color: ThemeManager.themeColor("text")
+        placeholderTextColor: ThemeManager.themeColor("textDim")
+        selectionColor: ThemeManager.themeColor("selection")
+        selectedTextColor: ThemeManager.themeColor("selectionText")
+        font.pixelSize: ThemeManager.themeColor("fontBody")
+        selectByMouse: true
+        leftPadding: 10
+        rightPadding: 10
+        background: Rectangle {
+            radius: ThemeManager.themeColor("radiusControl")
+            color: ThemeManager.themeColor("base")
+            border.width: parent.activeFocus ? 2 : 1
+            border.color: parent.activeFocus ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
+        }
+    }
+    component NumberField: Field {
+        id: number
+        property real numericValue: 1
+        property int decimals: 0
+        property real maximum: 32768
+        property real minimum: 1
+        signal valueEdited(real next)
+        text: decimals === 0 ? String(Math.round(numericValue)) : Number(numericValue.toFixed(decimals)).toString()
+        validator: DoubleValidator {
+            bottom: number.minimum
+            top: number.maximum
+            decimals: number.decimals
+            locale: "C"
+            notation: DoubleValidator.StandardNotation
+        }
+        inputMethodHints: Qt.ImhFormattedNumbersOnly
+        function commitValue() {
+            const next = Number(text);
+            if (!acceptableInput || !isFinite(next))
+                return false;
+            valueEdited(next);
+            text = Qt.binding(function () {
+                return number.decimals === 0 ? String(Math.round(number.numericValue)) : Number(number.numericValue.toFixed(number.decimals)).toString();
+            });
+            return true;
+        }
+        onEditingFinished: commitValue()
+    }
+    component Action: Button {
+        id: action
+        property bool primary: false
+        implicitHeight: 36
+        leftPadding: 14
+        rightPadding: 14
+        Accessible.name: text
+        contentItem: Text {
+            text: action.text
+            color: !action.enabled ? ThemeManager.themeColor("disabledText") : action.primary ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
+            font.pixelSize: ThemeManager.themeColor("fontBody")
+            font.weight: action.primary ? Font.DemiBold : Font.Normal
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: ThemeManager.themeColor("radiusControl")
+            color: action.primary ? ThemeManager.themeColor("highlight") : action.hovered || action.down ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelRaised")
+            opacity: action.enabled ? 1 : 0.55
+            border.width: action.visualFocus ? 2 : 1
+            border.color: action.visualFocus ? ThemeManager.themeColor("highlight") : action.primary ? "transparent" : ThemeManager.themeColor("border")
+        }
+    }
+    component Choice: ComboBox {
+        id: choice
+        implicitHeight: 36
+        font.pixelSize: ThemeManager.themeColor("fontBody")
+        contentItem: Text {
+            text: choice.displayText
+            color: ThemeManager.themeColor("text")
+            font: choice.font
+            verticalAlignment: Text.AlignVCenter
+            leftPadding: 10
+            rightPadding: 28
+            elide: Text.ElideRight
+        }
+        indicator: Icon {
+            x: choice.width - 23
+            y: (choice.height - height) / 2
+            width: 14
+            height: 14
+            name: "chevron-down"
+            color: ThemeManager.themeColor("text")
+        }
+        background: Rectangle {
+            radius: ThemeManager.themeColor("radiusControl")
+            color: choice.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelRaised")
+            border.width: choice.visualFocus ? 2 : 1
+            border.color: choice.visualFocus ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
+        }
+        delegate: ItemDelegate {
+            width: choice.width
+            height: 36
+            highlighted: choice.highlightedIndex === index
+            text: choice.textRole ? modelData[choice.textRole] : modelData
+            contentItem: Text {
+                text: parent.text
+                color: parent.highlighted ? ThemeManager.themeColor("selectionText") : ThemeManager.themeColor("text")
+                font: choice.font
+                leftPadding: 10
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+            background: Rectangle {
+                radius: ThemeManager.themeColor("radiusControl")
+                color: parent.highlighted ? ThemeManager.themeColor("selection") : "transparent"
+            }
+        }
+        popup: Popup {
+            y: choice.height + 4
+            width: choice.width
+            padding: 4
+            implicitHeight: Math.min(contentItem.implicitHeight + 8, 260)
+            background: Rectangle {
+                radius: ThemeManager.themeColor("radiusPanel")
+                color: ThemeManager.themeColor("popup")
+                border.color: ThemeManager.themeColor("popupBorder")
+            }
+            contentItem: ListView {
+                clip: true
+                implicitHeight: contentHeight
+                model: choice.popup.visible ? choice.delegateModel : null
+                currentIndex: choice.highlightedIndex
+                ScrollIndicator.vertical: ScrollIndicator {}
+            }
+        }
+    }
     background: Rectangle {
+        radius: ThemeManager.themeColor("radiusPanel")
         color: ThemeManager.themeColor("window")
         border.color: ThemeManager.themeColor("border")
-        border.width: 1
     }
-
-    contentItem: ColumnLayout {
-        spacing: 0
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: 0
-
-            // ---- left: preset categories ----
-            Rectangle {
-                Layout.preferredWidth: 200
-                Layout.fillHeight: true
-                color: ThemeManager.themeColor("window")
-
-                ListView {
-                    id: catList
-                    anchors.fill: parent
-                    anchors.margins: 4
-                    currentIndex: 0
-                    model: dialog.categories
-
-                    delegate: Rectangle {
-                        width: catList.width
-                        height: 36
-                        color: catList.currentIndex === index ? ThemeManager.themeColor("highlight") : "transparent"
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                catList.currentIndex = index
-                                // "Create from Clipboard" sizes the canvas from
-                                // whatever image the clipboard holds.
-                                if (index === 1) {
-                                    const s = dialog.controller.clipboardImageSize()
-                                    if (s.width > 0 && s.height > 0) {
-                                        wField.value = s.width
-                                        hField.value = s.height
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 8
-                            spacing: 8
-                            Icon {
-                                Layout.preferredWidth: 18
-                                Layout.preferredHeight: 18
-                                name: modelData.icon
-                                color: catList.currentIndex === index
-                                       ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: modelData.name
-                                elide: Text.ElideRight
-                                font.pixelSize: 12
-                                color: catList.currentIndex === index
-                                       ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
-                            }
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: catList.currentIndex = index
-                        }
-                    }
-                }
-            }
-
-            Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: ThemeManager.themeColor("border") }
-
-            // ---- right: settings ----
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: ThemeManager.themeColor("windowAlt")
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 8
-
-                    // tabs
-                    RowLayout {
-                        spacing: 2
-                        Repeater {
-                            model: [qsTr("Dimensions"), qsTr("Content")]
-                            delegate: Rectangle {
-                                width: 100; height: 26
-                                color: tabIndex === index ? ThemeManager.themeColor("windowAlt") : ThemeManager.themeColor("panel")
-                                border.color: ThemeManager.themeColor("border")
-                                border.width: 1
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: modelData
-                                    font.pixelSize: 12
-                                    color: tabIndex === index ? ThemeManager.themeColor("text") : ThemeManager.themeColor("textDim")
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: tabIndex = index
-                                }
-                            }
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    // ================= DIMENSIONS TAB =================
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        spacing: 8
-                        visible: tabIndex === 0
-
-                        // ---- Image Size ----
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: sizeGrid.implicitHeight + 34
-                            color: "transparent"
-                            border.color: ThemeManager.themeColor("border")
-                            border.width: 1
-
-                            Text {
-                                x: 10; y: -8
-                                text: qsTr("Image Size")
-                                color: ThemeManager.themeColor("text")
-                                font.pixelSize: 11
-                                Rectangle {
-                                    anchors.fill: parent
-                                    anchors.margins: -2
-                                    color: ThemeManager.themeColor("windowAlt")
-                                    z: -1
-                                }
-                            }
-
-                            GridLayout {
-                                id: sizeGrid
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                columns: 4
-                                columnSpacing: 8
-                                rowSpacing: 8
-
-                                Text { text: qsTr("Predefined:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-                                PComboBox {
-                                    Layout.columnSpan: 2
-                                    Layout.fillWidth: true
-                                    height: 24
-                                    font.pixelSize: 11
-                                    model: dialog.presetModel
-                                    onActivated: dialog.applyPreset(currentIndex)
-                                }
-                                RowLayout {
-                                    spacing: 2
-                                    Repeater {
-                                        model: [qsTr("Portrait"), qsTr("Landscape")]
-                                        delegate: Rectangle {
-                                            width: 24; height: 24
-                                            color: index === dialog.orientationMode
-                                                   ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("panel")
-                                            border.color: ThemeManager.themeColor("border")
-                                            Icon {
-                                                anchors.centerIn: parent
-                                                width: 14; height: 14
-                                                name: "select-rect"
-                                                color: index === dialog.orientationMode
-                                                       ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
-                                                rotation: index === 0 ? 0 : 90
-                                            }
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                onClicked: {
-                                                    dialog.orientationMode = index
-                                                    const portrait = index === 0
-                                                    if (portrait && wField.value > hField.value) {
-                                                        const t = wField.value
-                                                        wField.value = hField.value
-                                                        hField.value = t
-                                                    } else if (!portrait && wField.value < hField.value) {
-                                                        const t2 = wField.value
-                                                        wField.value = hField.value
-                                                        hField.value = t2
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Text { text: qsTr("Width:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-                                PSpinBox {
-                                    id: wField
-                                    Layout.fillWidth: true
-                                    from: 1; to: 20000
-                                    value: 2480
-                                }
-                                PComboBox {
-                                    Layout.fillWidth: true
-                                    height: 24
-                                    font.pixelSize: 11
-                                    model: [qsTr("Pixels (px)"), qsTr("Inches"), qsTr("Millimeters")]
-                                }
-                                Item {}
-
-                                Text { text: qsTr("Height:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-                                PSpinBox {
-                                    id: hField
-                                    Layout.fillWidth: true
-                                    from: 1; to: 20000
-                                    value: 3508
-                                }
-                                PComboBox {
-                                    Layout.fillWidth: true
-                                    height: 24
-                                    font.pixelSize: 11
-                                    model: [qsTr("Pixels (px)"), qsTr("Inches"), qsTr("Millimeters")]
-                                }
-                                Item {}
-
-                                Text { text: qsTr("Resolution:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-                                PSpinBox {
-                                    id: resField
-                                    Layout.fillWidth: true
-                                    from: 1; to: 4800
-                                    value: 300
-                                }
-                                PComboBox {
-                                    Layout.fillWidth: true
-                                    height: 24
-                                    font.pixelSize: 11
-                                    model: [qsTr("Pixels/Inch"), qsTr("Pixels/Centimeter")]
-                                }
-                                Item {}
-                            }
-                        }
-
-                        // ---- Save Image Size as ----
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Text {
-                                text: qsTr("Save Image Size as:")
-                                color: ThemeManager.themeColor("text")
-                                font.pixelSize: 11
-                            }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 24
-                                color: ThemeManager.themeColor("base")
-                                border.color: ThemeManager.themeColor("border")
-                                TextInput {
-                                    id: sizeNameField
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 6
-                                    anchors.rightMargin: 6
-                                    verticalAlignment: TextInput.AlignVCenter
-                                    color: ThemeManager.themeColor("text")
-                                    font.pixelSize: 11
-                                    clip: true
-                                }
-                            }
-                            Button {
-                                text: qsTr("Save")
-                                implicitHeight: 24
-                                implicitWidth: 70
-                                font.pixelSize: 11
-                                enabled: sizeNameField.text.length > 0
-                                onClicked: {
-                                    // Stored for this session; listed back in
-                                    // the Predefined dropdown above.
-                                    var arr = dialog.savedSizes.slice(); arr.push({ name: sizeNameField.text, w: wField.value, h: hField.value }); dialog.savedSizes = arr
-                                    sizeNameField.text = ""
-                                }
-                            }
-                        }
-
-                        // ---- Color ----
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: colorColumn.implicitHeight + 34
-                            Layout.topMargin: 12
-                            color: "transparent"
-                            border.color: ThemeManager.themeColor("border")
-                            border.width: 1
-
-                            Text {
-                                x: 10; y: -8
-                                text: qsTr("Color")
-                                color: ThemeManager.themeColor("text")
-                                font.pixelSize: 11
-                                Rectangle {
-                                    anchors.fill: parent
-                                    anchors.margins: -2
-                                    color: ThemeManager.themeColor("windowAlt")
-                                    z: -1
-                                }
-                            }
-
-                            ColumnLayout {
-                                id: colorColumn
-                                anchors.fill: parent
-                                anchors.margins: 12
-                                spacing: 8
-
-                                Repeater {
-                                    model: [
-                                        { label: qsTr("Model:"),   opts: [qsTr("RGB/Alpha"), qsTr("Grayscale/Alpha")] },
-                                        { label: qsTr("Depth:"),   opts: [qsTr("8-bit integer/channel"), qsTr("16-bit integer/channel")] },
-                                        { label: qsTr("Profile:"), opts: [qsTr("sRGB-elle-V2-srgbtrc.icc (Default)"), qsTr("sRGB built-in")] }
-                                    ]
-                                    delegate: RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 8
-                                        Text {
-                                            text: modelData.label
-                                            color: ThemeManager.themeColor("text")
-                                            font.pixelSize: 11
-                                            Layout.preferredWidth: 60
-                                        }
-                                        PComboBox {
-                                            Layout.fillWidth: true
-                                            height: 24
-                                            font.pixelSize: 11
-                                            model: modelData.opts
-                                        }
-                                    }
-                                }
-                                Button {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Color Space Browser")
-                                    implicitHeight: 26
-                                    font.pixelSize: 11
-                                    enabled: false // read-only until ICC plumbing lands
-                                }
-                            }
-                        }
-
-                        Item { Layout.fillHeight: true }
-                    }
-
-                    // ================= CONTENT TAB =================
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        spacing: 8
-                        visible: tabIndex === 1
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Text { text: qsTr("Name:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 24
-                                color: ThemeManager.themeColor("base")
-                                border.color: ThemeManager.themeColor("border")
-                                TextInput {
-                                    id: nameField
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 6
-                                    anchors.rightMargin: 6
-                                    verticalAlignment: TextInput.AlignVCenter
-                                    text: qsTr("Unnamed")
-                                    color: ThemeManager.themeColor("text")
-                                    font.pixelSize: 11
-                                    clip: true
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Text { text: qsTr("Layers:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
-                            PSpinBox {
-                                id: layersField
-                                Layout.fillWidth: true
-                                from: 1; to: 64
-                                value: 1
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Text { text: qsTr("Background Color:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 24
-                                color: bgColor
-                                border.color: ThemeManager.themeColor("border")
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: dialog.pickBackground = !dialog.pickBackground
-                                }
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            visible: dialog.pickBackground
-                            spacing: 4
-                            Flow {
-                                Layout.fillWidth: true
-                                spacing: 3
-                                Repeater {
-                                    model: ["#ffffff", "#000000", "#7f7f7f", "#da4453",
-                                            "#e67e22", "#f6c02b", "#2ecc71", "#3daee9",
-                                            "#9b59b6", "#00b894", "#34495e", "#95a5a6"]
-                                    delegate: Rectangle {
-                                        width: 22; height: 22
-                                        color: modelData
-                                        border.color: ThemeManager.themeColor("border")
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            onClicked: bgColor = modelData
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Text { text: qsTr("Background Opacity:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 110 }
-                            PSlider {
-                                id: bgOpacity
-                                Layout.fillWidth: true
-                                from: 0; to: 100
-                                value: 100
-                            }
-                            Text {
-                                text: Math.round(bgOpacity.value) + "%"
-                                color: ThemeManager.themeColor("text")
-                                font.pixelSize: 11
-                                Layout.preferredWidth: 36
-                            }
-                        }
-
-                        Text { text: qsTr("Background:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-
-                        ColumnLayout {
-                            spacing: 2
-                            Repeater {
-                                model: [qsTr("As raster layer"),
-                                        qsTr("As canvas color"),
-                                        qsTr("As fill layer")]
-                                delegate: RowLayout {
-                                    spacing: 6
-                                    Rectangle {
-                                        width: 13; height: 13
-                                        radius: 7
-                                        color: "transparent"
-                                        border.color: ThemeManager.themeColor("textDim")
-                                        Rectangle {
-                                            anchors.centerIn: parent
-                                            width: 7; height: 7
-                                            radius: 4
-                                            visible: dialog.backgroundMode === index
-                                            color: ThemeManager.themeColor("highlight")
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            onClicked: dialog.backgroundMode = index
-                                        }
-                                    }
-                                    Text {
-                                        text: modelData
-                                        color: ThemeManager.themeColor("text")
-                                        font.pixelSize: 11
-                                    }
-                                }
-                            }
-                        }
-
-                        Text { text: qsTr("Description:"); color: ThemeManager.themeColor("text"); font.pixelSize: 11 }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.minimumHeight: 60
-                            color: ThemeManager.themeColor("base")
-                            border.color: ThemeManager.themeColor("border")
-                            TextEdit {
-                                anchors.fill: parent
-                                anchors.margins: 6
-                                color: ThemeManager.themeColor("text")
-                                font.pixelSize: 11
-                                wrapMode: TextEdit.Wrap
-                                clip: true
-                            }
-                        }
-                    }
-
-                    // ---- summary ----
-                    Text {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        color: ThemeManager.themeColor("text")
-                        font.pixelSize: 11
-                        text: {
-                            const px = wField.value * hField.value
-                            const mb = (px * 4 / (1024 * 1024)).toFixed(1)
-                            return qsTr("This document will be %1 pixels by %2 pixels in RGB/Alpha (8-bit integer/channel). The pixel size is 32 bit. A single paint layer will use %3 MiB of RAM.")
-                                   .arg(wField.value).arg(hField.value).arg(mb)
-                        }
-                    }
-                }
-            }
-        }
-
-        // ---- footer ----
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 46
-            color: ThemeManager.themeColor("window")
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
-
+    header: Label {
+        text: qsTr("New document")
+        padding: 20
+        bottomPadding: 4
+        font.pixelSize: ThemeManager.themeColor("fontTitle")
+        font.weight: Font.DemiBold
+    }
+    contentItem: ScrollView {
+        id: scroll
+        clip: true
+        contentWidth: availableWidth
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ColumnLayout {
+            width: scroll.availableWidth
+            spacing: 10
             RowLayout {
-                anchors.fill: parent
-                anchors.rightMargin: 12
+                Layout.fillWidth: true
                 spacing: 8
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: qsTr("Create")
-                    Layout.preferredWidth: 96
-                    implicitHeight: 26
+                Action {
+                    objectName: "newDocumentBlank"
+                    text: qsTr("Blank canvas")
+                    primary: !dialog.fromClipboard
                     onClicked: {
-                        dialog.controller.createDocument(
-                            wField.value, hField.value, nameField.text,
-                            layersField.value, bgColor, Math.round(bgOpacity.value),
-                            dialog.backgroundMode)
-                        dialog.close()
+                        dialog.fromClipboard = false;
+                        dialog.errorMessage = "";
                     }
                 }
-                Button {
-                    text: qsTr("Cancel")
-                    Layout.preferredWidth: 96
-                    implicitHeight: 26
-                    onClicked: dialog.close()
+                Action {
+                    objectName: "newDocumentClipboard"
+                    text: qsTr("From clipboard")
+                    primary: dialog.fromClipboard
+                    onClicked: dialog.chooseClipboard()
                 }
+                Item {
+                    Layout.fillWidth: true
+                }
+            }
+            Label {
+                Layout.topMargin: 8
+                text: qsTr("Name")
+            }
+            Field {
+                id: documentName
+                objectName: "newDocumentName"
+                Layout.fillWidth: true
+                text: qsTr("Untitled")
+                Accessible.name: qsTr("Document name")
+            }
+            Label {
+                Layout.topMargin: 8
+                text: qsTr("Canvas size")
+                font.weight: Font.DemiBold
+            }
+            Choice {
+                objectName: "newDocumentSizePreset"
+                Layout.fillWidth: true
+                enabled: !dialog.fromClipboard
+                model: dialog.presetModel
+                textRole: "name"
+                Accessible.name: qsTr("Canvas size preset")
+                onActivated: dialog.applyPreset(currentIndex)
+            }
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 3
+                columnSpacing: 10
+                rowSpacing: 6
+                Label {
+                    text: qsTr("Width")
+                }
+                Label {
+                    text: qsTr("Height")
+                }
+                Label {
+                    text: qsTr("Units")
+                }
+                NumberField {
+                    id: widthField
+                    objectName: "newDocumentWidth"
+                    Layout.fillWidth: true
+                    enabled: !dialog.fromClipboard
+                    numericValue: dialog.dimensionWidth
+                    decimals: dialog.unitIndex === 0 ? 0 : 4
+                    minimum: dialog.unitIndex === 0 ? 1 : 0.0001
+                    Accessible.name: qsTr("Canvas width")
+                    onValueEdited: next => dialog.dimensionWidth = next
+                }
+                NumberField {
+                    id: heightField
+                    objectName: "newDocumentHeight"
+                    Layout.fillWidth: true
+                    enabled: !dialog.fromClipboard
+                    numericValue: dialog.dimensionHeight
+                    decimals: dialog.unitIndex === 0 ? 0 : 4
+                    minimum: dialog.unitIndex === 0 ? 1 : 0.0001
+                    Accessible.name: qsTr("Canvas height")
+                    onValueEdited: next => dialog.dimensionHeight = next
+                }
+                Choice {
+                    objectName: "newDocumentUnits"
+                    Layout.preferredWidth: 100
+                    model: [qsTr("Pixels"), qsTr("Inches"), qsTr("mm")]
+                    currentIndex: dialog.unitIndex
+                    Accessible.name: qsTr("Dimension units")
+                    onActivated: {
+                        widthField.commitValue();
+                        heightField.commitValue();
+                        dialog.changeUnits(currentIndex);
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Label {
+                    text: qsTr("Resolution")
+                }
+                NumberField {
+                    id: dpiField
+                    objectName: "newDocumentDpi"
+                    Layout.preferredWidth: 100
+                    numericValue: dialog.documentDpi
+                    maximum: 2400
+                    Accessible.name: qsTr("Resolution in dots per inch")
+                    onValueEdited: next => dialog.documentDpi = Math.round(next)
+                }
+                Label {
+                    text: qsTr("dpi")
+                    color: ThemeManager.themeColor("textDim")
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                Action {
+                    objectName: "newDocumentSwapDimensions"
+                    text: qsTr("Swap width / height")
+                    enabled: !dialog.fromClipboard
+                    onClicked: {
+                        widthField.commitValue();
+                        heightField.commitValue();
+                        const previous = dialog.dimensionWidth;
+                        dialog.dimensionWidth = dialog.dimensionHeight;
+                        dialog.dimensionHeight = previous;
+                    }
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: dialog.fromClipboard ? qsTr("Clipboard pixels and transparency are preserved.") : dialog.unitIndex === 0 ? qsTr("Changing DPI keeps the pixel dimensions.") : qsTr("Changing DPI keeps the physical size and changes the pixel dimensions.")
+                color: ThemeManager.themeColor("textDim")
+                wrapMode: Text.WordWrap
+            }
+            Action {
+                text: dialog.showSavePreset ? qsTr("Hide preset options") : qsTr("Save this size as a preset…")
+                enabled: !dialog.fromClipboard
+                onClicked: dialog.showSavePreset = !dialog.showSavePreset
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                visible: dialog.showSavePreset
+                Field {
+                    id: presetName
+                    objectName: "newDocumentPresetName"
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Preset name")
+                    Accessible.name: qsTr("Preset name")
+                }
+                Action {
+                    objectName: "newDocumentSavePreset"
+                    text: qsTr("Save preset")
+                    enabled: presetName.text.trim().length > 0 && dialog.validDimensions
+                    onClicked: {
+                        dialog.commitDimensions();
+                        dialog.controller.saveDocumentSizePreset(presetName.text.trim(), dialog.pixelWidth, dialog.pixelHeight, dialog.documentDpi);
+                        dialog.savedSizes = dialog.controller.documentSizePresets();
+                        presetName.text = "";
+                        dialog.showSavePreset = false;
+                    }
+                }
+            }
+            Label {
+                Layout.topMargin: 10
+                text: qsTr("Artwork")
+                font.weight: Font.DemiBold
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    text: qsTr("Paint layers")
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                NumberField {
+                    id: layersField
+                    objectName: "newDocumentLayers"
+                    Layout.preferredWidth: 100
+                    maximum: 64
+                    numericValue: 1
+                    Accessible.name: qsTr("Number of paint layers, excluding background")
+                    onValueEdited: next => numericValue = Math.round(next)
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    text: qsTr("Background")
+                }
+                Choice {
+                    objectName: "newDocumentBackground"
+                    Layout.fillWidth: true
+                    model: [qsTr("Transparent"), qsTr("Solid raster layer")]
+                    currentIndex: dialog.solidBackground ? 1 : 0
+                    Accessible.name: qsTr("Background type")
+                    onActivated: dialog.solidBackground = currentIndex === 1
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                visible: dialog.solidBackground
+                spacing: 10
+                Label {
+                    text: qsTr("Colour")
+                }
+                Field {
+                    id: backgroundColor
+                    objectName: "newDocumentBackgroundColor"
+                    Layout.fillWidth: true
+                    text: "#ffffff"
+                    validator: RegularExpressionValidator {
+                        regularExpression: /^#[0-9a-fA-F]{6}$/
+                    }
+                    Accessible.name: qsTr("Background colour in hexadecimal")
+                }
+                Label {
+                    text: qsTr("Opacity")
+                }
+                NumberField {
+                    id: opacityField
+                    objectName: "newDocumentBackgroundOpacity"
+                    Layout.preferredWidth: 64
+                    minimum: 0
+                    maximum: 100
+                    numericValue: 100
+                    Accessible.name: qsTr("Background opacity percent")
+                    onValueEdited: next => numericValue = Math.round(next)
+                }
+                Label {
+                    text: "%"
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("RGB / Alpha · 8-bit · sRGB")
+                color: ThemeManager.themeColor("textDim")
+                Layout.topMargin: 8
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("%1 × %2 pixels · %3 dpi · %4 MiB per raster layer").arg(dialog.pixelWidth).arg(dialog.pixelHeight).arg(dialog.documentDpi).arg((dialog.pixelWidth * dialog.pixelHeight * 4 / (1024 * 1024)).toFixed(1))
+                color: ThemeManager.themeColor("textDim")
+            }
+            Label {
+                objectName: "newDocumentError"
+                Layout.fillWidth: true
+                visible: dialog.errorMessage.length > 0
+                text: dialog.errorMessage
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.AlertMessage
             }
         }
     }
-
-    // ---- dialog state ----
-    property int tabIndex: 0
-    property color bgColor: "#ffffff"
-    property bool pickBackground: false
-    property int orientationMode: 0   // 0 = portrait, 1 = landscape
-    property int backgroundMode: 0    // matches AppController.BackgroundMode
-    /// Sizes the user saved with "Save Image Size as" this session.
-    property var savedSizes: []
-
-    readonly property var presetNames: [
-        qsTr("Custom"), "A4 300dpi", "A4 72dpi", "HD 1920Ã—1080",
-        "Full page 2480Ã—3508", "Square 2048", "Social 1080Ã—1080", "QHD 2560Ã—1440"
-    ]
-    readonly property var presetModel: presetNames.concat(
-        savedSizes.map(function (s) { return s.name }))
-
-    function applyPreset(index) {
-        if (index < sizePresets.length) {
-            const s = sizePresets[index]
-            if (s[0] > 0) {
-                wField.value = s[0]
-                hField.value = s[1]
-                resField.value = s[2]
-            }
-        } else {
-            const s = savedSizes[index - sizePresets.length]
-            wField.value = s.w
-            hField.value = s.h
+    footer: RowLayout {
+        spacing: 8
+        Item {
+            Layout.fillWidth: true
+        }
+        Action {
+            objectName: "newDocumentCancel"
+            text: qsTr("Cancel")
+            Layout.bottomMargin: 20
+            onClicked: dialog.close()
+        }
+        Action {
+            objectName: "newDocumentCreate"
+            text: qsTr("Create document")
+            primary: true
+            Layout.rightMargin: 20
+            Layout.bottomMargin: 20
+            enabled: dialog.validDimensions
+            onClicked: dialog.create()
         }
     }
 }
-

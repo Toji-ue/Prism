@@ -1,4 +1,5 @@
-﻿import QtQuick
+import QtQuick
+
 import Prism
 
 // Monochrome vector icon set drawn with Canvas â€” no emoji, no image assets.
@@ -41,6 +42,31 @@ Canvas {
         ctx.scale(s, s)
 
         switch (icon.name) {
+        case "focus":
+            ctx.beginPath()
+            ctx.moveTo(2, 6); ctx.lineTo(2, 4)
+            ctx.quadraticCurveTo(2, 2, 4, 2); ctx.lineTo(6, 2)
+            ctx.moveTo(10, 2); ctx.lineTo(12, 2)
+            ctx.quadraticCurveTo(14, 2, 14, 4); ctx.lineTo(14, 6)
+            ctx.moveTo(14, 10); ctx.lineTo(14, 12)
+            ctx.quadraticCurveTo(14, 14, 12, 14); ctx.lineTo(10, 14)
+            ctx.moveTo(6, 14); ctx.lineTo(4, 14)
+            ctx.quadraticCurveTo(2, 14, 2, 12); ctx.lineTo(2, 10)
+            ctx.stroke()
+            break
+        case "workspace":
+            // The top toolbar and right panel identify the interface to restore.
+            ctx.beginPath()
+            ctx.moveTo(4, 2); ctx.lineTo(12, 2)
+            ctx.quadraticCurveTo(14, 2, 14, 4); ctx.lineTo(14, 12)
+            ctx.quadraticCurveTo(14, 14, 12, 14); ctx.lineTo(4, 14)
+            ctx.quadraticCurveTo(2, 14, 2, 12); ctx.lineTo(2, 4)
+            ctx.quadraticCurveTo(2, 2, 4, 2)
+            ctx.closePath()
+            ctx.moveTo(2, 5.5); ctx.lineTo(14, 5.5)
+            ctx.moveTo(10.5, 5.5); ctx.lineTo(10.5, 14)
+            ctx.stroke()
+            break
         case "brush":
             // angled brush: ferrule + handle
             ctx.beginPath()

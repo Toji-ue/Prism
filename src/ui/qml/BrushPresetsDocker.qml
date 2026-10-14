@@ -5,9 +5,7 @@ import QtQuick.Layouts
 import Prism.Ui 1.0
 import Prism
 
-// Krita-style Brush Presets docker: header actions, filter row, thumbnail
-// grid, search field. Thumbnails come from the real brush engine in C++
-// (image://preset/<i>), so each cell shows the stroke it will actually paint.
+// Brush Lab: preset shelf, live engine preview, and the active brush controls.
 Rectangle {
     id: docker
     required property AppController controller
@@ -51,7 +49,7 @@ Rectangle {
             anchors.left: parent.left
             anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
-            text: qsTr("Brush Presets").toUpperCase()
+            text: qsTr("Brush Lab").toUpperCase()
             visible: !docker.embedded
             color: ThemeManager.themeColor("textDim")
             font.pixelSize: 10
@@ -65,6 +63,7 @@ Rectangle {
             Repeater {
                 model: [
                     { icon: "plus",       tip: qsTr("Save current brush as preset"), act: "add" },
+                    { icon: "undo",       tip: qsTr("Reset brush to selected preset"), act: "reset" },
                     { icon: "file-open",  tip: qsTr("Import brush from .prismbrush file"), act: "import" },
                     { icon: "export",     tip: qsTr("Export active brush to .prismbrush file"), act: "export" },
                     { icon: "arrow-up",   tip: qsTr("Move preset up"),   act: "up" },
@@ -73,6 +72,7 @@ Rectangle {
                 ]
                 delegate: Rectangle {
                     width: 20; height: 20
+                    visible: modelData.act !== "del" || docker.controller.activePresetIndex >= docker.controller.builtinPresetCount
                     color: bh.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
                     Icon {
                         anchors.centerIn: parent
@@ -87,6 +87,7 @@ Rectangle {
                             var i = docker.controller.activePresetIndex
                             switch (modelData.act) {
                             case "add":    docker.controller.addPreset(); break
+                            case "reset":  docker.controller.resetBrushToPreset(); break
                             case "import": brushImportDialog.open(); break
                             case "export": brushExportDialog.open(); break
                             case "up":     docker.controller.movePreset(i, 1); break
@@ -104,48 +105,18 @@ Rectangle {
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
     }
 
-    // ---- filter row ----
-    Row {
+    // ---- preset shelf ----
+    Text {
         id: filterRow
         anchors.top: header.bottom
         anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.margins: 4
-        spacing: 4
-
-        Rectangle {
-            width: 58; height: 20
-            color: ThemeManager.themeColor("windowAlt")
-            border.color: ThemeManager.themeColor("border")
-            Text {
-                anchors.centerIn: parent
-                text: qsTr("All")
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 10
-            }
-        }
-        Rectangle {
-            width: 58; height: 20
-            color: ThemeManager.themeColor("windowAlt")
-            border.color: ThemeManager.themeColor("border")
-            Text {
-                anchors.centerIn: parent
-                text: qsTr("Tag")
-                color: ThemeManager.themeColor("textDim")
-                font.pixelSize: 10
-            }
-        }
-        Rectangle {
-            width: 58; height: 20
-            color: ThemeManager.themeColor("windowAlt")
-            border.color: ThemeManager.themeColor("border")
-            Text {
-                anchors.centerIn: parent
-                text: qsTr("All")
-                color: ThemeManager.themeColor("textDim")
-                font.pixelSize: 10
-            }
-        }
+        anchors.leftMargin: 8
+        height: 24
+        verticalAlignment: Text.AlignVCenter
+        text: qsTr("PRESETS") + "  ·  " + docker.visibleIndices.length
+        color: ThemeManager.themeColor("textDim")
+        font.pixelSize: ThemeManager.themeColor("fontCaption")
+        font.letterSpacing: 0.8
     }
 
     // ---- thumbnail grid ----
@@ -155,7 +126,7 @@ Rectangle {
         anchors.topMargin: 4
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: tipEditor.top
+        anchors.bottom: previewPanel.top
         anchors.leftMargin: 4
         anchors.rightMargin: 4
         clip: true
@@ -170,7 +141,7 @@ Rectangle {
 
             width: 48; height: 48
             color: docker.controller.activePresetIndex === presetIndex
-                   ? ThemeManager.themeColor("highlight") : (hh.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelSunken"))
+                   ? ThemeManager.themeColor("selection") : (hh.hovered ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelSunken"))
             border.color: docker.controller.activePresetIndex === presetIndex
                           ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
             border.width: 1
@@ -198,18 +169,64 @@ Rectangle {
         }
     }
 
-    // ---- tip editor ----
-    // Edits the active brush's tip: shape, roundness, angle, image, and the
-    // pressure dynamics. Everything writes straight through to the controller,
-    // so an edited tip is what the next stroke paints with.
-    Column {
-        id: tipEditor
+    Rectangle {
+        id: previewPanel
+        anchors.bottom: editorScroll.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.margins: 8
+        height: 108
+        radius: ThemeManager.themeColor("radiusSmall")
+        color: ThemeManager.themeColor("panelSunken")
+
+        Text {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.margins: 8
+            text: docker.controller.brushGraphite ? qsTr("LIVE STROKE  ·  LIGHT / FIRM / TILT")
+                                                  : qsTr("LIVE STROKE")
+            color: ThemeManager.themeColor("textDim")
+            font.pixelSize: ThemeManager.themeColor("fontCaption")
+            font.letterSpacing: 0.8
+        }
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 8
+            height: 78
+            radius: 4
+            color: "#ffffff"
+            Image {
+                anchors.fill: parent
+                anchors.margins: 2
+                fillMode: Image.PreserveAspectFit
+                cache: false
+                sourceSize.width: 220
+                sourceSize.height: 84
+                source: "image://preset/active/" + docker.controller.brushPreviewRevision
+            }
+        }
+    }
+
+    Flickable {
+        id: editorScroll
         anchors.bottom: searchRow.top
         anchors.bottomMargin: 4
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.leftMargin: 4
         anchors.rightMargin: 4
+        height: Math.min(282, Math.max(180, docker.height * 0.43))
+        contentWidth: width
+        contentHeight: tipEditor.height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+    Column {
+        id: tipEditor
+        width: editorScroll.width - 8
         spacing: 3
 
         Rectangle { width: parent.width; height: 1; color: ThemeManager.themeColor("border") }
@@ -274,7 +291,7 @@ Rectangle {
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
-            Slider {
+            PSlider {
                 id: roundnessSlider
                 objectName: "tipRoundnessSlider"
                 width: tipEditor.width - 110
@@ -305,7 +322,7 @@ Rectangle {
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
-            Slider {
+            PSlider {
                 id: angleSlider
                 objectName: "tipAngleSlider"
                 width: tipEditor.width - 110
@@ -322,7 +339,7 @@ Rectangle {
                 }
             }
             Text {
-                text: Math.round(docker.controller.brushTipAngle) + "Â°"
+                text: Math.round(docker.controller.brushTipAngle) + " deg"
                 color: ThemeManager.themeColor("text")
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
@@ -331,19 +348,21 @@ Rectangle {
 
         Row {
             spacing: 4
-            CheckBox {
-                id: pressureOpacityBox
+            Rectangle {
                 objectName: "pressureOpacityBox"
-                text: qsTr("Pâ†’Opacity")
-                checked: docker.controller.pressureOpacity
-                onToggled: docker.controller.pressureOpacity = checked
-                font.pixelSize: 10
-                Connections {
-                    target: docker.controller
-                    function onBrushChanged() {
-                        pressureOpacityBox.checked = docker.controller.pressureOpacity
-                    }
+                width: 104; height: 22
+                radius: ThemeManager.themeColor("radiusSmall")
+                color: docker.controller.pressureOpacity ? ThemeManager.themeColor("selection")
+                                                         : ThemeManager.themeColor("panelSunken")
+                border.color: docker.controller.pressureOpacity ? ThemeManager.themeColor("highlight")
+                                                                : ThemeManager.themeColor("border")
+                Text {
+                    anchors.centerIn: parent
+                    text: qsTr("Pressure opacity")
+                    color: ThemeManager.themeColor("text")
+                    font.pixelSize: 10
                 }
+                MouseArea { anchors.fill: parent; onClicked: docker.controller.pressureOpacity = !docker.controller.pressureOpacity }
             }
             Text {
                 text: qsTr("Curve:")
@@ -351,7 +370,7 @@ Rectangle {
                 font.pixelSize: 10
                 anchors.verticalCenter: parent.verticalCenter
             }
-            Slider {
+            PSlider {
                 id: curveSlider
                 objectName: "pressureCurveSlider"
                 width: tipEditor.width - 190
@@ -360,6 +379,92 @@ Rectangle {
                 onMoved: docker.controller.pressureCurve = value
             }
         }
+
+        BrushLabSlider {
+            objectName: "labSize"
+            caption: qsTr("Size")
+            from: 1; to: 200
+            displayScale: 1; suffix: " px"
+            controllerValue: docker.controller.brushSize
+            onMoved: value => docker.controller.brushSize = value
+        }
+        BrushLabSlider {
+            objectName: "labHardness"
+            caption: qsTr("Hardness")
+            controllerValue: docker.controller.brushHardness
+            onMoved: value => docker.controller.brushHardness = value
+        }
+        BrushLabSlider {
+            objectName: "labFlow"
+            caption: qsTr("Flow")
+            from: 0.01
+            controllerValue: docker.controller.brushFlow
+            onMoved: value => docker.controller.brushFlow = value
+        }
+        BrushLabSlider {
+            objectName: "labSpacing"
+            caption: qsTr("Spacing")
+            from: 0.02
+            controllerValue: docker.controller.brushSpacing
+            onMoved: value => docker.controller.brushSpacing = value
+        }
+        BrushLabSlider {
+            objectName: "labMinSize"
+            caption: qsTr("Light size")
+            from: 0.05
+            controllerValue: docker.controller.pressureSizeMin
+            onMoved: value => docker.controller.pressureSizeMin = value
+        }
+        BrushLabSlider {
+            objectName: "labStabilization"
+            caption: qsTr("Stabilize")
+            controllerValue: docker.controller.brushStabilization
+            onMoved: value => docker.controller.brushStabilization = value
+        }
+        BrushLabSlider {
+            objectName: "labEndTaper"
+            caption: qsTr("End taper")
+            from: 0; to: 6
+            displayScale: 1; suffix: " diameters"
+            controllerValue: docker.controller.brushEndTaper
+            onMoved: value => docker.controller.brushEndTaper = value
+        }
+        Rectangle {
+            width: tipEditor.width; height: 23
+            color: docker.controller.brushGraphite ? ThemeManager.themeColor("selection")
+                                                  : ThemeManager.themeColor("panelSunken")
+            border.color: ThemeManager.themeColor("border")
+            Text {
+                anchors.centerIn: parent
+                text: qsTr("Graphite material")
+                color: ThemeManager.themeColor("text")
+                font.pixelSize: 10
+            }
+            MouseArea { anchors.fill: parent; onClicked: docker.controller.brushGraphite = !docker.controller.brushGraphite }
+        }
+        BrushLabSlider {
+            objectName: "labGrain"
+            visible: docker.controller.brushGraphite
+            caption: qsTr("Grain")
+            controllerValue: docker.controller.brushGrain
+            onMoved: value => docker.controller.brushGrain = value
+        }
+        BrushLabSlider {
+            objectName: "labGrainScale"
+            visible: docker.controller.brushGraphite
+            caption: qsTr("Grain scale")
+            from: 0.5; to: 4
+            controllerValue: docker.controller.brushGrainScale
+            onMoved: value => docker.controller.brushGrainScale = value
+        }
+        BrushLabSlider {
+            objectName: "labTiltShading"
+            visible: docker.controller.brushGraphite
+            caption: qsTr("Tilt shading")
+            controllerValue: docker.controller.brushTiltShading
+            onMoved: value => docker.controller.brushTiltShading = value
+        }
+    }
     }
 
     FileDialog {
@@ -412,6 +517,7 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 TextInput {
+                    objectName: "brushSearchInput"
                     id: searchField
                     width: parent.width - 20
                     anchors.verticalCenter: parent.verticalCenter
@@ -422,7 +528,7 @@ Rectangle {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: searchField.text.length === 0
-                        text: qsTr("Searchâ€¦")
+                        text: qsTr("Search...")
                         color: ThemeManager.themeColor("textDim")
                         font.pixelSize: 10
                     }

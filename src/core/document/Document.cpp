@@ -34,7 +34,9 @@ void Document::resizeCanvas(CanvasSize size)
             continue;
         const auto& old = layer->pixels();
         raster::RasterBuffer resized(size.width, size.height);
-        resized.blit(old, 0, 0);
+        // Resize the visible canvas, not the hidden buffer origin left by a
+        // non-destructive crop.
+        resized.blit(old.copyRect(m_origin.x, m_origin.y, m_size.width, m_size.height), 0, 0);
         layer->pixels() = std::move(resized);
     }
     m_size = size;

@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/PrismVersion.txt" PRISM_VERSION LIMIT_COUNT 1)
 
 project(Prism
     VERSION 0.1.0
@@ -52,11 +53,15 @@ qt_add_qml_module(prism
         src/ui/qml/PMenu.qml
         src/ui/qml/Main.qml
         src/ui/qml/StartPage.qml
+        src/ui/qml/FocusGlassPanel.qml
+        src/ui/qml/QuickControls.qml
+        src/ui/qml/CompactColour.qml
         src/ui/qml/ToolBox.qml
         src/ui/qml/ToolbarButton.qml
         src/ui/qml/ColorSelector.qml
         src/ui/qml/LayersDocker.qml
         src/ui/qml/BrushPresetsDocker.qml
+        src/ui/qml/BrushLabSlider.qml
         src/ui/qml/NewDocumentDialog.qml)
 
 target_link_libraries(prism PRIVATE
@@ -70,6 +75,8 @@ target_link_libraries(prism PRIVATE
     # drop. Raw QCoreApplication::sendEvent bypasses that bookkeeping and
     # reports a working drag as broken.
     Qt6::Test)
+target_compile_definitions(prism PRIVATE PRISM_VERSION="${PRISM_VERSION}")
+target_compile_definitions(prism_ui PRIVATE PRISM_VERSION="${PRISM_VERSION}")
 
 # --------------------------------------------------------------------------- #
 # tests
