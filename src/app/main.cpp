@@ -3144,10 +3144,141 @@ int main(int argc, char* argv[]) {
                     check(click("colourPickerPin") && controller->colourPickerPinned(),
                           "Colour pin is clickable");
                     controller->setColourPickerPinned(false);
+                    // Real input must not open a second copy of a docked panel.
+                    auto* panel = root->findChild<QObject*>(QStringLiteral("focusQuickPanel"));
+                    const auto focusCanvas = [&]() {
+                        if (auto* canvas =
+                                findItemByName(window->contentItem(), QStringLiteral("canvasItem")))
+                            canvas->forceActiveFocus();
+                    };
+                    const auto panelKey = [&](Qt::Key key) {
+                        focusCanvas();
+                        QTest::keyClick(window, key, Qt::ControlModifier);
+                        QTest::qWait(120);
+                    };
+                    const auto panelOn = [&](int page) {
+                        return panel && panel->property("visible").toBool() &&
+                               panel->property("page").toInt() == page;
+                    };
+                    const auto tabVisible = [&](int page) {
+                        auto* tab =
+                            findItemByName(window->contentItem(),
+                                           QStringLiteral("workspacePanelTab_%1").arg(page));
+                        return tab && tab->isVisible();
+                    };
+                    panelKey(Qt::Key_2);
+                    check(panelOn(1) && !tabVisible(0) && tabVisible(1) && tabVisible(2),
+                          "workspace Brush Lab offers no floating Layers tab");
+                    const auto panelInsideWindow = [&]() {
+                        auto* content =
+                            panel ? panel->property("contentItem").value<QQuickItem*>() : nullptr;
+                        if (!content)
+                            return false;
+                        const qreal padding = panel->property("padding").toReal();
+                        const auto topLeft = content->mapToScene(QPointF(-padding, -padding));
+                        const auto bottomRight = content->mapToScene(
+                            QPointF(content->width() + padding, content->height() + padding));
+                        return topLeft.x() >= 0 && topLeft.y() >= 0 &&
+                               bottomRight.x() <= window->width() &&
+                               bottomRight.y() <= window->height();
+                    };
+                    check(panelInsideWindow(), "workspace popover fits window bounds");
+                    check(click("workspacePanelTab_2") && panelOn(2) &&
+                              click("workspacePanelTab_1") && panelOn(1),
+                          "filtered tabs retain stable Brush and Colour IDs");
+                    auto* colourTab = findItemByName(window->contentItem(),
+                                                     QStringLiteral("workspacePanelTab_2"));
+                    if (colourTab)
+                        colourTab->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_Space);
+                    QTest::qWait(120);
+                    check(panelOn(2), "panel tabs accept keyboard activation");
+                    panelKey(Qt::Key_2);
+                    auto* search =
+                        findItemByName(window->contentItem(), QStringLiteral("brushSearchInput"));
+                    if (search)
+                        search->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_1, Qt::ControlModifier);
+                    QTest::keyClick(window, Qt::Key_Tab);
+                    QTest::qWait(120);
+                    check(search && panelOn(1) && !controller->focusMode(),
+                          "text editing keeps panel shortcuts and Tab for the field");
+                    panelKey(Qt::Key_1);
+                    auto* focusedLayer = window->activeFocusItem();
+                    check(panel && !panel->property("visible").toBool() && focusedLayer &&
+                              focusedLayer->objectName().startsWith(QStringLiteral("layerRow_")),
+                          "Ctrl+1 closes floating panel and focuses docked layer row");
+                    check(click("toolbarColourSwatch") && panelOn(2),
+                          "toolbar swatch uses shared Colour panel");
+                    QTest::keyClick(window, Qt::Key_Escape);
+                    QTest::qWait(120);
+                    check(click("workspaceWindowMenuButton") && click("workspaceColourMenuItem") &&
+                              panelOn(2),
+                          "Window Colour menu uses shared panel");
+                    QTest::keyClick(window, Qt::Key_Escape);
+                    QTest::qWait(120);
+                    check(click("colourPickerMore") && panelOn(2),
+                          "Colour More uses shared Colour panel");
+                    controller->setColourPickerPinned(true);
+                    QTest::qWait(120);
+                    check(panel && !panel->property("visible").toBool() &&
+                              window->activeFocusItem() &&
+                              window->activeFocusItem()->objectName() ==
+                                  QStringLiteral("pinnedColourPicker"),
+                          "pinning Colour transfers floating picker to dock");
+                    panelKey(Qt::Key_2);
+                    auto* tabs =
+                        findItemByName(window->contentItem(), QStringLiteral("workspacePanelTabs"));
+                    check(panelOn(1) && tabs && !tabs->isVisible(),
+                          "pinned Colour leaves only Brush Lab and hides tab strip");
+                    panelKey(Qt::Key_3);
+                    check(panel && !panel->property("visible").toBool() &&
+                              window->activeFocusItem() &&
+                              window->activeFocusItem()->objectName() ==
+                                  QStringLiteral("pinnedColourPicker"),
+                          "Ctrl+3 focuses pinned Colour without a duplicate");
+                    controller->setFocusMode(true);
+                    QTest::qWait(120);
+                    panelKey(Qt::Key_1);
+                    check(panelOn(0) && tabVisible(0) && tabVisible(1) && tabVisible(2),
+                          "Focus mode retains all three floating panels with Colour pinned");
+                    check(panelInsideWindow(), "Focus popover fits window bounds");
+                    check(click("workspacePanelTab_1") && panelOn(1) &&
+                              click("workspacePanelTab_2") && panelOn(2),
+                          "Focus tabs select stable panel IDs");
+                    QTest::keyClick(window, Qt::Key_Escape);
+                    QTest::qWait(120);
+                    check(panel && !panel->property("visible").toBool(),
+                          "Escape closes floating panel");
+                    panelKey(Qt::Key_2);
+                    controller->beginStroke(5, 10);
+                    QTest::qWait(120);
+                    QTest::keyClick(window, Qt::Key_1, Qt::ControlModifier);
+                    check(panel && !panel->property("visible").toBool(),
+                          "stroke closes panels and blocks shortcut reopening");
+                    controller->endStroke();
+                    panelKey(Qt::Key_3);
+                    check(click("canvasMouseArea") && panel && !panel->property("visible").toBool(),
+                          "outside canvas click closes floating panel");
+                    panelKey(Qt::Key_3);
+                    controller->setFocusMode(false);
+                    QTest::qWait(120);
+                    check(panel && !panel->property("visible").toBool(),
+                          "restoring workspace closes Focus panel");
+                    controller->setColourPickerPinned(false);
+                    panelKey(Qt::Key_2);
+                    controller->newDocument(40, 32);
+                    QTest::qWait(120);
+                    check(panel && !panel->property("visible").toBool(),
+                          "document replacement closes floating panel");
+                    panelKey(Qt::Key_2);
                     controller->setLastError(
                         QStringLiteral("Verification: persistent actionable error"));
                     controller->setStartPageVisible(true);
                     QCoreApplication::processEvents();
+                    QTest::qWait(120);
+                    check(panel && !panel->property("visible").toBool(),
+                          "Start Page closes floating panel");
                     check(controller->lastError().contains("Verification"),
                           "Start Page retains the error");
                     controller->dismissError();

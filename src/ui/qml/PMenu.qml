@@ -11,6 +11,7 @@ Menu {
 
     delegate: MenuItem {
         id: item
+        objectName: item.action ? item.action.objectName : ""
 
         // Separators arrive as MenuItems with empty text: render them as a gap
         // plus a hairline instead of a (wrongly styled) label.

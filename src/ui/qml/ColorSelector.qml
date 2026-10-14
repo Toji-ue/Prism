@@ -11,6 +11,8 @@ Rectangle {
 
     color: ThemeManager.themeColor("panel")
     radius: ThemeManager.themeColor("radius")
+    border.width: activeFocus ? 1 : 0
+    border.color: ThemeManager.themeColor("highlight")
 
     readonly property color current: controller.brushColor
     /// 0 = Advanced Color Selector, 1 = Tool Options (Krita's docker tabs).

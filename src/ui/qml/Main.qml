@@ -27,6 +27,15 @@ ApplicationWindow {
     }
 
     readonly property bool focusMode: controller.focusMode
+    // Panel IDs stay stable when docked panels are omitted from the floating tabs.
+    readonly property var floatingPanels: focusMode
+            ? [{ panelId: 0, title: qsTr("Layers") },
+               { panelId: 1, title: qsTr("Brush Lab") },
+               { panelId: 2, title: qsTr("Colour") }]
+            : controller.colourPickerPinned
+                ? [{ panelId: 1, title: qsTr("Brush Lab") }]
+                : [{ panelId: 1, title: qsTr("Brush Lab") },
+                   { panelId: 2, title: qsTr("Colour") }]
     readonly property bool textEditing: root.activeFocusItem instanceof TextInput
                                         || root.activeFocusItem instanceof TextField
                                         || root.activeFocusItem instanceof TextArea
@@ -44,11 +53,14 @@ ApplicationWindow {
         drawingQuickControls.close()
     } else if (toastVisible) toastTimer.restart()
     onFocusModeChanged: {
+        closeWorkspacePopups()
+        canvasMouse.forceActiveFocus()
+    }
+
+    function closeWorkspacePopups() {
         quickPanel.close()
-        colorPopup.close()
         presetsPopup.close()
         drawingQuickControls.close()
-        canvasMouse.forceActiveFocus()
     }
 
     function restorePendingCanvasCentre(changedAxis) {
@@ -83,9 +95,15 @@ ApplicationWindow {
     }
 
     function showWorkspacePanel(index) {
-        if (pointerDown) return
+        if (pointerDown || controller.startPageVisible) return
         if (index === 0 && !focusMode) {
-            mainLayersDocker.forceActiveFocus()
+            closeWorkspacePopups()
+            mainLayersDocker.focusActiveLayer()
+            return
+        }
+        if (index === 2 && !focusMode && controller.colourPickerPinned) {
+            closeWorkspacePopups()
+            pinnedColourPicker.forceActiveFocus()
             return
         }
         quickPanel.page = index
@@ -120,7 +138,18 @@ ApplicationWindow {
             else { recordDialog.partial = false; recordDialog.open() }
         }
         function onDocumentReplaced() {
+            root.closeWorkspacePopups()
             Qt.callLater(() => controller.fitToViewport(canvasArea.width - 40, canvasArea.height - 40))
+        }
+        function onStartPageVisibleChanged() {
+            if (controller.startPageVisible) root.closeWorkspacePopups()
+        }
+        function onColourPickerPinnedChanged() {
+            Qt.callLater(() => {
+                if (controller.colourPickerPinned && !root.focusMode
+                        && quickPanel.visible && quickPanel.page === 2)
+                    root.showWorkspacePanel(2)
+            })
         }
         function onLastErrorChanged() { if (controller.lastError) root.toastVisible = false }
         function onStatusMessageChanged() { root.showToast(controller.statusMessage) }
@@ -184,7 +213,7 @@ ApplicationWindow {
     }
 
     // Switches the Advanced Color Selector docker to its Tool Options tab.
-    function showToolOptions() { quickPanel.page = 2; quickPanel.open() }
+    function showToolOptions() { showWorkspacePanel(2) }
 
     // Verification hook (prism --demo-menu): opens a dropdown so its colours
     // can be checked from a screenshot.
@@ -336,6 +365,7 @@ ApplicationWindow {
         }
         delegate: MenuBarItem {
             id: menuItem
+            objectName: menuItem.menu ? menuItem.menu.objectName + "Button" : ""
             implicitWidth: label.implicitWidth + 24
             implicitHeight: 32
             contentItem: Text {
@@ -448,6 +478,7 @@ ApplicationWindow {
         }
         PMenu {
             title: qsTr("&Window")
+            objectName: "workspaceWindowMenu"
             enabled: !controller.startPageVisible
             Action {
                 text: qsTr("Focus Mode\tTab")
@@ -457,7 +488,7 @@ ApplicationWindow {
             }
             Action { text: qsTr("Layers\tCtrl+1"); onTriggered: showWorkspacePanel(0) }
             Action { text: qsTr("Brush Lab\tCtrl+2"); onTriggered: showWorkspacePanel(1) }
-            Action { text: qsTr("Colour\tCtrl+3"); onTriggered: showWorkspacePanel(2) }
+            Action { objectName: "workspaceColourMenuItem"; text: qsTr("Colour\tCtrl+3"); onTriggered: showWorkspacePanel(2) }
         }
         PMenu {
             title: qsTr("&Help")
@@ -528,11 +559,12 @@ ApplicationWindow {
                 MouseArea { anchors.fill: parent; onClicked: presetsPopup.open() }
             }
             Rectangle {
+                objectName: "toolbarColourSwatch"
                 width: 32; height: 32
                 radius: ThemeManager.themeColor("radiusControl")
                 color: controller.brushColor
                 border.color: ThemeManager.themeColor("border")
-                MouseArea { anchors.fill: parent; onClicked: colorPopup.open() }
+                MouseArea { anchors.fill: parent; onClicked: root.showWorkspacePanel(2) }
             }
             Item { Layout.fillWidth: true }
             Text {
@@ -1126,6 +1158,7 @@ ApplicationWindow {
                 spacing: 8
                 LayersDocker {
                     id: mainLayersDocker
+                    objectName: "workspaceLayers"
                     controller: root.controller
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -1144,7 +1177,14 @@ ApplicationWindow {
                     color: ThemeManager.themeColor("panel")
                     radius: 12
                     Button { id: unpinColour; objectName: "unpinColourPicker"; text: qsTr("Compact colour"); height: 32; anchors.right: parent.right; onClicked: controller.colourPickerPinned = false }
-                    ColorSelector { controller: root.controller; anchors.top: unpinColour.bottom; anchors.bottom: parent.bottom; width: parent.width }
+                    ColorSelector {
+                        id: pinnedColourPicker
+                        objectName: "pinnedColourPicker"
+                        controller: root.controller
+                        anchors.top: unpinColour.bottom
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                    }
                 }
             }
         }
@@ -1341,7 +1381,7 @@ ApplicationWindow {
                 color: ThemeManager.themeColor("text")
                 font.pixelSize: 14
                 textFormat: Text.RichText
-                text: qsTr("<h3>Draw</h3><p>B selects the brush, E the eraser. Use Size and Flow in the bottom strip. Q opens Quick Controls near your pen; change that shortcut in Configure Tool Shortcuts. Ctrl+2 opens Brush Lab. HB and 2B use graphite grain; Ink tapers at release.</p><h3>Workspace</h3><p>Tab or the four-corner icon hides the interface. The top-right layout icon restores it. Ctrl+1/2/3 opens Layers, Brush Lab and Colour. These shortcuts wait while drawing and leave text fields alone. Every document opens with the full interface.</p><h3>Save and recover artwork</h3><p>Ctrl+S saves the native .prism project. Ctrl+Shift+S is Save As. Export creates a flat image and does not save your layers. Changes are protected by autosave after 45 seconds, once a stroke is committed. Recover Artwork on the Start Page opens a separate recovery copy; save it as a project. Save/Discard/Cancel protects closing or replacing modified artwork. Discard removes that artwork’s recovery copies.</p><h3>Recordings</h3><p>Recording runs automatically. A storage error is shown and can be retried. Earlier gaps remain marked as incomplete. Normal export waits for the final frame; Partial export explicitly exports the available timeline. .prismrec keeps every stored frame; GIF/MP4 samples the timeline to about four minutes. The hash chain verifies file consistency, not the identity of the artist.</p><h3>Storage</h3><p>Recording Storage lists sessions and disk usage. Recordings remain until you confirm deletion. Active sessions cannot be deleted. Recover Recording is separate from recovering your artwork.</p><h3>History and layers</h3><p>Ctrl+Z undoes and Ctrl+Shift+Z redoes. Layers supports groups, clipping, alpha lock and locking. Resize Canvas is reversible. Fit View fits the available canvas area; 100% shows actual pixel scale.</p>")
+                text: qsTr("<h3>Draw</h3><p>B selects the brush, E the eraser. Use Size and Flow in the bottom strip. Q opens Quick Controls near your pen; change that shortcut in Configure Tool Shortcuts. Ctrl+2 opens Brush Lab. HB and 2B use graphite grain; Ink tapers at release.</p><h3>Workspace</h3><p>Tab or the four-corner icon hides the interface. The top-right layout icon restores it. In the full workspace, Ctrl+1 focuses docked Layers and Ctrl+2 opens Brush Lab. Ctrl+3, the toolbar colour swatch and More open Colour, or focus the pinned picker. Floating tabs only offer panels that are not already docked. In Focus mode, Ctrl+1/2/3 opens Layers, Brush Lab and Colour as floating tabs. These shortcuts wait while drawing and leave text fields alone. Every document opens with the full interface.</p><h3>Save and recover artwork</h3><p>Ctrl+S saves the native .prism project. Ctrl+Shift+S is Save As. Export creates a flat image and does not save your layers. Changes are protected by autosave after 45 seconds, once a stroke is committed. Recover Artwork on the Start Page opens a separate recovery copy; save it as a project. Save/Discard/Cancel protects closing or replacing modified artwork. Discard removes that artwork’s recovery copies.</p><h3>Recordings</h3><p>Recording runs automatically. A storage error is shown and can be retried. Earlier gaps remain marked as incomplete. Normal export waits for the final frame; Partial export explicitly exports the available timeline. .prismrec keeps every stored frame; GIF/MP4 samples the timeline to about four minutes. The hash chain verifies file consistency, not the identity of the artist.</p><h3>Storage</h3><p>Recording Storage lists sessions and disk usage. Recordings remain until you confirm deletion. Active sessions cannot be deleted. Recover Recording is separate from recovering your artwork.</p><h3>History and layers</h3><p>Ctrl+Z undoes and Ctrl+Shift+Z redoes. Layers supports groups, clipping, alpha lock and locking. Resize Canvas is reversible. Fit View fits the available canvas area; 100% shows actual pixel scale.</p>")
             }
         }
     }
@@ -1754,30 +1794,56 @@ ApplicationWindow {
         objectName: "focusQuickPanel"
         property int page: 0
         x: root.width - width - 20
-        y: 42
+        y: root.focusMode ? 42 : 8
         width: 316
-        height: Math.min(root.height - 90, 570)
+        // Popup coordinates include the full workspace's menu/toolbar offset.
+        height: Math.min(570, root.height - root.contentItem.y - y - 8)
         padding: 6
+        focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: FocusGlassPanel { backdrop: canvasArea }
+        background: Rectangle {
+            color: root.focusMode ? "transparent" : ThemeManager.themeColor("panel")
+            radius: ThemeManager.themeColor("radiusPanel")
+            border.width: root.focusMode ? 0 : 1
+            border.color: ThemeManager.themeColor("border")
+            FocusGlassPanel {
+                anchors.fill: parent
+                visible: root.focusMode
+                backdrop: canvasArea
+            }
+        }
         contentItem: ColumnLayout {
             spacing: 4
             RowLayout {
+                objectName: "workspacePanelTabs"
                 Layout.fillWidth: true
+                visible: root.floatingPanels.length > 1
                 Repeater {
-                    model: [qsTr("Layers"), qsTr("Brush Lab"), qsTr("Colour")]
-                    delegate: Rectangle {
+                    model: root.floatingPanels
+                    delegate: Button {
+                        id: panelTab
+                        required property var modelData
+                        objectName: "workspacePanelTab_" + modelData.panelId
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 28
-                        radius: ThemeManager.themeColor("radiusSmall")
-                        color: quickPanel.page === index ? ThemeManager.themeColor("selection") : "transparent"
-                        Text {
-                            anchors.centerIn: parent
-                            text: modelData
-                            color: quickPanel.page === index ? ThemeManager.themeColor("selectionText") : ThemeManager.themeColor("textDim")
+                        Layout.preferredHeight: 32
+                        text: modelData.title
+                        Accessible.name: text
+                        onClicked: root.showWorkspacePanel(modelData.panelId)
+                        background: Rectangle {
+                            radius: ThemeManager.themeColor("radiusSmall")
+                            color: quickPanel.page === panelTab.modelData.panelId
+                                    ? ThemeManager.themeColor("selection")
+                                    : panelTab.hovered ? ThemeManager.themeColor("buttonHover") : "transparent"
+                            border.width: panelTab.visualFocus ? 1 : 0
+                            border.color: ThemeManager.themeColor("highlight")
+                        }
+                        contentItem: Text {
+                            text: panelTab.text
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            color: quickPanel.page === panelTab.modelData.panelId ? ThemeManager.themeColor("selectionText") : ThemeManager.themeColor("textDim")
                             font.pixelSize: ThemeManager.themeColor("fontBody")
                         }
-                        MouseArea { anchors.fill: parent; onClicked: quickPanel.page = index }
                     }
                 }
             }
@@ -1792,15 +1858,6 @@ ApplicationWindow {
         }
     }
 
-    // compact color popup from the toolbar swatch
-    Popup {
-        id: colorPopup
-        x: root.width - 330; y: 40
-        width: 300; height: 420
-        padding: 0
-        background: Rectangle { color: ThemeManager.themeColor("window"); border.color: ThemeManager.themeColor("border"); radius: ThemeManager.themeColor("radiusPanel") }
-        ColorSelector { controller: root.controller; anchors.fill: parent }
-    }
 }
 
 

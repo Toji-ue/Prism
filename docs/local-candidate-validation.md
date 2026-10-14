@@ -6,7 +6,7 @@ UX 40/40, production readiness or permission to distribute the runtime.
 
 ## Candidate identity
 
-- Release executable SHA-256: `AD1E2A0280B2B0ECACE1D0549C5D052989C52E4D37F13BB04B274FAF8C76E2B9`.
+- Release executable SHA-256 after the panel routing fix: `56D0FD65A554C7D7BBE8C0FD4AC386A92729CCF21AB1652F68FACE3C48965270`.
 - `PrismVersion.txt` supplies the compiled and packaging version. A root `VERSION`
   file must not be used: on Windows it shadows the C++ `<version>` header.
 - `tools/deploy.ps1` rebuilds Release, reruns the suite, stages fresh dynamic Qt
@@ -80,7 +80,7 @@ substitute for the hardware, soak, installer or remote CI gates below.
 
 ## Rendered 300-point benchmark
 
-The final executable above drove real QTest mouse moves in visible, rendering
+The continuation baseline executable (`AD1E2A0280B2B0ECACE1D0549C5D052989C52E4D37F13BB04B274FAF8C76E2B9`) drove real QTest mouse moves in visible, rendering
 Windows windows, with the default Solid preset. Each run used isolated settings.
 Values below are CPU processing, not measured physical pen-to-pixel latency.
 
@@ -100,9 +100,39 @@ the three runs changed: average move **0.5000→0.4667 ms**, median point
 **0.0625→0.0464 ms**, mouse-up **31→27 ms**, uploaded bytes
 **148,049,920→153,292,800** (+3.54%). One new-run mouse-up was 73 ms; this small
 sample has variability. Logs are under `build/clean-visible-*`. This comparison
-used the intermediate optimized build; the final exact-binary results are above.
+used the intermediate optimized build; the continuation baseline results are above.
 No >10% median regression was observed in this comparison. Graphite tablet feel
 and long-session responsiveness still require hardware/soak evidence.
+
+## Panel routing follow-up — 2026-10-14
+
+- Full workspace keeps docked Layers and the Colour shelf. Floating tabs offer
+  Brush Lab and unpinned Colour only. Ctrl+1 closes the popup and focuses the
+  selected docked layer row; Ctrl+3, the Window menu, toolbar swatch and More
+  share one Colour path or focus the pinned picker. Focus mode keeps all three
+  floating tabs, with unchanged IDs 0/1/2. A single-tab popup hides the tab strip.
+- Pinning Colour transfers focus to the dock. Start Page, document replacement,
+  mode changes, Escape, outside clicks and strokes close the floating panel.
+  Popup bounds include the menu/toolbar offset and fit the minimum window.
+  Workspace popups use an opaque shared panel surface so docked text/icons do
+  not show through; Focus mode retains its glass surface.
+- The expanded native `--demo-ux-beta-test` passed **31 assertions, zero failures**
+  on the final hash above at 1000×620. An earlier routing build also passed at
+  light 1280×780. Real QTest mouse and
+  keyboard input covers the Window Colour menu, toolbar/More, filtered tabs,
+  keyboard tab activation, pinned picker, text-field exclusions, stroke blocking,
+  focus transfer, popup bounds and document/Start Page closure. Logs are in
+  `build/panel-shipped-interaction` and `build/panel-accepted-*`; the unchanged
+  CTest suite remains 130 tests. The Focus regression also checks Q, Tab, restore,
+  stroke suppression and preservation of zoom and viewed canvas centre.
+- Final screenshot fixtures use `build/panel-shipped-*`: light/dark, 1280×780 and
+  1000×620, full Brush Lab/full Colour/Focus Colour. Open-panel fixtures do not
+  draw a later demo stroke, which would correctly close the popup. Hidden-window
+  runs without layout polishing were rejected as tab-click evidence.
+- F1 Help and AGENTS workspace guidance describe the corrected routing. CI uses
+  a 12-second screenshot delay so the longer interaction run can finish. Remote
+  CI and real pen input remain unverified; this fix adds no format, brush or
+  rendering changes. Benchmark measurements above describe the earlier hash.
 
 ## Open release gates
 

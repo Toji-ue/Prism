@@ -14,6 +14,13 @@ Rectangle {
     property bool embedded: false
     property bool glass: false
 
+    function focusActiveLayer() {
+        list.positionViewAtIndex(controller.activeLayerIndex, ListView.Contain)
+        const row = list.itemAtIndex(controller.activeLayerIndex)
+        if (row) row.forceActiveFocus()
+        else list.forceActiveFocus()
+    }
+
     color: glass ? "transparent" : ThemeManager.themeColor("panel")
     radius: ThemeManager.themeColor("radius")
 
