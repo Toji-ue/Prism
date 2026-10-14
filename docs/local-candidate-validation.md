@@ -12,6 +12,8 @@ UX 40/40, production readiness or permission to distribute the runtime.
 - `tools/deploy.ps1` rebuilds Release, reruns the suite, stages fresh dynamic Qt
   and codec dependencies, probes the compiled version, formats and selftest with
   a Windows-only PATH, then verifies the installed payload against its manifest.
+  MSYS2's QML scanner directory is obtained from `qtpaths6` and added to PATH;
+  the installed scanner is not in the regular UCRT64 binary directory.
 - The authoritative deployment result is `deploy/candidate-manifest.json`: its
   source fingerprint, commit, executable hash and payload hashes identify the
   files actually tested. An unrelated untracked `dsh-session-*` directory can

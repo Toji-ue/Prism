@@ -9,6 +9,10 @@ $bin = Join-Path $MsysRoot 'ucrt64\bin'
 $plugins = Join-Path $MsysRoot 'ucrt64\share\qt6\plugins'
 if (-not (Test-Path -LiteralPath $source)) { throw 'Build Release first: cmake --preset release; cmake --build --preset release' }
 $env:PATH = "$bin;$env:PATH"
+# MSYS2 keeps QML tools outside bin; windeployqt invokes the scanner via PATH.
+$libexec = (& (Join-Path $bin 'qtpaths6.exe') --query QT_HOST_LIBEXECS).Trim()
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $libexec 'qmlimportscanner.exe'))) { throw 'Cannot locate Qt qmlimportscanner' }
+$env:PATH = "$libexec;$env:PATH"
 # Rebuild through the preset so passing tests cannot bless a stale executable.
 Push-Location $root
 try {
