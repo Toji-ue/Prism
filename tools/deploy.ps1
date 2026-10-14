@@ -33,6 +33,8 @@ Copy-Item -Path (Join-Path $root 'build-release\Prism\*') -Destination $module -
 $formats = Join-Path $stage 'plugins\imageformats'
 New-Item -ItemType Directory -Force -Path $formats | Out-Null
 Copy-Item -Path (Join-Path $plugins 'imageformats\q*.dll') -Destination $formats -Force
+# windeployqt selects qwindows only; staged headless validation also needs this.
+Copy-Item -LiteralPath (Join-Path $plugins 'platforms\qoffscreen.dll') -Destination (Join-Path $stage 'plugins\platforms\qoffscreen.dll') -Force
 [IO.File]::WriteAllText((Join-Path $stage 'qt.conf'), "[Paths]`nPlugins=plugins`nQml2Imports=qml`n", [Text.UTF8Encoding]::new($false))
 # Walk PE imports, including every codec plugin's transitive runtime dependency.
 $queue = [Collections.Generic.Queue[string]]::new()
@@ -75,7 +77,8 @@ try {
     $env:QT_QPA_PLATFORM = 'offscreen'
     $versionOutput = Join-Path $stage 'validation-version.txt'
     $versionProbe = Start-Process -FilePath (Join-Path $stage 'prism.exe') -ArgumentList '--version' -RedirectStandardOutput $versionOutput -Wait -PassThru -WindowStyle Hidden
-    if ($versionProbe.ExitCode -ne 0 -or (Get-Content -LiteralPath $versionOutput -Raw).Trim() -ne $identity.version) { throw 'Compiled version differs from PrismVersion.txt' }
+    $compiledVersion = (Get-Content -LiteralPath $versionOutput -Raw).Trim()
+    if ($versionProbe.ExitCode -ne 0 -or $compiledVersion -ne $identity.version) { throw "Version probe failed (exit=$($versionProbe.ExitCode), output='$compiledVersion', expected='$($identity.version)')" }
     Remove-Item -LiteralPath $versionOutput
     foreach ($argument in @('--check-formats', '--selftest')) {
         $probe = Start-Process -FilePath (Join-Path $stage 'prism.exe') -ArgumentList $argument -WorkingDirectory (Join-Path $root 'build-release') -Wait -PassThru -WindowStyle Hidden
