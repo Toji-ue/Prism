@@ -157,22 +157,8 @@ Dialog {
         font.pixelSize: ThemeManager.themeColor("fontBody")
         verticalAlignment: Text.AlignVCenter
     }
-    component Field: TextField {
+    component Field: PTextField {
         implicitHeight: 36
-        color: ThemeManager.themeColor("text")
-        placeholderTextColor: ThemeManager.themeColor("textDim")
-        selectionColor: ThemeManager.themeColor("selection")
-        selectedTextColor: ThemeManager.themeColor("selectionText")
-        font.pixelSize: ThemeManager.themeColor("fontBody")
-        selectByMouse: true
-        leftPadding: 10
-        rightPadding: 10
-        background: Rectangle {
-            radius: ThemeManager.themeColor("radiusControl")
-            color: ThemeManager.themeColor("base")
-            border.width: parent.activeFocus ? 2 : 1
-            border.color: parent.activeFocus ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
-        }
     }
     component NumberField: Field {
         id: number
@@ -202,28 +188,10 @@ Dialog {
         }
         onEditingFinished: commitValue()
     }
-    component Action: Button {
-        id: action
-        property bool primary: false
+    component Action: PButton {
         implicitHeight: 36
         leftPadding: 14
         rightPadding: 14
-        Accessible.name: text
-        contentItem: Text {
-            text: action.text
-            color: !action.enabled ? ThemeManager.themeColor("disabledText") : action.primary ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
-            font.pixelSize: ThemeManager.themeColor("fontBody")
-            font.weight: action.primary ? Font.DemiBold : Font.Normal
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-        background: Rectangle {
-            radius: ThemeManager.themeColor("radiusControl")
-            color: action.primary ? ThemeManager.themeColor("highlight") : action.hovered || action.down ? ThemeManager.themeColor("buttonHover") : ThemeManager.themeColor("panelRaised")
-            opacity: action.enabled ? 1 : 0.55
-            border.width: action.visualFocus ? 2 : 1
-            border.color: action.visualFocus ? ThemeManager.themeColor("highlight") : action.primary ? "transparent" : ThemeManager.themeColor("border")
-        }
     }
     component Choice: ComboBox {
         id: choice

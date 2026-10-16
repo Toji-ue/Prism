@@ -25,6 +25,7 @@ Item {
     }
     MultiEffect {
         anchors.fill: parent
+        visible: panel.visible
         source: capture
         blurEnabled: true
         blurMax: 16

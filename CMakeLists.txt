@@ -48,6 +48,12 @@ qt_add_qml_module(prism
         src/ui/qml/ThemeManager.qml
         src/ui/qml/Icon.qml
         src/ui/qml/PSlider.qml
+        src/ui/qml/PButton.qml
+        src/ui/qml/PTextField.qml
+        src/ui/qml/PCheckBox.qml
+        src/ui/qml/NumericField.qml
+        src/ui/qml/BrushSection.qml
+        src/ui/qml/FocusScroll.qml
         src/ui/qml/PSpinBox.qml
         src/ui/qml/PComboBox.qml
         src/ui/qml/PMenu.qml

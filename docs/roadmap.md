@@ -36,3 +36,24 @@ ICC-aware color management and a working Color Space Browser, Grayscale and 16-b
 ## UX-beta continuation
 
 Implemented: independent save checkpoints, bounded autosave, guarded document transitions, real New Document DPI/clipboard, persistent notices, pinned colour, offline help, recorder error/retry/recovery and explicit partial coverage, retained recording Storage, version/payload identity and license gates. Current local evidence is in [local candidate validation](local-candidate-validation.md); earlier release-validation measurements describe an older binary. Physical tablet, eight-hour drawing, clean-machine install, completed multi-platform CI and distribution licensing remain open. UX 40/40 and production readiness have not been established.
+
+## Artist workflow UX — local implementation 2026-10-16
+
+- [x] Separate Choose/Edit brush views, searchable All/Pinned/Recent lists,
+  stable preset identity, temporary edits, Save copy/Reset and confirmed deletion.
+- [x] Colour-only hue/SV/HSV/Hex controls, remembered neutral hue, shared pinned
+  state and consistent Flow labels; Quick Controls links to Choose/Edit.
+- [x] Shared themed controls, numeric entry and keyboard navigation, focused
+  control scrolling, compact Start Page, safe recent removal and source-specific
+  persistent error actions. Full/Focus panel routing remains exclusive.
+- [x] Local Release 135-test suite, selftest, 63 native UX assertions and Focus
+  regression; light/dark captures and rendered 300-point before/after comparison.
+  Evidence and process-scale limitations are in local candidate validation.
+- [ ] At least three artists complete Sketch → Ink → Paint → Save/export without
+  guidance; include real tablet hardware and record wrong-panel searches,
+  misclicks, obstruction and device/driver details. Resolve severe findings.
+- [ ] Complete supported Windows display-scaling, accessibility and physical pen
+  acceptance. Local process-factor screenshots alone do not close this gate.
+
+The existing recording-soak, clean-machine, remote/platform CI, dependency and
+distribution gates above remain required.

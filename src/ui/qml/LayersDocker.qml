@@ -188,7 +188,8 @@ Rectangle {
             width: parent.width
             spacing: 6
             Text {
-                text: qsTr("Opacity:")
+                id: opacityLabel
+                text: qsTr("Opacity (%)")
                 color: ThemeManager.themeColor("text")
                 font.pixelSize: 11
                 anchors.verticalCenter: parent.verticalCenter
@@ -198,7 +199,7 @@ Rectangle {
                 objectName: "opacitySlider"
                 height: 32
                 Accessible.name: qsTr("Layer opacity")
-                width: parent.width - 74
+                width: Math.max(32, parent.width - opacityLabel.width - 66)
                 from: 0
                 to: 100
                 // Value is synced imperatively: while the user drags, the model
@@ -237,11 +238,24 @@ Rectangle {
                     }
                 }
             }
-            Text {
-                text: Math.round(opacitySlider.value) + "%"
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 11
+            NumericField {
+                id: opacityValue
+                objectName: "layerOpacityField"
+                width: 54
                 anchors.verticalCenter: parent.verticalCenter
+                Accessible.name: qsTr("Layer opacity percent")
+                from: 0
+                to: 100
+                numberValue: opacitySlider.value
+                onCommitted: value => {
+                    const index = controller.activeLayerIndex;
+                    const before = controller.layers.data(controller.layers.index(index, 0), LayerListModel.OpacityRole);
+                    controller.commitLayerOpacity(index, Math.round(value), before === undefined ? 100 : before);
+                }
+                Connections {
+                    target: controller
+                    function onActiveLayerIndexChanged() { Qt.callLater(opacityValue.restore); }
+                }
             }
         }
     }

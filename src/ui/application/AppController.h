@@ -70,6 +70,11 @@ class AppController : public QObject {
     Q_PROPERTY(qreal zoom READ zoom WRITE setZoom NOTIFY viewChanged)
     Q_PROPERTY(int tool READ tool WRITE setTool NOTIFY toolChanged)
     Q_PROPERTY(QString brushName READ brushName NOTIFY brushChanged)
+    Q_PROPERTY(QString activePresetId READ activePresetId NOTIFY brushChanged)
+    Q_PROPERTY(QString activePresetName READ activePresetName NOTIFY brushChanged)
+    Q_PROPERTY(bool brushModified READ brushModified NOTIFY brushChanged)
+    Q_PROPERTY(QVariantList brushPresets READ brushPresets NOTIFY quickPresetsChanged)
+    Q_PROPERTY(double brushHue READ brushHue NOTIFY brushChanged)
     Q_PROPERTY(int brushPreviewRevision READ brushPreviewRevision NOTIFY brushPreviewChanged)
     Q_PROPERTY(int activePresetIndex READ activePresetIndex NOTIFY brushChanged)
     Q_PROPERTY(int builtinPresetCount READ builtinPresetCount CONSTANT)
@@ -208,6 +213,12 @@ public:
     int tool() const;
     void setTool(int tool);
     QString brushName() const;
+    QString activePresetId() const;
+    QString activePresetName() const { return presetName(m_activePreset); }
+    bool brushModified() const { return !m_presetIntact; }
+    QVariantList brushPresets() const;
+    double brushHue() const { return m_brushHue; }
+    Q_INVOKABLE void setBrushHsv(double hue, double saturation, double value);
     int activePresetIndex() const;
     QString statusInfo() const;
     QString documentName() const;
@@ -383,6 +394,7 @@ public:
     /// Last file error, shown in the status bar. Empty when all is well — a
     /// failed open must never look like nothing happened.
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    Q_PROPERTY(QString errorContext READ errorContext NOTIFY lastErrorChanged)
     /// One-shot informational note for the status bar ("imported as a layer,
     /// centered, N px clipped"). Separate from lastError because it reports a
     /// success the user still needs to know about.
@@ -397,6 +409,7 @@ public:
     Q_INVOKABLE bool recoverRecordingAsync(const QUrl& url);
     Q_INVOKABLE void discardRecovery(const QUrl& url);
     Q_INVOKABLE void clearRecentFiles();
+    Q_INVOKABLE void removeRecentFile(const QUrl& url);
     /// Drops recent entries whose path lives under \p directory — the selftest
     /// uses it to clean up test files earlier runs left in the list.
     void forgetRecentFilesUnder(const QString& directory);
@@ -440,7 +453,8 @@ public:
     Q_INVOKABLE QVariantList documentSizePresets() const;
     Q_INVOKABLE void saveDocumentSizePreset(const QString& name, int width, int height, int dpi);
     QString lastError() const { return m_lastError; }
-    void setLastError(const QString& error);
+    QString errorContext() const { return m_errorContext; }
+    void setLastError(const QString& error, const QString& context = QStringLiteral("general"));
     Q_INVOKABLE void dismissError() { setLastError({}); }
     QString statusMessage() const { return m_statusMessage; }
     /// Q_INVOKABLE because QML sets it (the crop tool's "Enter to crop" hint);
@@ -780,6 +794,8 @@ private:
     bool m_focusMode = false;
     QString m_documentName = tr("Untitled");
     QString m_lastError;
+    QString m_errorContext;
+    double m_brushHue = 0;
     QString m_statusMessage;
     /// True until the user moves a brush slider — controls the "Custom" label.
     bool m_presetIntact = true;

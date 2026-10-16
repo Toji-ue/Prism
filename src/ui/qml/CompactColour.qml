@@ -12,7 +12,7 @@ Rectangle {
     color: ThemeManager.themeColor("panel")
     radius: ThemeManager.themeColor("radiusPanel")
 
-    component TextAction: Button {
+    component TextAction: PButton {
         id: action
         implicitHeight: 32
         leftPadding: 8

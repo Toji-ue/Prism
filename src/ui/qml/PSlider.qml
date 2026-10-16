@@ -3,13 +3,11 @@ import QtQuick.Controls.Basic
 
 import Prism
 
-// Compact studio slider: thin groove, small square handle. The default
-// Controls Basic slider renders a large round knob that looks wrong in a
-// dense tool UI, so every slider in the app uses this instead.
+// Full-height hit area with a quiet track; scrolling changes only a focused slider.
 Slider {
     id: control
 
-    implicitHeight: 18
+    implicitHeight: 32
 
     // Wheel and arrow keys move the handle. Dragging a 10px handle with a pen
     // is imprecise, and every slider in the app gets this for free.
@@ -33,6 +31,7 @@ Slider {
     Keys.onUpPressed: control.nudge(1)
 
     WheelHandler {
+        enabled: control.activeFocus
         onWheel: wheel => {
             control.nudge(wheel.angleDelta.y > 0 ? 1 : -1)
             wheel.accepted = true
@@ -63,7 +62,8 @@ Slider {
         height: 14
         radius: ThemeManager.themeColor("radiusChip")
         color: control.pressed ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("text")
-        border.color: ThemeManager.themeColor("border")
+        border.width: control.visualFocus ? 2 : 1
+        border.color: control.visualFocus ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
     }
 }
 

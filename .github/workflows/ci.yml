@@ -45,7 +45,7 @@ jobs:
           set -e
           ./build-release/prism.exe --check-formats
           ./build-release/prism.exe --selftest
-          ./build-release/prism.exe --demo-ux-beta-test --screenshot-delay=12000 --screenshot-only --screenshot=build-release/ci-beta.png
+          ./build-release/prism.exe --demo-ux-beta-test --screenshot-delay=20000 --screenshot-only --screenshot=build-release/ci-beta.png
           ./build-release/prism.exe --demo-drawing --demo-focus-mode-test --screenshot-only --screenshot=build-release/ci-focus.png
           ./build-release/prism.exe --demo-drawing --demo-drag-slider=sizeSlider --screenshot-only --screenshot=build-release/ci-size.png
           ./build-release/prism.exe --demo-drawing --demo-drag-layer=0:1 --screenshot-only --screenshot=build-release/ci-layers.png

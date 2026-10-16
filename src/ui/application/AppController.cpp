@@ -262,14 +262,15 @@ AppController::AppController(QObject* parent)
         emit recordingChanged();
         emit recoveryChanged();
         if (m_recorder->hasError())
-            setLastError(m_recorder->lastError());
+            setLastError(m_recorder->lastError(), "recording");
     });
     connect(m_recorder, &SessionRecorder::retryFinished, this, [this](bool ok) {
         if (ok) {
-            setLastError({});
+            if (m_errorContext == QLatin1String("recording"))
+                setLastError({});
             setStatusMessage(tr("Recording resumed. Earlier gaps remain marked as incomplete."));
         } else
-            setLastError(m_recorder->lastError());
+            setLastError(m_recorder->lastError(), "recording");
     });
     connect(m_recorder, &SessionRecorder::archiveLoaded, this,
             [this](bool ok, const QString& error) {
@@ -293,17 +294,25 @@ AppController::AppController(QObject* parent)
     m_artwork = new ArtworkSession(m_doc, m_history, m_artworkRoot, this);
     m_artwork->beginDocument({}, m_documentName);
     connect(m_artwork, &ArtworkSession::stateChanged, this, [this]() {
+        if (m_artwork->autosaveStatus() == QLatin1String("Protected") &&
+            m_errorContext == QLatin1String("autosave"))
+            setLastError({});
         emit artworkStateChanged();
         emit documentNameChanged();
     });
     connect(m_artwork, &ArtworkSession::recoveryChanged, this, &AppController::recoveryChanged);
-    connect(m_artwork, &ArtworkSession::errorOccurred, this, &AppController::setLastError);
+    connect(m_artwork, &ArtworkSession::errorOccurred, this,
+            [this](const QString& message, bool manual) {
+                setLastError(message, manual ? "artwork-save" : "autosave");
+            });
     connect(m_artwork, &ArtworkSession::saveFinished, this, [this](bool ok, const QString& path) {
         if (ok) {
             addRecentFile(path);
             cacheRecentPreview(path);
             setDocumentName(QFileInfo(path).fileName());
-            setLastError({});
+            if (m_errorContext == QLatin1String("artwork-save") ||
+                m_errorContext == QLatin1String("autosave"))
+                setLastError({});
             setStatusMessage(tr("Saved %1.").arg(QFileInfo(path).fileName()));
             if (!m_pendingDocumentAction.isEmpty()) {
                 if (hasUnsavedChanges())
@@ -469,7 +478,8 @@ bool AppController::exportRecording(const QUrl& url) {
     const quint64 finalId =
         m_recorder->isActive() ? m_recorder->capture(canvasImage(), tr("Final"), true) : 0;
     if (!m_recorder->flush() || (finalId && m_recorder->lastStoredCaptureId() < finalId)) {
-        setLastError(tr("The final frame was not stored. Retry or use partial export."));
+        setLastError(tr("The final frame was not stored. Retry or use partial export."),
+                     "recording");
         return false;
     }
 
@@ -487,7 +497,7 @@ bool AppController::exportRecording(const QUrl& url) {
             int written = 0;
             QString readError;
             if (!RecordExport::verifyVideo(path, &written, &readError)) {
-                setLastError(readError);
+                setLastError(readError, "export");
                 emit recordingChanged();
                 return false;
             }
@@ -497,11 +507,12 @@ bool AppController::exportRecording(const QUrl& url) {
     }
 
     if (!ok) {
-        setLastError(error);
+        setLastError(error, "export");
         emit recordingChanged();
         return false;
     }
-    setLastError(QString());
+    if (m_errorContext == QLatin1String("export"))
+        setLastError({});
     setStatusMessage(tr("Drawing record exported: %1 frames (%2).")
                          .arg(m_recorder->frameCount())
                          .arg(QFileInfo(path).fileName()));
@@ -519,13 +530,14 @@ bool AppController::exportRecordingAsync(const QUrl& url, bool partial) {
 
     if (documentEditing() || ((!partial) && (m_recorder->hasError() || m_recorder->hasGaps()))) {
         setLastError(tr("The recording is incomplete. Retry recording or explicitly export its "
-                        "partial timeline."));
+                        "partial timeline."),
+                     "recording");
         return false;
     }
     const quint64 id =
         m_recorder->isActive() ? m_recorder->capture(canvasImage(), tr("Final"), true) : 0;
     if (m_recorder->isActive() && !id && !partial) {
-        setLastError(tr("The final recording frame could not be queued."));
+        setLastError(tr("The final recording frame could not be queued."), "recording");
         return false;
     }
     m_recordingExporting = true;
@@ -549,7 +561,8 @@ void AppController::awaitRecordingExport(const QString& path, quint64 captureId,
     if (m_recorder->hasError() && !partial) {
         m_recordingExporting = false;
         emit recordingExportingChanged();
-        setLastError(tr("The final frame was not stored. Retry or export a partial recording."));
+        setLastError(tr("The final frame was not stored. Retry or export a partial recording."),
+                     "recording");
         return;
     }
     if (captureId && m_recorder->lastStoredCaptureId() < captureId && !m_recorder->hasError()) {
@@ -606,20 +619,22 @@ void AppController::awaitRecordingExport(const QString& path, quint64 captureId,
     m_exportThread = thread;
     m_recordingExporting = true;
     emit recordingExportingChanged();
-    setLastError(QString());
+    if (m_errorContext == QLatin1String("export"))
+        setLastError({});
     setStatusMessage(tr("Exporting drawing record…"));
     connect(thread, &QThread::finished, this, [this, thread, result, path, frameCount, partial]() {
         m_exportThread = nullptr;
         m_recordingExporting = false;
         emit recordingExportingChanged();
         if (result->ok) {
-            setLastError(QString());
+            if (m_errorContext == QLatin1String("export"))
+                setLastError({});
             setStatusMessage((partial ? tr("Partial drawing record exported: %1 frames (%2).")
                                       : tr("Drawing record exported: %1 frames (%2)."))
                                  .arg(frameCount)
                                  .arg(QFileInfo(path).fileName()));
         } else {
-            setLastError(result->error);
+            setLastError(result->error, "export");
             setStatusMessage(tr("Drawing record export failed."));
         }
         emit recordingChanged();
@@ -668,12 +683,23 @@ void AppController::setBrushColor(const QColor& color) {
     if (!color.isValid())
         return;
     m_brush.color = toRaster(color);
+    if (color.hsvHueF() >= 0 && color.hsvSaturationF() > 0 && color.valueF() > 0)
+        m_brushHue = color.hsvHueF();
     // Keep the current tool's slot in sync so the choice sticks when the artist
     // switches tools and comes back.
     m_colorByTool[m_brush.erase ? 1 : 0] = m_brush.color;
     if (m_uiPreferencesReady)
         m_recentColorTimer->start();
     emit brushChanged();
+}
+
+void AppController::setBrushHsv(double hue, double saturation, double value) {
+    if (!std::isfinite(hue) || !std::isfinite(saturation) || !std::isfinite(value) || hue < 0 ||
+        hue > 1 || saturation < 0 || saturation > 1 || value < 0 || value > 1)
+        return;
+    // Hue is useful even at black/grey, where QColor cannot retain it in RGB.
+    m_brushHue = hue == 1 ? 0 : hue;
+    setBrushColor(QColor::fromHsvF(m_brushHue, saturation, value, brushColor().alphaF()));
 }
 
 float AppController::brushSize() const { return m_brush.radius; }
@@ -868,6 +894,9 @@ void AppController::setTool(int tool) {
     if (m_tool != tool && m_brush.erase != eraser) {
         m_colorByTool[m_brush.erase ? 1 : 0] = m_brush.color;
         m_brush.color = m_colorByTool[eraser ? 1 : 0];
+        const QColor restored = brushColor();
+        if (restored.hsvHueF() >= 0)
+            m_brushHue = restored.hsvHueF();
     }
     m_tool = tool;
     // The eraser is a brush mode, so the tool selection drives it.
@@ -898,6 +927,25 @@ QString AppController::brushName() const {
     if (!m_presetIntact)
         return tr("Custom Brush");
     return presetName(m_activePreset);
+}
+
+QString AppController::activePresetId() const {
+    if (m_activePreset < 0 || m_activePreset >= presetCount())
+        return {};
+    return QString::fromStdString(m_presets[static_cast<std::size_t>(m_activePreset)].id);
+}
+
+QVariantList AppController::brushPresets() const {
+    QVariantList result;
+    for (int i = 0; i < presetCount(); ++i) {
+        const QString id = QString::fromStdString(m_presets[static_cast<std::size_t>(i)].id);
+        result.append(QVariantMap{{"id", id},
+                                  {"index", i},
+                                  {"name", presetName(i)},
+                                  {"pinned", m_pinnedPresetIds.contains(id)},
+                                  {"recent", m_recentPresetIds.indexOf(id)}});
+    }
+    return result;
 }
 
 int AppController::activePresetIndex() const { return m_activePreset; }
@@ -1003,9 +1051,10 @@ void AppController::selectPreset(int index) {
     if (index < 0 || index >= presetCount())
         return;
     const auto preset = m_presets[static_cast<std::size_t>(index)];
+    const QColor currentColor = brushColor();
     m_brush = preset.brush;
     // The preset carries no color: keep the artist's current one.
-    m_brush.color = toRaster(brushColor());
+    m_brush.color = toRaster(currentColor);
     m_activePreset = index;
     if (m_uiPreferencesReady) {
         const QString id = QString::fromStdString(preset.id);
@@ -1062,8 +1111,7 @@ bool AppController::importBrush(const QUrl& url) {
     auto preset = maybePreset.value();
     preset.id = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
     m_presets.push_back(std::move(preset));
-    m_activePreset = presetCount() - 1;
-    m_presetIntact = true;
+    selectPreset(presetCount() - 1);
     saveUserPresets();
     emit presetsChanged();
     emit quickPresetsChanged();
@@ -1082,6 +1130,7 @@ void AppController::removePreset(int index) {
     if (presetCount() <= 1)
         return;
     const QString id = QString::fromStdString(m_presets[static_cast<std::size_t>(index)].id);
+    const bool removedActive = index == m_activePreset;
     m_presets.erase(m_presets.begin() + index);
     m_pinnedPresetIds.removeAll(id);
     m_recentPresetIds.removeAll(id);
@@ -1089,7 +1138,10 @@ void AppController::removePreset(int index) {
         QSettings().setValue(QStringLiteral("quickControls/pinnedPresets"), m_pinnedPresetIds);
         QSettings().setValue(QStringLiteral("quickControls/recentPresets"), m_recentPresetIds);
     }
-    m_activePreset = std::clamp(m_activePreset, 0, presetCount() - 1);
+    if (removedActive)
+        selectPreset(std::min(index, presetCount() - 1));
+    else if (index < m_activePreset)
+        --m_activePreset;
     saveUserPresets();
     emit presetsChanged();
     emit quickPresetsChanged();
@@ -2752,6 +2804,13 @@ void AppController::clearRecentFiles() {
     emit recentFilesChanged();
 }
 
+void AppController::removeRecentFile(const QUrl& url) {
+    m_recentFiles.removeAll(localPathFrom(url));
+    if (!m_selfTestMode)
+        QSettings().setValue(QStringLiteral("recentFiles"), m_recentFiles);
+    emit recentFilesChanged();
+}
+
 // ------------------------------------------------------------ tool shortcuts
 
 namespace {
@@ -2860,10 +2919,12 @@ QString AppController::versionString() const {
     return QCoreApplication::applicationVersion();
 }
 
-void AppController::setLastError(const QString& error) {
-    if (m_lastError == error)
+void AppController::setLastError(const QString& error, const QString& context) {
+    const QString kind = error.isEmpty() ? QString() : context;
+    if (m_lastError == error && m_errorContext == kind)
         return;
     m_lastError = error;
+    m_errorContext = kind;
     emit lastErrorChanged();
     if (!error.isEmpty())
         qWarning() << "file error:" << error;
@@ -3311,7 +3372,7 @@ bool AppController::saveProject(const QUrl& url) {
         setStatusMessage(tr("Saved %1.").arg(QFileInfo(path).fileName()));
     } else {
         qWarning() << "save failed:" << path;
-        setLastError(tr("Could not save %1.").arg(QFileInfo(path).fileName()));
+        setLastError(tr("Could not save %1.").arg(QFileInfo(path).fileName()), "artwork-save");
     }
     return ok;
 }

@@ -8,21 +8,22 @@ Popup {
     id: panel
     required property AppController controller
     required property Item backdrop
+    signal requestBrushes
+    signal requestEdit
     objectName: "drawingQuickControls"
-    width: 296
-    height: 355
+    width: 336
+    height: 420
     padding: 10
+    focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
     function openNear(px, py, viewportWidth, viewportHeight) {
-        const gap = 24
-        x = Math.max(8, Math.min(viewportWidth - width - 8,
-                                 px + gap + width <= viewportWidth ? px + gap : px - width - gap))
-        y = Math.max(8, Math.min(viewportHeight - height - 8,
-                                 py + gap + height <= viewportHeight ? py + gap : py - height - gap))
-        open()
+        const gap = 24;
+        width = Math.min(336, viewportWidth - 16);
+        height = Math.min(420, viewportHeight - 16);
+        x = Math.max(8, Math.min(viewportWidth - width - 8, px + gap + width <= viewportWidth - 8 ? px + gap : px - width - gap));
+        y = Math.max(8, Math.min(viewportHeight - height - 8, py + gap + height <= viewportHeight - 8 ? py + gap : py - height - gap));
+        open();
     }
-
     background: Item {
         FocusGlassPanel {
             anchors.fill: parent
@@ -37,134 +38,130 @@ Popup {
             border.color: ThemeManager.themeColor("popupBorder")
         }
     }
-
-    contentItem: ColumnLayout {
-        spacing: 8
-
-        RowLayout {
-            Layout.fillWidth: true
-            Text {
+    contentItem: Flickable {
+        id: scroll
+        FocusScroll {
+            viewport: scroll
+        }
+        contentWidth: width
+        contentHeight: column.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {}
+        ColumnLayout {
+            id: column
+            width: scroll.width - 8
+            spacing: 8
+            RowLayout {
                 Layout.fillWidth: true
-                text: qsTr("QUICK CONTROLS")
+                Text {
+                    Layout.fillWidth: true
+                    text: panel.controller.activePresetName
+                    color: ThemeManager.themeColor("text")
+                    font.pixelSize: 13
+                    elide: Text.ElideRight
+                }
+                ToolbarButton {
+                    iconName: "undo"
+                    tip: qsTr("Undo")
+                    usable: panel.controller.canUndo
+                    onClicked: panel.controller.undo()
+                }
+            }
+            BrushLabSlider {
+                Layout.fillWidth: true
+                objectName: "quickSize"
+                caption: qsTr("Size (px)")
+                from: 1
+                to: 200
+                displayScale: 1
+                suffix: "px"
+                controllerValue: panel.controller.brushSize
+                onMoved: value => panel.controller.brushSize = value
+            }
+            BrushLabSlider {
+                Layout.fillWidth: true
+                objectName: "quickFlow"
+                caption: qsTr("Flow (%)")
+                from: 0.01
+                controllerValue: panel.controller.brushFlow
+                onMoved: value => panel.controller.brushFlow = value
+            }
+            Text {
+                text: qsTr("Recent colours")
                 color: ThemeManager.themeColor("textDim")
-                font.pixelSize: 10
-                font.letterSpacing: 0.7
+                font.pixelSize: 12
+            }
+            Flow {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                spacing: 6
+                Repeater {
+                    model: panel.controller.recentColors.length ? panel.controller.recentColors : [String(panel.controller.brushColor)]
+                    PButton {
+                        required property string modelData
+                        width: 32
+                        height: 32
+                        Accessible.name: qsTr("Use recent colour %1").arg(modelData)
+                        onClicked: panel.controller.brushColor = modelData
+                        background: Rectangle {
+                            color: modelData
+                            radius: ThemeManager.themeColor("radiusChip")
+                            border.width: parent.visualFocus ? 2 : 1
+                            border.color: parent.visualFocus ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
+                        }
+                    }
+                }
             }
             Text {
-                text: panel.controller.brushName
-                color: ThemeManager.themeColor("text")
-                font.pixelSize: 11
-                elide: Text.ElideRight
-                Layout.maximumWidth: 130
+                text: qsTr("Pinned & recent brushes")
+                color: ThemeManager.themeColor("textDim")
+                font.pixelSize: 12
             }
-            ToolbarButton {
-                iconName: "undo"
-                tip: qsTr("Undo")
-                usable: panel.controller.canUndo
-                onClicked: panel.controller.undo()
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Size"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 36 }
-            PSlider {
-                id: sizeSlider
-                objectName: "quickSizeSlider"
+            GridLayout {
                 Layout.fillWidth: true
-                from: 1; to: 200
-                Component.onCompleted: value = panel.controller.brushSize
-                Connections {
-                    target: panel.controller
-                    function onBrushChanged() {
-                        if (!sizeSlider.pressed) sizeSlider.value = panel.controller.brushSize
-                    }
-                }
-                onMoved: panel.controller.brushSize = Math.round(value)
-            }
-            Text { text: Math.round(panel.controller.brushSize) + " px"; color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 42 }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            Text { text: qsTr("Flow"); color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 36 }
-            PSlider {
-                id: flowSlider
-                objectName: "quickFlowSlider"
-                Layout.fillWidth: true
-                from: 0.01; to: 1
-                Component.onCompleted: value = panel.controller.brushFlow
-                Connections {
-                    target: panel.controller
-                    function onBrushChanged() {
-                        if (!flowSlider.pressed) flowSlider.value = panel.controller.brushFlow
-                    }
-                }
-                onMoved: panel.controller.brushFlow = value
-            }
-            Text { text: Math.round(panel.controller.brushFlow * 100) + "%"; color: ThemeManager.themeColor("text"); font.pixelSize: 11; Layout.preferredWidth: 42 }
-        }
-
-        Text { text: qsTr("RECENT COLOURS"); color: ThemeManager.themeColor("textDim"); font.pixelSize: 10; font.letterSpacing: 0.7 }
-        Row {
-            spacing: 4
-            Rectangle {
-                width: 24; height: 24
-                radius: ThemeManager.themeColor("radiusChip")
-                color: panel.controller.brushColor
-                border.color: ThemeManager.themeColor("border")
-                MouseArea { anchors.fill: parent; onClicked: panel.controller.brushColor = parent.color }
-            }
-            Repeater {
-                model: panel.controller.recentColors
-                delegate: Rectangle {
-                    required property string modelData
-                    width: 24; height: 24
-                    radius: ThemeManager.themeColor("radiusChip")
-                    color: modelData
-                    border.color: ThemeManager.themeColor("border")
-                    MouseArea { anchors.fill: parent; onClicked: panel.controller.brushColor = modelData }
-                }
-            }
-        }
-
-        Text { text: qsTr("PINNED & RECENT BRUSHES"); color: ThemeManager.themeColor("textDim"); font.pixelSize: 10; font.letterSpacing: 0.7 }
-        Grid {
-            columns: 2
-            spacing: 5
-            Repeater {
-                model: panel.controller.quickPresets
-                delegate: Rectangle {
-                    required property var modelData
-                    width: 132; height: 42
-                    radius: ThemeManager.themeColor("radiusControl")
-                    color: panel.controller.activePresetIndex === modelData.index
-                           ? ThemeManager.themeColor("selection") : ThemeManager.themeColor("panelRaised")
-                    Image {
-                        x: 4; anchors.verticalCenter: parent.verticalCenter
-                        width: 30; height: 30
-                        source: "image://preset/" + modelData.index
-                        fillMode: Image.PreserveAspectFit
-                    }
-                    Text {
-                        x: 38; width: 70; anchors.verticalCenter: parent.verticalCenter
-                        text: modelData.name
-                        color: ThemeManager.themeColor("text")
-                        font.pixelSize: 10
-                        elide: Text.ElideRight
-                    }
-                    MouseArea { anchors.fill: parent; onClicked: panel.controller.selectPreset(modelData.index) }
-                    Text {
-                        anchors.right: parent.right; anchors.rightMargin: 5
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: modelData.pinned ? "★" : "☆"
-                        color: modelData.pinned ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("textDim")
-                        font.pixelSize: 15
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -3
+                columns: 2
+                columnSpacing: 6
+                rowSpacing: 6
+                Repeater {
+                    model: panel.controller.quickPresets
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: 0
+                        PButton {
+                            objectName: "quickBrush_" + modelData.index
+                            Layout.fillWidth: true
+                            implicitWidth: 94
+                            implicitHeight: 40
+                            text: modelData.name
+                            checked: panel.controller.activePresetId === modelData.id
+                            ToolTip.visible: hovered
+                            ToolTip.text: modelData.name
+                            onClicked: panel.controller.selectPreset(modelData.index)
+                        }
+                        ToolbarButton {
+                            iconName: "pin"
+                            active: modelData.pinned
+                            tip: modelData.pinned ? qsTr("Unpin brush") : qsTr("Pin brush")
                             onClicked: panel.controller.togglePinnedPreset(modelData.index)
                         }
                     }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                PButton {
+                    objectName: "quickAllBrushes"
+                    Layout.fillWidth: true
+                    text: qsTr("All brushes")
+                    onClicked: panel.requestBrushes()
+                }
+                PButton {
+                    objectName: "quickEditBrush"
+                    Layout.fillWidth: true
+                    text: qsTr("Edit brush")
+                    onClicked: panel.requestEdit()
                 }
             }
         }

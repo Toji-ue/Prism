@@ -19,6 +19,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTabletEvent>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
 #include <QVariant>
@@ -77,14 +78,14 @@ void logToFile(QtMsgType type, const QMessageLogContext&, const QString& msg) {
 /// delegate) are visual children with no QObject parent, so a toolbar button
 /// built from a model is invisible to findChild â€” which is why the verification
 /// hooks below use this instead.
-QQuickItem* findItemByName(QQuickItem* root, const QString& name) {
-    if (!root)
+QQuickItem* findItemByName(QQuickItem* root, const QString& name, bool visibleOnly = false) {
+    if (!root || (visibleOnly && !root->isVisible()))
         return nullptr;
     if (root->objectName() == name)
         return root;
     const QList<QQuickItem*> children = root->childItems();
     for (QQuickItem* child : children)
-        if (QQuickItem* found = findItemByName(child, name))
+        if (QQuickItem* found = findItemByName(child, name, visibleOnly))
             return found;
     return nullptr;
 }
@@ -483,6 +484,9 @@ int runSelfTest() {
     controller.removePreset(presetsBefore);
     check(controller.presetCount() == presetsBefore, "remove preset");
 
+    // Deleting the active user preset now applies its replacement (which may
+    // be the last built-in eraser). This fixture specifically needs paint.
+    controller.selectPreset(0);
     // Selection confines a stroke to its rect.
     controller.selectAll();
     check(controller.hasSelection(), "select all");
@@ -3058,7 +3062,7 @@ int main(int argc, char* argv[]) {
                     };
                     const auto click = [&](const char* name) {
                         auto* item =
-                            findItemByName(window->contentItem(), QString::fromLatin1(name));
+                            findItemByName(window->contentItem(), QString::fromLatin1(name), true);
                         if (!item || !item->isVisible())
                             return false;
                         QTest::mouseClick(
@@ -3070,7 +3074,7 @@ int main(int argc, char* argv[]) {
                     };
                     const auto enterNumber = [&](const char* name, const QByteArray& number) {
                         auto* item =
-                            findItemByName(window->contentItem(), QString::fromLatin1(name));
+                            findItemByName(window->contentItem(), QString::fromLatin1(name), true);
                         if (!item)
                             return false;
                         item->forceActiveFocus();
@@ -3082,8 +3086,8 @@ int main(int argc, char* argv[]) {
                     };
                     controller->newDocument(40, 32);
                     window->requestActivate();
-                    if (auto* canvas =
-                            findItemByName(window->contentItem(), QStringLiteral("canvasItem")))
+                    if (auto* canvas = findItemByName(window->contentItem(),
+                                                      QStringLiteral("canvasItem"), true))
                         canvas->forceActiveFocus();
                     QTest::qWait(100);
                     QTest::keyClick(window, Qt::Key_N, Qt::ControlModifier);
@@ -3111,8 +3115,8 @@ int main(int argc, char* argv[]) {
                     check(click("unsavedCancel") && controller->canvasImage() == before &&
                               !controller->documentDecisionPending(),
                           "Cancel preserves current artwork");
-                    auto* pointerArea =
-                        findItemByName(window->contentItem(), QStringLiteral("canvasMouseArea"));
+                    auto* pointerArea = findItemByName(window->contentItem(),
+                                                       QStringLiteral("canvasMouseArea"), true);
                     if (pointerArea) {
                         const QPoint press = pointerArea
                                                  ->mapToScene(QPointF(pointerArea->width() / 2,
@@ -3131,8 +3135,8 @@ int main(int argc, char* argv[]) {
                         click("unsavedCancel");
                     } else
                         check(false, "pointer input area exists");
-                    if (auto* canvas =
-                            findItemByName(window->contentItem(), QStringLiteral("canvasItem")))
+                    if (auto* canvas = findItemByName(window->contentItem(),
+                                                      QStringLiteral("canvasItem"), true))
                         canvas->forceActiveFocus();
                     QTest::keyClick(window, Qt::Key_F1);
                     QTest::qWait(200);
@@ -3147,8 +3151,8 @@ int main(int argc, char* argv[]) {
                     // Real input must not open a second copy of a docked panel.
                     auto* panel = root->findChild<QObject*>(QStringLiteral("focusQuickPanel"));
                     const auto focusCanvas = [&]() {
-                        if (auto* canvas =
-                                findItemByName(window->contentItem(), QStringLiteral("canvasItem")))
+                        if (auto* canvas = findItemByName(window->contentItem(),
+                                                          QStringLiteral("canvasItem"), true))
                             canvas->forceActiveFocus();
                     };
                     const auto panelKey = [&](Qt::Key key) {
@@ -3183,19 +3187,157 @@ int main(int argc, char* argv[]) {
                                bottomRight.y() <= window->height();
                     };
                     check(panelInsideWindow(), "workspace popover fits window bounds");
+                    // Artist workflow: real mouse/keyboard input through the same public controls.
+                    auto* lab = findItemByName(window->contentItem(),
+                                               QStringLiteral("workspaceBrushLab"), true);
+                    check(lab && !lab->property("editing").toBool() && click("brushPreset_1"),
+                          "brush opens in Choose and applies a visible named preset");
+                    const QString presetId = controller->activePresetId();
+                    check(click("brushPin_1") && click("brushFilter_1") &&
+                              findItemByName(window->contentItem(), QStringLiteral("brushPreset_1"),
+                                             true),
+                          "pinned brushes remain selectable by stable identity");
+                    check(click("brushFilter_2") && click("brushFilter_0"),
+                          "Recent and All filters accept input");
+                    check(enterNumber("brushSearchInput", "no-such-brush") &&
+                              findItemByName(window->contentItem(),
+                                             QStringLiteral("brushBrowseList"), true)
+                                      ->property("count")
+                                      .toInt() == 0,
+                          "brush search reports no matches");
+                    enterNumber("brushSearchInput", "");
+                    check(click("brushEdit") && lab->property("editing").toBool() &&
+                              enterNumber("labSizeField", "37") && controller->brushSize() == 37 &&
+                              controller->activePresetId() == presetId &&
+                              controller->brushModified(),
+                          "Edit keeps preset identity and accepts a direct numeric size");
+                    check(click("brushReset") && !controller->brushModified(),
+                          "Reset restores the selected brush without overwriting it");
+                    const int oldCount = controller->presetCount();
+                    check(click("brushSaveCopy") && controller->presetCount() == oldCount + 1 &&
+                              controller->activePresetId() != presetId,
+                          "Save copy creates a separate stable preset");
+                    check(click("brushManage") && click("brushDeleteAction"),
+                          "preset deletion requires confirmation from labelled management menu");
+                    check(controller->presetCount() == oldCount + 1 &&
+                              click("brushDeleteConfirm") && controller->presetCount() == oldCount,
+                          "confirmed deletion removes only the saved copy");
+                    panelKey(Qt::Key_2);
+                    check(!lab->property("editing").toBool(),
+                          "Ctrl+2 reopens Choose rather than stale Edit");
+                    auto* allFilter = findItemByName(window->contentItem(),
+                                                     QStringLiteral("brushFilter_0"), true);
+                    if (allFilter)
+                        allFilter->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_Tab);
+                    QTest::keyClick(window, Qt::Key_Tab);
+                    check(panelOn(1) && !controller->focusMode() &&
+                              window->activeFocusItem() != allFilter,
+                          "Tab traverses panel buttons without entering Focus mode");
+
+                    const int originalPresets = controller->presetCount();
+                    for (int i = 0; i < 20; ++i)
+                        controller->addPreset();
+                    const int lastPreset = controller->presetCount() - 1;
+                    panelKey(Qt::Key_2);
+                    auto* brushList = findItemByName(window->contentItem(),
+                                                     QStringLiteral("brushBrowseList"), true);
+                    if (brushList)
+                        brushList->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_End);
+                    QTest::qWait(120);
+                    QTest::keyClick(window, Qt::Key_Space);
+                    QTest::qWait(120);
+                    check(controller->activePresetIndex() == lastPreset && panelOn(1),
+                          "keyboard End and Space select the final virtualized brush");
+                    QTest::keyClick(window, Qt::Key_Tab);
+                    QTest::keyClick(window, Qt::Key_Space);
+                    QTest::qWait(120);
+                    check(
+                        controller->brushPresets().at(lastPreset).toMap().value("pinned").toBool(),
+                        "keyboard Tab and Space pin the final brush");
+                    for (int i = lastPreset; i >= originalPresets; --i)
+                        controller->removePreset(i);
+                    controller->selectPreset(3);
+                    panelKey(Qt::Key_2);
+                    click("brushEdit");
+                    for (const char* section : {"brushTipToggle", "brushDynamicsToggle"}) {
+                        if (auto* toggle = findItemByName(window->contentItem(),
+                                                          QString::fromLatin1(section), true))
+                            toggle->forceActiveFocus();
+                        QTest::qWait(100);
+                        QTest::keyClick(window, Qt::Key_Space);
+                        QTest::qWait(100);
+                    }
+                    auto* taper = findItemByName(window->contentItem(),
+                                                 QStringLiteral("labEndTaperField"), true);
+                    auto* editScroll = findItemByName(window->contentItem(),
+                                                      QStringLiteral("brushEditScroll"), true);
+                    if (taper)
+                        taper->forceActiveFocus();
+                    QTest::qWait(120);
+                    const QPointF editFieldPosition = taper && editScroll
+                                                          ? taper->mapToItem(editScroll, QPointF())
+                                                          : QPointF(-1, -1);
+                    check(taper && editScroll && editFieldPosition.y() >= -1 &&
+                              editFieldPosition.y() + taper->height() <= editScroll->height() + 1,
+                          "expanded brush editor reveals keyboard-focused numeric fields");
+                    controller->setBrushColor(Qt::black);
+                    panelKey(Qt::Key_3);
+                    check(enterNumber("colourField_H", "210") && controller->brushHue() >= 0 &&
+                              std::abs(controller->brushHue() - 210.0 / 360) < 0.001 &&
+                              enterNumber("colourField_S", "75") &&
+                              enterNumber("colourField_V", "80") &&
+                              controller->brushColor().valueF() > 0.79,
+                          "black retains editable hue and can become a saturated colour");
+                    const QColor beforeInvalid = controller->brushColor();
+                    check(enterNumber("colourHexField", "INVALID") &&
+                              controller->brushColor() == beforeInvalid,
+                          "invalid Hex does not mutate brush colour");
+                    QTest::keyClick(window, Qt::Key_Escape);
+                    check(panelOn(2),
+                          "Escape cancels colour text editing before closing the panel");
+                    check(enterNumber("colourHexField", "#336699") &&
+                              controller->brushColor().name() == QStringLiteral("#336699"),
+                          "valid Hex applies through the shared colour state");
+                    QTest::qWait(120);
+                    auto* hex = findItemByName(window->contentItem(),
+                                               QStringLiteral("colourHexField"), true);
+                    auto* colourScroll =
+                        findItemByName(window->contentItem(), QStringLiteral("colourScroll"), true);
+                    const QPointF hexPosition = hex && colourScroll
+                                                    ? hex->mapToItem(colourScroll, QPointF())
+                                                    : QPointF(-1, -1);
+                    check(hex && colourScroll && hexPosition.y() >= -1 &&
+                              hexPosition.y() + hex->height() <= colourScroll->height() + 1,
+                          "Colour scroll reveals its focused Hex field");
+                    focusCanvas();
+                    QTest::keyClick(window, Qt::Key_Q);
+                    QTest::qWait(120);
+                    auto* quickControls =
+                        root->findChild<QObject*>(QStringLiteral("drawingQuickControls"));
+                    check(quickControls && quickControls->property("visible").toBool() &&
+                              !panel->property("visible").toBool(),
+                          "Q replaces the floating panel instead of stacking a second surface");
+                    check(click("quickEditBrush") && panelOn(1) &&
+                              lab->property("editing").toBool() &&
+                              !quickControls->property("visible").toBool(),
+                          "Quick Edit opens Basic settings and closes Quick Controls");
+                    panelKey(Qt::Key_2);
+
                     check(click("workspacePanelTab_2") && panelOn(2) &&
                               click("workspacePanelTab_1") && panelOn(1),
                           "filtered tabs retain stable Brush and Colour IDs");
                     auto* colourTab = findItemByName(window->contentItem(),
-                                                     QStringLiteral("workspacePanelTab_2"));
+                                                     QStringLiteral("workspacePanelTab_2"), true);
                     if (colourTab)
                         colourTab->forceActiveFocus();
                     QTest::keyClick(window, Qt::Key_Space);
                     QTest::qWait(120);
                     check(panelOn(2), "panel tabs accept keyboard activation");
                     panelKey(Qt::Key_2);
-                    auto* search =
-                        findItemByName(window->contentItem(), QStringLiteral("brushSearchInput"));
+                    auto* search = findItemByName(window->contentItem(),
+                                                  QStringLiteral("brushSearchInput"), true);
                     if (search)
                         search->forceActiveFocus();
                     QTest::keyClick(window, Qt::Key_1, Qt::ControlModifier);
@@ -3271,17 +3413,99 @@ int main(int argc, char* argv[]) {
                     QTest::qWait(120);
                     check(panel && !panel->property("visible").toBool(),
                           "document replacement closes floating panel");
+                    check(click("workspaceImageMenuButton") && click("resizeCanvasAction") &&
+                              enterNumber("resizeCanvasWidth", "48") &&
+                              enterNumber("resizeCanvasHeight", "36") &&
+                              click("resizeCanvasApply") && controller->canvasWidth() == 48 &&
+                              controller->canvasHeight() == 36,
+                          "Resize Canvas accepts direct numeric dimensions");
+                    controller->undo();
+                    check(controller->canvasWidth() == 40 && controller->canvasHeight() == 32,
+                          "Resize Canvas interaction remains undoable");
+                    check(enterNumber("layerOpacityField", "65") &&
+                              controller->layers()
+                                      ->data(controller->layers()->index(
+                                                 controller->activeLayerIndex(), 0),
+                                             LayerListModel::OpacityRole)
+                                      .toInt() == 65,
+                          "layer opacity accepts direct numeric entry");
+                    focusCanvas();
+                    controller->undo();
+                    check(controller->layers()
+                                  ->data(controller->layers()->index(controller->activeLayerIndex(),
+                                                                     0),
+                                         LayerListModel::OpacityRole)
+                                  .toInt() == 100,
+                          "numeric layer opacity creates one undoable change");
                     panelKey(Qt::Key_2);
+                    controller->setLastError(
+                        QStringLiteral("Verification: persistent actionable error"));
+                    QTemporaryDir recentFixture;
+                    const QString retainedFile = recentFixture.filePath("retained-artwork.prism");
+                    const QString missingFile = recentFixture.filePath("missing-artwork.prism");
+                    const bool fixtureSaved =
+                        controller->saveProject(QUrl::fromLocalFile(retainedFile)) &&
+                        controller->saveProject(QUrl::fromLocalFile(missingFile));
+                    QFile::remove(missingFile);
+                    emit controller->recentFilesChanged();
                     controller->setLastError(
                         QStringLiteral("Verification: persistent actionable error"));
                     controller->setStartPageVisible(true);
                     QCoreApplication::processEvents();
                     QTest::qWait(120);
+                    const int recentCount = controller->recentFiles().size();
+                    check(fixtureSaved && click("removeRecent_0") &&
+                              controller->recentFiles().size() == recentCount - 1 &&
+                              QFile::exists(retainedFile),
+                          "missing Recent removal leaves existing artwork on disk");
                     check(panel && !panel->property("visible").toBool(),
                           "Start Page closes floating panel");
                     check(controller->lastError().contains("Verification"),
                           "Start Page retains the error");
+                    const auto noticeAction = [&](const char* name) {
+                        auto* item =
+                            findItemByName(window->contentItem(), QString::fromLatin1(name), true);
+                        return item && item->isVisible();
+                    };
+                    check(!noticeAction("noticeSaveAs") && !noticeAction("noticeRetryAutosave") &&
+                              !noticeAction("noticeRetryRecording"),
+                          "unclassified errors offer no unrelated retry actions");
+                    controller->setLastError(QStringLiteral("Verification: autosave"),
+                                             QStringLiteral("autosave"));
+                    QTest::qWait(100);
+                    check(noticeAction("noticeSaveAs") && noticeAction("noticeRetryAutosave") &&
+                              !noticeAction("noticeRetryRecording"),
+                          "autosave errors offer only artwork actions");
+                    auto* notice = findItemByName(window->contentItem(),
+                                                  QStringLiteral("workspaceNotice"), true);
+                    const QPointF noticePosition = notice ? notice->position() : QPointF();
+                    QTest::mouseMove(window, QPoint(30, 400));
+                    QTest::qWait(100);
+                    check(notice && notice->position() == noticePosition,
+                          "visible notices do not follow the pointer");
+                    controller->setLastError(QStringLiteral("Verification: encoding"),
+                                             QStringLiteral("export"));
+                    QTest::qWait(100);
+                    check(!noticeAction("noticeSaveAs") && !noticeAction("noticeRetryAutosave") &&
+                              !noticeAction("noticeRetryRecording"),
+                          "encoding errors do not offer unrelated retries");
                     controller->dismissError();
+                    auto* startNew = findItemByName(window->contentItem(),
+                                                    QStringLiteral("startNewDocument"), true);
+                    if (startNew)
+                        startNew->forceActiveFocus();
+                    QTest::keyClick(window, Qt::Key_Space);
+                    QTest::qWait(100);
+                    auto* newDocument =
+                        root->findChild<QObject*>(QStringLiteral("newDocumentDialog"));
+                    check(startNew && newDocument && newDocument->property("visible").toBool(),
+                          "Start Page New Document supports keyboard activation");
+                    enterNumber("newDocumentWidth", "40");
+                    enterNumber("newDocumentHeight", "32");
+                    enterNumber("newDocumentLayers", "64");
+                    check(click("newDocumentCreate") && controller->layers()->rowCount() == 64,
+                          "maximum layer count remains available in the workspace");
+                    controller->forgetRecentFilesUnder(recentFixture.path());
                     qInfo() << "ux beta test:" << failures << "failure(s)";
                     if (failures) {
                         QCoreApplication::exit(1);

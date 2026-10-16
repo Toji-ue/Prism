@@ -26,8 +26,9 @@ Row {
     }
     PSlider {
         id: slider
+        Accessible.name: control.caption
         objectName: control.objectName.length ? control.objectName + "Slider" : ""
-        width: Math.max(60, control.width - 145)
+        width: Math.max(50, control.width - 176)
         anchors.verticalCenter: parent.verticalCenter
         from: control.from
         to: control.to
@@ -35,13 +36,18 @@ Row {
         onMoved: control.moved(value)
         onPressedChanged: if (!pressed) value = control.controllerValue
     }
-    Text {
-        width: 44
+    NumericField {
+        objectName: control.objectName.length ? control.objectName + "Field" : ""
+        width: 72
         anchors.verticalCenter: parent.verticalCenter
-        horizontalAlignment: Text.AlignRight
-        text: Math.round(control.controllerValue * control.displayScale) + control.suffix
-        color: ThemeManager.themeColor("text")
-        font.pixelSize: ThemeManager.themeColor("fontBody")
+        Accessible.name: control.caption
+        from: control.from * control.displayScale
+        to: control.to * control.displayScale
+        decimals: control.displayScale === 1 && control.to < 10 ? 2 : 0
+        numberValue: control.controllerValue * control.displayScale
+        onCommitted: value => control.moved(value / control.displayScale)
+        ToolTip.visible: hovered
+        ToolTip.text: control.caption + " (" + control.suffix.trim() + ")"
     }
     onControllerValueChanged: if (!slider.pressed) slider.value = controllerValue
 }

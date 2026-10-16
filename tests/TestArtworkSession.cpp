@@ -197,3 +197,106 @@ TEST(ArtworkSession, CancelFailedRecordingCloseRetainsProtectedArtwork) {
         EXPECT_TRUE(QFileInfo::exists(QUrl(entry.toMap().value("url").toString()).toLocalFile()));
     qunsetenv("PRISM_AUTOSAVE_INTERVAL_MS");
 }
+
+TEST(ArtistUx, BrushIdentitySurvivesTemporaryEditsAndAchromaticColours) {
+    AppController app;
+    app.setSelfTestMode(true);
+    const QString id = app.property("activePresetId").toString();
+    const QString name = app.property("activePresetName").toString();
+    EXPECT_FALSE(id.isEmpty());
+    EXPECT_FALSE(name.isEmpty());
+    app.setBrushSize(37);
+    EXPECT_TRUE(app.property("brushModified").toBool());
+    EXPECT_EQ(app.property("activePresetId").toString(), id);
+    EXPECT_EQ(app.property("activePresetName").toString(), name);
+    app.resetBrushToPreset();
+    EXPECT_FALSE(app.property("brushModified").toBool());
+    app.setBrushColor(QColor::fromHsvF(0.6, 0.8, 0.9));
+    app.setBrushColor(Qt::black);
+    EXPECT_NEAR(app.property("brushHue").toDouble(), 0.6, 0.001);
+    app.setBrushColor(Qt::white);
+    EXPECT_NEAR(app.property("brushHue").toDouble(), 0.6, 0.001);
+    app.setLastError("Unclassified test error");
+    EXPECT_EQ(app.property("errorContext").toString(), "general");
+    app.dismissError();
+    EXPECT_EQ(app.lastError(), QString());
+}
+
+TEST(ArtistUx, HsvValidationAndRecentRemovalKeepExistingData) {
+    AppController app;
+    app.newDocument(20, 16);
+    app.setBrushColor(QColor::fromRgbF(0, 0, 0, 0.5));
+    app.setBrushHsv(0.25, 0, 0);
+    EXPECT_NEAR(app.brushHue(), 0.25, 0.001);
+    app.setBrushHsv(0.25, 0.8, 0.9);
+    const QColor before = app.brushColor();
+    app.setBrushHsv(-1, 0.8, 0.9);
+    app.setBrushHsv(0.5, 1.2, 0.9);
+    EXPECT_EQ(app.brushColor(), before);
+    QTemporaryDir output;
+    const auto path = output.filePath("recent.prism");
+    ASSERT_TRUE(app.saveProject(QUrl::fromLocalFile(path)));
+    app.removeRecentFile(QUrl::fromLocalFile(path));
+    EXPECT_TRUE(QFileInfo::exists(path));
+    for (const auto& entry : app.recentFiles())
+        EXPECT_NE(entry.toMap().value("path").toString(), path);
+}
+
+TEST(ArtistUx, SaveFailureHasAnArtworkActionContext) {
+    AppController app;
+    app.newDocument(20, 16);
+    paint(app);
+    QTemporaryDir output;
+    QFile blocker(output.filePath("blocker"));
+    ASSERT_TRUE(blocker.open(QIODevice::WriteOnly));
+    blocker.close();
+    ASSERT_TRUE(app.saveProjectAsync(QUrl::fromLocalFile(blocker.fileName() + "/art.prism")));
+    ASSERT_TRUE(waitFor([&] { return !app.saving() && !app.lastError().isEmpty(); }));
+    EXPECT_EQ(app.errorContext(), "artwork-save");
+    EXPECT_TRUE(app.hasUnsavedChanges());
+}
+
+TEST(ArtistUx, ImportSelectsStoredBrushSettingsAndKeepsIndependentIdentity) {
+    AppController app;
+    app.setSelfTestMode(true);
+    app.setBrushSize(77);
+    app.setBrushFlow(0.3F);
+    app.addPreset();
+    const QString originalId = app.activePresetId();
+    QTemporaryDir output;
+    const auto url = QUrl::fromLocalFile(output.filePath("brush.prismbrush"));
+    ASSERT_TRUE(app.exportBrush(url, app.activePresetIndex()));
+    app.setBrushSize(12);
+    app.setBrushColor(QColor("#cc33aa"));
+    ASSERT_TRUE(app.importBrush(url));
+    EXPECT_EQ(app.brushSize(), 77);
+    EXPECT_NEAR(app.brushFlow(), 0.3, 0.001);
+    EXPECT_NE(app.activePresetId(), originalId);
+    EXPECT_FALSE(app.brushModified());
+    EXPECT_EQ(app.brushColor().name(), "#cc33aa");
+    app.selectPreset(0);
+    EXPECT_EQ(app.brushColor().name(), "#cc33aa");
+    app.setBrushSize(25);
+    app.resetBrushToPreset();
+    EXPECT_EQ(app.brushColor().name(), "#cc33aa");
+}
+
+TEST(ArtistUx, PresetDeletionRetainsTheSelectedIdentityOrAppliesItsReplacement) {
+    AppController app;
+    app.setSelfTestMode(true);
+    app.setBrushSize(10);
+    app.addPreset();
+    const int first = app.activePresetIndex();
+    app.setBrushSize(20);
+    app.addPreset();
+    const QString second = app.activePresetId();
+    app.removePreset(first);
+    EXPECT_EQ(app.activePresetId(), second);
+    EXPECT_EQ(app.brushSize(), 20);
+    app.removePreset(app.activePresetIndex());
+    const float replacement = app.brushSize();
+    EXPECT_NE(app.activePresetId(), second);
+    EXPECT_FALSE(app.brushModified());
+    app.resetBrushToPreset();
+    EXPECT_EQ(app.brushSize(), replacement);
+}

@@ -75,3 +75,37 @@ default. Commit only task-related work; preserve unrelated workspace files.
 Async retry and archive recovery use the existing file-I/O worker, with a busy state and no GUI wait for spool scans. Publishing the new index happens through a queued callback. Transitions preserve active pointer grabs and match the final capture to its spool. Cancelling a failed recording close keeps artwork recovery. Completed sessions do not appear as crash recovery, and a clean crash prefix still has incomplete coverage without completion metadata.
 
 Packaging code, runtime notices and CI jobs are implemented. External distribution is blocked by license review; remote CI, physical hardware, eight-hour and clean-machine results are not claimed. Final local Release/hash evidence is recorded separately in `local-candidate-validation.md`.
+
+## Artist workflow UX — approved 2026-10-15
+
+Keep full workspace on document entry, docked Layers over Colour, Q/Ctrl+1/2/3,
+session-only Focus and always-on retained recording. No engine/backend or file
+format changes are part of this work.
+
+- Choose/Edit brush views: searchable named previews, All/Pinned/Recent, stable
+  preset identity and Modified state, fixed real-engine preview, Basic first,
+  collapsible Tip/Dynamics/Graphite, Save copy/Reset and labelled management.
+  Delete requires confirmation. Import applies the selected settings. Thumbnail
+  identity must survive reorder/delete; preset switching loads stored settings.
+- Colour: independent hue ring, SV square, shared remembered neutral hue,
+  validated HSV/Hex with Enter/Escape, and pen-sized palette. Tool Options opens
+  Edit Basic. Flow is labelled Flow.
+- Common themed buttons/fields/checks/tabs and 32 px slider hit regions. Numeric
+  entry and keyboard nudging must remain usable; unfocused wheel scrolling must
+  not alter a slider. Focused controls scroll into view, and Home/End/arrows reach
+  every brush in long lists with separate Select/Pin keyboard targets. Q replaces
+  any panel, keeps a 24 px pen gap and viewport bounds, and links to All
+  brushes/Edit. Focus keeps IDs 0/1/2 and no duplicates.
+- Start Page uses compact empty/recent states and keyboard-accessible New/Open,
+  recovery and missing-file removal. Notice position stays fixed; source-tagged
+  errors expose only appropriate Save As/autosave/recording/partial actions.
+- Interaction gates include resize entry/undo, Tab navigation within controls,
+  preset edits/import/management, numeric colour/Hex cancellation and exclusivity.
+  Rendered evidence covers both themes, 1280x780/1000x620 and process factors
+  1/1.25/1.5/2; this does not replace changing Windows display settings. Full
+  Release/selftest and 300-point rendering benchmarks are required.
+
+Local results belong in local-candidate-validation.md. Physical tablet and at
+least three artists completing Sketch → Ink → Paint → Save/export remain pending;
+record wrong-panel searches, misclicks and canvas obstruction before accepting UX.
+Eight-hour recording, clean Windows, remote/platform CI and license gates stay open.

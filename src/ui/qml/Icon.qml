@@ -42,6 +42,26 @@ Canvas {
         ctx.scale(s, s)
 
         switch (icon.name) {
+        case "more":
+            for (var dot = 3; dot <= 13; dot += 5) { ctx.beginPath(); ctx.arc(dot, 8, 1, 0, Math.PI * 2); ctx.fill() }
+            break
+        case "pin":
+            ctx.beginPath(); ctx.moveTo(5, 2); ctx.lineTo(11, 2)
+            ctx.lineTo(10, 7); ctx.lineTo(12, 9); ctx.lineTo(4, 9)
+            ctx.lineTo(6, 7); ctx.closePath(); ctx.stroke()
+            ctx.beginPath(); ctx.moveTo(8, 9); ctx.lineTo(8, 14); ctx.stroke()
+            break
+        case "check":
+            ctx.beginPath(); ctx.moveTo(3, 8); ctx.lineTo(6, 11); ctx.lineTo(13, 4); ctx.stroke()
+            break
+        case "alpha-lock":
+            ctx.beginPath(); ctx.arc(8, 8, 5, 0, Math.PI * 2); ctx.stroke()
+            ctx.beginPath(); ctx.moveTo(5, 11); ctx.lineTo(8, 5); ctx.lineTo(11, 11)
+            ctx.moveTo(6, 9); ctx.lineTo(10, 9); ctx.stroke()
+            break
+        case "clipping":
+            ctx.strokeRect(6, 3, 7, 7); ctx.beginPath(); ctx.moveTo(3, 6); ctx.lineTo(3, 13); ctx.lineTo(10, 13); ctx.stroke()
+            break
         case "focus":
             ctx.beginPath()
             ctx.moveTo(2, 6); ctx.lineTo(2, 4)

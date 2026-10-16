@@ -38,7 +38,7 @@ public:
 signals:
     void stateChanged();
     void recoveryChanged();
-    void errorOccurred(const QString& message);
+    void errorOccurred(const QString& message, bool manual = false);
     void saveFinished(bool success, const QString& path);
 
 private:

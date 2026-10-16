@@ -221,7 +221,7 @@ bool ArtworkSession::saveAsync(const QString& path) {
             {snapshot(), path, m_recoveryPath, m_name, m_epoch, m_history.stateId(), true});
     } catch (const std::bad_alloc&) {
         emit errorOccurred(
-            tr("Not enough memory to prepare Save. Your current artwork is still open."));
+            tr("Not enough memory to prepare Save. Your current artwork is still open."), true);
         return false;
     }
     m_manualPending = true;
@@ -281,7 +281,8 @@ void ArtworkSession::startNextJob() {
         if (!*success && !m_discardEpochs.contains(job.epoch))
             emit errorOccurred(tr("Could not %1 %2. Your existing files were kept; check free "
                                   "space and permissions, then retry.")
-                                   .arg(job.manual ? tr("save") : tr("autosave"), job.name));
+                                   .arg(job.manual ? tr("save") : tr("autosave"), job.name),
+                               job.manual);
         emit stateChanged();
         emit recoveryChanged();
         startNextJob();

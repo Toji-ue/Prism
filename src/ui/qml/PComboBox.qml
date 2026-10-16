@@ -1,27 +1,25 @@
 ﻿import QtQuick
-import QtQuick.Controls.Basic
+import QtQuick.Controls.Basic
+
 import Prism
 
-// ComboBox with the app's dark dropdown. Controls Basic's default popup is a
-// light list on a light frame, which broke the two-colour look, so every
-// dropdown in Prism uses this instead: dark grey list, dark grey frame, and
-// clearly dimmed entries when an option is unavailable.
+// Shared studio dropdown with keyboard focus and pen-sized rows.
 ComboBox {
     id: control
 
-    implicitHeight: 22
-    font.pixelSize: 11
+    implicitHeight: 32
+    font.pixelSize: 12
 
     delegate: ItemDelegate {
         required property var model
         required property int index
         width: control.width
-        height: 22
+        height: 32
         highlighted: control.highlightedIndex === index
         contentItem: Text {
             text: control.textRole ? model[control.textRole] : model[control.textRole]
             color: highlighted ? ThemeManager.themeColor("highlightText") : ThemeManager.themeColor("text")
-            font.pixelSize: 11
+            font.pixelSize: 12
             verticalAlignment: Text.AlignVCenter
             leftPadding: 6
             elide: Text.ElideRight
@@ -45,7 +43,7 @@ ComboBox {
         leftPadding: 6
         rightPadding: control.indicator.width + 4
         text: control.displayText
-        font.pixelSize: 11
+        font.pixelSize: 12
         color: control.enabled ? ThemeManager.themeColor("text") : ThemeManager.themeColor("disabledText")
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
@@ -53,8 +51,8 @@ ComboBox {
 
     background: Rectangle {
         color: ThemeManager.themeColor("panelRaised")
-        border.color: ThemeManager.themeColor("border")
-        border.width: 1
+        border.color: control.visualFocus ? ThemeManager.themeColor("highlight") : ThemeManager.themeColor("border")
+        border.width: control.visualFocus ? 2 : 1
         radius: ThemeManager.themeColor("radiusSmall")
     }
 
