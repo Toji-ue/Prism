@@ -1,4 +1,5 @@
 #include "application/ArtworkSession.h"
+#include "application/RecordingTimeline.h"
 #include "project/ProjectIO.h"
 #include <QDir>
 #include <QFile>
@@ -242,16 +243,19 @@ void ArtworkSession::startNextJob() {
         return;
     }
     auto success = std::make_shared<bool>(false);
-    auto* thread = QThread::create([job, success]() {
+    auto fingerprint = std::make_shared<QString>();
+    auto* thread = QThread::create([job, success, fingerprint]() {
         try {
             *success = (job.manual || backupSnapshot(job.path)) &&
                        prism::io::ProjectIO::save(*job.snapshot, job.path);
+            if (*success && job.manual)
+                *fingerprint = RecordingTimeline::fingerprint(job.path);
         } catch (const std::exception&) {
             *success = false;
         }
     });
     m_writer = thread;
-    connect(thread, &QThread::finished, this, [this, thread, job, success]() {
+    connect(thread, &QThread::finished, this, [this, thread, job, success, fingerprint]() {
         if (m_writer == thread)
             m_writer = nullptr;
         thread->deleteLater();
@@ -264,7 +268,7 @@ void ArtworkSession::startNextJob() {
                     acceptedSave(job.path, job.revision);
                 else
                     m_saveStatus = "Error";
-                emit saveFinished(*success, job.path);
+                emit saveFinished(*success, job.path, *fingerprint);
             } else if (!m_discardEpochs.contains(job.epoch)) {
                 if (*success) {
                     m_protectedRevision = job.revision;

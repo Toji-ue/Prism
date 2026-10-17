@@ -109,3 +109,28 @@ Local results belong in local-candidate-validation.md. Physical tablet and at
 least three artists completing Sketch → Ink → Paint → Save/export remain pending;
 record wrong-panel searches, misclicks and canvas obstruction before accepting UX.
 Eight-hour recording, clean Windows, remote/platform CI and license gates stay open.
+
+## Recording workflow — approved 2026-10-16
+
+Always-on timelapse uses 1.5-second default capture and 1920 px long edge,
+configurable to 0.5–60 seconds and 720/1920/Original. The separate 320 px right
+Recording dock preserves Layers/Colour, defaults closed and hides in Focus.
+Stored-frame preview loads on opening; explicit Refresh updates its snapshot and
+a scrubber reads stored frames.
+
+Versioned local timeline links use saved-file fingerprints. Save As freezes and
+branches shared history; imported/moved artwork links explicitly. v3 portable
+record bundles preserve v1/v2 source bytes and branch references. Raw deletion
+must not bypass shared-source protection. No project/brush format changes or
+new codec dependencies are authorized.
+
+Docker/Storage share video settings: two-minute default, 30 FPS, 1920 px, five
+seconds holding the end; presets 1/2/4 minutes, 12/24/30 FPS and 1280/1920 px.
+Input FPS and optional intro are advanced controls. Total video stays at most
+240 seconds; record bundles retain all data. Progress, cancellation, final-frame
+acknowledgment and atomic output are required. Missing completion evidence or
+gaps require explicit Partial export. See recording-format.md for compatibility
+and input bounds; local-candidate-validation.md records measured acceptance.
+
+Physical pen, eight-hour drawing, clean installation, remote/platform CI and
+runtime license review remain open gates.

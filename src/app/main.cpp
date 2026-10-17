@@ -34,11 +34,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <mutex>
 #include <vector>
 
 namespace {
 
 QFile g_logFile;
+std::mutex g_logMutex;
 
 /// Qt diagnostics go to a log file: the released build is a WIN32 GUI app
 /// with no console, so QML errors would otherwise vanish silently.
@@ -61,8 +63,11 @@ void logToFile(QtMsgType type, const QMessageLogContext&, const QString& msg) {
         level = "fatal";
         break;
     }
-    const QString line = QStringLiteral("[%1] %2: %3\n")
-                             .arg(QDateTime::currentDateTime().toString(Qt::ISODate), level, msg);
+    const QString line =
+        QStringLiteral("[%1] %2: %3\n")
+            .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs), level, msg);
+    // Worker diagnostics and GUI notices share this QFile.
+    const std::lock_guard lock(g_logMutex);
     if (g_logFile.isOpen()) {
         g_logFile.write(line.toUtf8());
         g_logFile.flush();
@@ -1171,6 +1176,12 @@ int runSelfTest() {
             RecordExport::mp4Supported() ? QStringLiteral("prism-selftest-async.mp4")
                                          : QStringLiteral("prism-selftest-async.gif"));
         QFile::remove(asyncVideoPath);
+        {
+            QElapsedTimer deadline;
+            deadline.start();
+            while (controller.recordingExporting() && deadline.elapsed() < 10000)
+                QTest::qWait(10);
+        }
         check(controller.exportRecordingAsync(QUrl::fromLocalFile(asyncVideoPath)),
               "video export starts without blocking the window");
         {
@@ -1999,11 +2010,21 @@ int runSelfTest() {
     check(controller.recording(), "opening an image starts its automatic record");
     QFile::remove(focusImage);
 
+    const QString exportedArchive = QDir::temp().filePath("selftest-archive.prismrec");
     const QString archivePath = qEnvironmentVariable("PRISM_RECOVERY_DIR") +
-                                QStringLiteral("/recordings/selftest-archive.prismrec");
-    QFile::remove(archivePath);
-    check(controller.exportRecording(QUrl::fromLocalFile(archivePath)),
-          "recording recovery fixture exports");
+                                QStringLiteral("/recordings/") +
+                                QUuid::createUuid().toString(QUuid::WithoutBraces) + ".prismrec";
+    {
+        QElapsedTimer deadline;
+        deadline.start();
+        while (controller.recordingExporting() && deadline.elapsed() < 10000)
+            QTest::qWait(10);
+    }
+    QFile::remove(exportedArchive);
+    check(controller.exportRecording(QUrl::fromLocalFile(exportedArchive)) &&
+              QFile::copy(exportedArchive, archivePath),
+          "recording recovery fixture exports outside protected storage then stages recovery");
+    QFile::remove(exportedArchive);
     controller.setStartPageVisible(true);
     check(controller.recoverRecording(QUrl::fromLocalFile(archivePath)),
           "Start Page can select an archived recording for export");
@@ -2507,6 +2528,10 @@ int main(int argc, char* argv[]) {
             if (a.startsWith(QStringLiteral("--demo-bench-preset=")))
                 demoBenchPreset = a.section(QLatin1Char('='), 1).toInt();
         const bool demoBrushLab = app.arguments().contains(QStringLiteral("--demo-brush-lab"));
+        QString demoRecording;
+        for (const QString& a : app.arguments())
+            if (a.startsWith(QStringLiteral("--demo-recording=")))
+                demoRecording = a.section(QLatin1Char('='), 1);
         // --demo-mirror=h|v: flips the canvas view, which is mirrored per tile
         // in the tiled renderer and therefore worth an explicit visual check.
         QString demoMirror;
@@ -2547,8 +2572,8 @@ int main(int argc, char* argv[]) {
              demoImport, demoDragSlider, demoDragLayer, demoClick, demoActive, demoClickLayer,
              demoFocusUndo, demoFocusMode, demoUxBeta, demoFocusHover, demoRightPan, demoCrop,
              demoMove, demoSliderInput, demoRecord, demoSliderTab, demoEyedropper, demoPenTool,
-             demoStrokeBench, demoBenchPreset, demoBrushLab, demoDocW, demoDocH, demoMirror,
-             demoStress, demoStressOps, &engine]() {
+             demoStrokeBench, demoBenchPreset, demoBrushLab, demoRecording, demoDocW, demoDocH,
+             demoMirror, demoStress, demoStressOps, &engine]() {
                 if (demoStress > 0 && !engine.rootObjects().isEmpty()) {
                     controller->setStartPageVisible(false);
                     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
@@ -2755,6 +2780,10 @@ int main(int argc, char* argv[]) {
                         // separate CPU cost (brush + compositor) from GPU upload.
                         const qreal cw = controller->canvasWidth();
                         const qreal ch = controller->canvasHeight();
+                        if (qEnvironmentVariableIsSet("PRISM_RECORD_PROFILE"))
+                            qInfo()
+                                << "bench: CPU phase begins" << QDateTime::currentMSecsSinceEpoch()
+                                << "stored frames" << controller->recordedFrames();
                         QElapsedTimer cpu;
                         cpu.start();
                         controller->beginStroke(cw * 0.3, ch * 0.3);
@@ -3437,6 +3466,78 @@ int main(int argc, char* argv[]) {
                                          LayerListModel::OpacityRole)
                                   .toInt() == 100,
                           "numeric layer opacity creates one undoable change");
+                    controller->newDocument(1600, 1200);
+                    QTest::qWait(150);
+                    controller->setZoom(1);
+                    QTest::qWait(100);
+                    auto* recordViewport =
+                        findItemByName(window->contentItem(), QStringLiteral("canvasFlick"), true);
+                    auto* recordCanvas =
+                        findItemByName(window->contentItem(), QStringLiteral("canvasItem"), true);
+                    if (recordViewport) {
+                        recordViewport->setProperty("contentX", 200);
+                        recordViewport->setProperty("contentY", 150);
+                    }
+                    const auto recordCentre = [&]() {
+                        return recordViewport && recordCanvas
+                                   ? recordViewport->mapToItem(
+                                         recordCanvas, QPointF(recordViewport->width() / 2,
+                                                               recordViewport->height() / 2))
+                                   : QPointF();
+                    };
+                    const QPointF beforeRecordCentre = recordCentre();
+                    const qreal recordZoom = controller->zoom();
+                    check(click("recordingIndicator"),
+                          "REC opens recording docker with real mouse input");
+                    QTest::qWait(300);
+                    auto* recordDock = findItemByName(window->contentItem(),
+                                                      QStringLiteral("recordingDocker"), true);
+                    check(recordDock && recordDock->width() >= 319 &&
+                              controller->activeRecordingTimeline().size() > 0,
+                          "recording has a separate 320px dock and an active timeline");
+                    {
+                        QElapsedTimer deadline;
+                        deadline.start();
+                        while (controller->recordingPreviewFrames() == 0 &&
+                               deadline.elapsed() < 3000)
+                            QTest::qWait(20);
+                        check(controller->recordingPreviewFrames() > 0,
+                              "Recording opens with a stored-frame preview");
+                    }
+
+                    check(QLineF(beforeRecordCentre, recordCentre()).length() < 1.1,
+                          "opening Recording preserves the viewed canvas centre");
+                    check(enterNumber("recordingIntervalField", "0.5") &&
+                              controller->captureInterval() == 500,
+                          "recording interval accepts keyboard entry");
+                    controller->setCaptureInterval(1500);
+                    controller->setFocusMode(true);
+                    QTest::qWait(100);
+                    check(recordDock && !recordDock->isVisible() && controller->recording(),
+                          "Focus hides Recording while capture remains enabled");
+                    controller->setFocusMode(false);
+                    QTest::qWait(100);
+                    if (auto* exportButton = findItemByName(
+                            window->contentItem(), QStringLiteral("recordingDockExport"), true))
+                        exportButton->forceActiveFocus();
+                    QTest::qWait(160);
+                    check(click("recordingDockExport"),
+                          "keyboard focus reveals recording Export in the scroll panel");
+                    QTest::qWait(160);
+                    check(findItemByName(window->contentItem(),
+                                         QStringLiteral("recordExportFormat"), true) != nullptr,
+                          "recording opens shared export configuration");
+                    QTest::keyClick(window, Qt::Key_Escape);
+                    QTest::qWait(100);
+                    check(click("recordingDockClose") &&
+                              qFuzzyCompare(recordZoom, controller->zoom()),
+                          "closing Recording preserves zoom");
+                    check(QLineF(beforeRecordCentre, recordCentre()).length() < 1.1,
+                          "closing Recording restores the viewed canvas centre");
+                    controller->newDocument(40, 32);
+                    QTest::qWait(120);
+                    focusCanvas();
+
                     panelKey(Qt::Key_2);
                     controller->setLastError(
                         QStringLiteral("Verification: persistent actionable error"));
@@ -4149,6 +4250,21 @@ int main(int argc, char* argv[]) {
                     // from a screenshot.
                     QMetaObject::invokeMethod(engine.rootObjects().first(),
                                               "openNewDocumentDialog");
+                }
+                if (!demoRecording.isEmpty() && !engine.rootObjects().isEmpty()) {
+                    controller->setStartPageVisible(false);
+                    auto* root = engine.rootObjects().first();
+                    QMetaObject::invokeMethod(root, "showRecordingDocker");
+                    QTest::qWait(250);
+                    if (demoRecording == QStringLiteral("export"))
+                        QMetaObject::invokeMethod(
+                            root, "openTimelapseExport",
+                            Q_ARG(QVariant, QVariant(controller->activeRecordingTimeline())),
+                            Q_ARG(QVariant, QVariant(QVariantList{})),
+                            Q_ARG(QVariant, QVariant(false)));
+                    else if (demoRecording == QStringLiteral("focus"))
+                        QMetaObject::invokeMethod(root, "setDrawingChromeCollapsed",
+                                                  Q_ARG(QVariant, QVariant(true)));
                 }
                 if (demoToolOptions && !engine.rootObjects().isEmpty()) {
                     // Switches the color docker to its Tool Options tab.

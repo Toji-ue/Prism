@@ -402,3 +402,116 @@ TEST_F(SessionRecorderTest, RetryRepairsAnInterruptedHeaderBeforeTheFirstFrame) 
     EXPECT_TRUE(recorder.hasGaps());
     EXPECT_TRUE(SessionRecorder::verify(recorder.spoolPath()));
 }
+
+TEST_F(SessionRecorderTest, DefaultCaptureRetainsFullHdDetail) {
+    SessionRecorder recorder;
+    QImage large(2400, 1200, QImage::Format_RGBA8888);
+    large.fill(Qt::red);
+    ASSERT_NE(recorder.capture(large, "detail", true), 0U);
+    ASSERT_TRUE(recorder.flush());
+    QImage frame;
+    qint64 ms = 0;
+    ASSERT_TRUE(recorder.frameAt(0, frame, ms));
+    EXPECT_EQ(frame.size(), QSize(1920, 960));
+}
+
+TEST_F(SessionRecorderTest, CaptureSettingsApplyPerFrameAndSnapshotsAreImmutable) {
+    SessionRecorder recorder;
+    EXPECT_FALSE(recorder.setCaptureSettings({100, 1920}));
+    ASSERT_TRUE(recorder.setCaptureSettings({500, 720}));
+    QImage canvas(2048, 1024, QImage::Format_RGBA8888);
+    canvas.fill(Qt::red);
+    ASSERT_NE(recorder.capture(canvas, "low", true), 0U);
+    canvas.fill(Qt::blue);
+    ASSERT_TRUE(recorder.setCaptureSettings({500, 0}));
+    ASSERT_NE(recorder.capture(canvas, "original", true), 0U);
+    canvas.fill(Qt::green);
+    ASSERT_TRUE(recorder.flush());
+    QImage first, last;
+    qint64 ms = 0;
+    ASSERT_TRUE(recorder.frameAt(0, first, ms));
+    ASSERT_TRUE(recorder.frameAt(1, last, ms));
+    EXPECT_EQ(first.size(), QSize(720, 360));
+    EXPECT_EQ(first.pixelColor(0, 0), QColor(Qt::red));
+    EXPECT_EQ(last.size(), QSize(2048, 1024));
+    EXPECT_EQ(last.pixelColor(0, 0), QColor(Qt::blue));
+    EXPECT_FALSE(recorder.captureDue());
+}
+
+TEST_F(SessionRecorderTest, ConfiguredMediaExportKeepsOrientationFixtures) {
+    SessionRecorder recorder;
+    for (int i = 0; i < 3; ++i) {
+        QImage frame(64, 48, QImage::Format_RGBA8888);
+        frame.fill(Qt::white);
+        for (int y = 0; y < 24; ++y)
+            for (int x = 0; x < 64; ++x)
+                frame.setPixelColor(x, y, i == 0 ? Qt::red : i == 1 ? Qt::green : Qt::yellow);
+        for (int y = 24; y < 48; ++y)
+            for (int x = 0; x < 64; ++x)
+                frame.setPixelColor(x, y, Qt::blue);
+        ASSERT_NE(recorder.capture(frame, "asymmetric", true), 0U);
+    }
+    ASSERT_TRUE(recorder.flush());
+    auto source = recorder.recordedFrames();
+    TimelapseExportSettings settings;
+    settings.seconds = 1;
+    settings.fps = 12;
+    settings.endSeconds = 0;
+    settings.maxSide = 1280;
+    QString error;
+    auto frames = RecordExport::timelapse(source, settings, &error);
+    ASSERT_EQ(frames.count, 12);
+    const auto mp4 = directory.filePath("configured.mp4"),
+               gif = directory.filePath("configured.gif");
+    ASSERT_TRUE(RecordExport::writeGif(gif, frames, &error)) << error.toStdString();
+    if (RecordExport::mp4Supported())
+        ASSERT_TRUE(RecordExport::writeMp4(mp4, frames, &error)) << error.toStdString();
+    const QString output = qEnvironmentVariable("PRISM_RECORD_TEST_OUTPUT");
+    if (!output.isEmpty()) {
+        ASSERT_TRUE(QDir().mkpath(output));
+        ASSERT_TRUE(recorder.save(output + "/source.prismrec", QSize(64, 48), &error));
+        ASSERT_TRUE(QFile::copy(gif, output + "/configured.gif"));
+        if (RecordExport::mp4Supported())
+            ASSERT_TRUE(QFile::copy(mp4, output + "/configured.mp4"));
+    }
+}
+
+TEST_F(SessionRecorderTest, OneLargeCanvasSnapshotIsAllowedAboveQueueBudget) {
+    SessionRecorder recorder;
+    ASSERT_TRUE(recorder.setCaptureSettings({1500, 720}));
+    QImage large(8500, 8000, QImage::Format_RGBA8888);
+    large.fill(Qt::red);
+    ASSERT_NE(recorder.capture(large, "large", true), 0U);
+    ASSERT_TRUE(recorder.flush());
+    QImage stored;
+    qint64 ms = 0;
+    ASSERT_TRUE(recorder.frameAt(0, stored, ms));
+    EXPECT_EQ(stored.width(), 720);
+    EXPECT_FALSE(recorder.hasGaps());
+    ASSERT_TRUE(recorder.setCaptureSettings({1500, 0}));
+    ASSERT_NE(recorder.capture(large, "large original", true), 0U);
+    ASSERT_TRUE(recorder.flush());
+    ASSERT_TRUE(recorder.frameAt(1, stored, ms));
+    EXPECT_EQ(stored.width(), 1920);
+}
+
+TEST_F(SessionRecorderTest, LongSessionStreamsFramesWithoutRetainingDecodedImages) {
+    SessionRecorder recorder;
+    QImage frame(256, 256, QImage::Format_RGBA8888);
+    for (int i = 0; i < 2000; ++i) {
+        frame.fill(i == 1999 ? Qt::blue : Qt::red);
+        ASSERT_NE(recorder.capture(frame, "long session", true), 0U);
+        if (i % 16 == 15)
+            ASSERT_TRUE(recorder.flush());
+    }
+    ASSERT_TRUE(recorder.flush());
+    EXPECT_EQ(recorder.frameCount(), 2000);
+    QImage first, last;
+    qint64 ms = 0;
+    ASSERT_TRUE(recorder.frameAt(0, first, ms));
+    ASSERT_TRUE(recorder.frameAt(1999, last, ms));
+    EXPECT_EQ(first.pixelColor(0, 0), QColor(Qt::red));
+    EXPECT_EQ(last.pixelColor(0, 0), QColor(Qt::blue));
+    EXPECT_FALSE(recorder.hasGaps());
+    EXPECT_TRUE(SessionRecorder::verify(recorder.spoolPath()));
+}

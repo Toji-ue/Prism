@@ -1,97 +1,127 @@
-"""Check an exported MP4/GIF against the .prismrec of the same session.
+"""Independently check MP4/GIF orientation against Prism record v1/v2/v3.
 
-Why this exists next to `--selftest`: `RecordExport::verifyVideo` decodes through
-our own Media Foundation path, so encoder and decoder agree on a wrong
-orientation and a round-trip still passes. The first MP4 export shipped upside
-down for exactly that reason. Orientation needs a decoder we did not write.
-
-    python tools/check-record-export.py export.mp4 export.gif session.prismrec
-
-Needs ffmpeg (on PATH, or `pip install imageio-ffmpeg`) and Pillow.
-Each line prints the mean per-channel difference against the record's frame and
-against the same frame flipped vertically: the smaller number names the
-orientation, so a correct export shows the plain difference winning.
+Requires Pillow and external ffmpeg (PATH or IMAGEIO_FFMPEG). Only sampled
+frames are decoded to disk, including the first and last. Example:
+  python tools/check-record-export.py --seconds 120 --fps 30 --end 5 video.mp4 record.prismrec
+Omit --seconds for legacy one-source-frame-per-video-frame exports.
 """
+import argparse
 import base64
 import io
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
-import sys
 import tempfile
+from PIL import Image, ImageChops, ImageStat
 
-from PIL import Image
+LIMIT = 128 * 1024 * 1024
+
+class RecordFrames:
+    def __init__(self, path, timeline=None):
+        self.path = path
+        self.frames = []
+        with open(path, "rb") as f:
+            header = json.loads(f.readline(8 * 1024 * 1024 + 1))
+            if header["version"] == 3:
+                entries = {}
+                for entry in header["entries"]:
+                    entries[entry["name"]] = (f.tell(), entry["bytes"])
+                    f.seek(entry["bytes"], 1)
+                rows = header["manifest"]["timelines"]
+                row = next((r for r in rows if r["id"] == timeline), rows[-1])
+                for name in row["sessions"]:
+                    offset, size = entries[name]
+                    self._index(f, offset, offset + size)
+            else:
+                self._index(f, 0, os.path.getsize(path))
+        if not self.frames:
+            raise ValueError("No source frames")
+
+    def _index(self, f, start, end):
+        f.seek(start)
+        header = json.loads(f.readline(8 * 1024 * 1024 + 1))
+        if header["version"] == 1:
+            if end - start > LIMIT:
+                raise ValueError("Legacy record exceeds safe size")
+            f.seek(start)
+            self.frames.extend(json.loads(f.read(end - start))["frames"])
+        elif header["version"] == 2:
+            while f.tell() < end:
+                offset = f.tell()
+                line = f.readline(min(LIMIT + 1, end - offset))
+                if not line.endswith(b"\n") or len(line) > LIMIT:
+                    raise ValueError("Truncated or oversized source frame")
+                self.frames.append((offset, len(line)))
+        else:
+            raise ValueError("Unsupported nested record")
+
+    def image(self, index):
+        entry = self.frames[index]
+        if isinstance(entry, tuple):
+            with open(self.path, "rb") as f:
+                f.seek(entry[0])
+                entry = json.loads(f.read(entry[1]))
+        image = Image.open(io.BytesIO(base64.b64decode(entry["png"]))).convert("RGBA")
+        return Image.alpha_composite(Image.new("RGBA", image.size, "white"), image).convert("RGB")
 
 
-def ffmpeg_exe():
-    exe = os.environ.get("IMAGEIO_FFMPEG") or shutil.which("ffmpeg")
-    if not exe:
-        try:  # pip install imageio-ffmpeg ships a binary, which is often all there is
-            import imageio_ffmpeg
-
-            exe = imageio_ffmpeg.get_ffmpeg_exe()
-        except ImportError:
-            exe = None
-    if not exe:
-        sys.exit("ffmpeg not found: put it on PATH, or pip install imageio-ffmpeg")
-    return exe
-
-
-def rec_frames(path):
-    """The recorder's own frames, flattened onto the white paper the exporter uses."""
-    frames = []
-    for entry in json.load(open(path))["frames"]:
-        image = Image.open(io.BytesIO(base64.b64decode(entry["png"])))
-        if image.mode in ("RGBA", "LA", "P"):
-            image = image.convert("RGBA")
-            image = Image.alpha_composite(Image.new("RGBA", image.size, (255, 255, 255, 255)), image)
-        frames.append(image.convert("RGB"))
-    return frames
-
-
-def video_frames(path):
-    out = tempfile.mkdtemp(prefix="prism-export-")
-    subprocess.run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", path,
-                    os.path.join(out, "f%03d.png")], check=True)
-    frames = [Image.open(os.path.join(out, f)).convert("RGB")
-              for f in sorted(os.listdir(out))]
-    shutil.rmtree(out, ignore_errors=True)
-    return frames
+def fit(image, size):
+    image = image.copy()
+    image.thumbnail(size, Image.Resampling.LANCZOS)
+    # Qt's export scales small sources up too.
+    factor = min(size[0] / image.width, size[1] / image.height)
+    image = image.resize((round(image.width * factor), round(image.height * factor)), Image.Resampling.LANCZOS)
+    out = Image.new("RGB", size, "white")
+    out.paste(image, ((size[0] - image.width) // 2, (size[1] - image.height) // 2))
+    return out
 
 
 def diff(a, b):
-    """Mean absolute per-channel difference, 0..255; None when sizes differ."""
-    if a.size != b.size:
-        return None
-    pa, pb = a.load(), b.load()
-    total = count = 0
-    for y in range(0, a.size[1], 3):
-        for x in range(0, a.size[0], 3):
-            ca, cb = pa[x, y], pb[x, y]
-            total += abs(ca[0] - cb[0]) + abs(ca[1] - cb[1]) + abs(ca[2] - cb[2])
-            count += 3
-    return total / max(1, count)
+    return sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 3
 
 
-def main(argv):
-    if len(argv) < 2:
-        sys.exit(__doc__)
-    *exports, record = argv
-    source = rec_frames(record)
-    print(f"record: {len(source)} frames, {source[0].size[0]}x{source[0].size[1]}")
-    for path in exports:
-        frames = video_frames(path)
-        size = f"{frames[0].size[0]}x{frames[0].size[1]}" if frames else "-"
-        print(f"{os.path.basename(path)}: {len(frames)} frames, {size}")
-        if len(frames) != len(source):
-            print(f"  !! frame count differs: export {len(frames)} vs record {len(source)}")
-        for i, frame in enumerate(frames[:len(source)]):
-            upright = diff(source[i], frame)
-            flipped = diff(source[i], frame.transpose(Image.FLIP_TOP_BOTTOM))
-            verdict = "ok" if upright is not None and (flipped is None or upright <= flipped) else "UPSIDE DOWN"
-            print(f"  frame {i}: upright {upright} | flipped {flipped} -> {verdict}")
-
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("paths", nargs="+")
+    parser.add_argument("--seconds", type=int)
+    parser.add_argument("--fps", type=int, default=12)
+    parser.add_argument("--end", type=int, default=0)
+    parser.add_argument("--intro", type=int, default=0)
+    parser.add_argument("--input-fps", type=float, default=0)
+    parser.add_argument("--timeline")
+    args = parser.parse_args()
+    if len(args.paths) < 2:
+        parser.error("Supply video(s), then source record")
+    ffmpeg = os.environ.get("IMAGEIO_FFMPEG") or shutil.which("ffmpeg")
+    if not ffmpeg:
+        parser.error("Set IMAGEIO_FFMPEG to an external ffmpeg executable")
+    source = RecordFrames(args.paths[-1], args.timeline)
+    body = round((args.seconds - args.intro - args.end) * args.fps) if args.seconds else len(source.frames)
+    if args.input_fps:
+        import math
+        body = max(2 if len(source.frames) > 1 else 1, math.ceil(len(source.frames) / args.input_fps * args.fps))
+    intro, end = args.intro * args.fps, args.end * args.fps
+    count = intro + body + end
+    samples = sorted({round(i * (count - 1) / min(15, count - 1)) for i in range(min(16, count))}) if count > 1 else [0]
+    select = "+".join(f"eq(n\\,{n})" for n in samples)
+    failures = 0
+    for path in args.paths[:-1]:
+        with tempfile.TemporaryDirectory(prefix="prism-orientation-") as temp:
+            subprocess.run([ffmpeg, "-v", "error", "-i", path, "-vf", f"select={select}", "-vsync", "0", str(Path(temp) / "f%05d.png")], check=True)
+            images = sorted(Path(temp).glob("f*.png"))
+            if len(images) != len(samples):
+                raise ValueError("Video is missing expected sample frames, including the end")
+            for n, file in zip(samples, images):
+                index = len(source.frames)-1 if n < intro or n >= intro + body else (n-intro)*(len(source.frames)-1)//max(1, body-1)
+                frame = Image.open(file).convert("RGB")
+                expected = fit(source.image(index), frame.size)
+                upright, flipped = diff(expected, frame), diff(expected, frame.transpose(Image.Transpose.FLIP_TOP_BOTTOM))
+                good = upright <= flipped and upright < 35
+                failures += not good
+                print(f"{Path(path).name} frame {n}: upright={upright:.3f}, flipped={flipped:.3f} {'PASS' if good else 'FAIL'}")
+    raise SystemExit(bool(failures))
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()

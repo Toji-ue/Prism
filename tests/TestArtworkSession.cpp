@@ -6,6 +6,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QtTest/QTest>
 #include <gtest/gtest.h>
 
 namespace {
@@ -299,4 +300,161 @@ TEST(ArtistUx, PresetDeletionRetainsTheSelectedIdentityOrAppliesItsReplacement) 
     EXPECT_FALSE(app.brushModified());
     app.resetBrushToPreset();
     EXPECT_EQ(app.brushSize(), replacement);
+}
+
+class RecordingWorkflow : public ::testing::Test {
+protected:
+    QTemporaryDir root;
+    QByteArray previous;
+    void SetUp() override {
+        previous = qgetenv("PRISM_RECOVERY_DIR");
+        qputenv("PRISM_RECOVERY_DIR", root.path().toUtf8());
+    }
+    void TearDown() override {
+        if (previous.isNull())
+            qunsetenv("PRISM_RECOVERY_DIR");
+        else
+            qputenv("PRISM_RECOVERY_DIR", previous);
+    }
+};
+TEST_F(RecordingWorkflow, ReopenSaveAsAndRawDeletionProtectSharedFrames) {
+    AppController app;
+    app.newDocument(40, 32);
+    paint(app);
+    const auto original = root.filePath("art.prism"), copy = root.filePath("copy.prism");
+    ASSERT_TRUE(app.saveProjectAsync(QUrl::fromLocalFile(original)));
+    ASSERT_TRUE(waitFor([&]() { return !app.saving() && !app.recordingExporting(); }));
+    const auto first = app.activeRecordingTimeline();
+    const auto source = app.recordingSessions(first).first().toMap()["id"].toString();
+    ASSERT_TRUE(app.saveProjectAsync(QUrl::fromLocalFile(copy)));
+    ASSERT_TRUE(waitFor([&]() { return !app.saving() && app.activeRecordingTimeline() != first; }));
+    const auto branch = app.activeRecordingTimeline();
+    EXPECT_TRUE(app.recordingSessions(branch).size() >= 2);
+    const auto sourcePath = root.filePath("recordings/" + source);
+    EXPECT_FALSE(app.deleteStoredRecording(QUrl::fromLocalFile(sourcePath)));
+    EXPECT_TRUE(QFileInfo::exists(sourcePath));
+    app.newDocument(24, 24);
+    ASSERT_TRUE(app.openProject(QUrl::fromLocalFile(original)));
+    ASSERT_TRUE(waitFor([&]() { return !app.recordingExporting(); }));
+    EXPECT_EQ(app.activeRecordingTimeline(), first);
+    EXPECT_TRUE(app.deleteRecordingTimeline(branch));
+    EXPECT_TRUE(QFileInfo::exists(sourcePath));
+}
+TEST_F(RecordingWorkflow, RecoverySelectsItsOwnTimelineAndTrailingCaptureFinishes) {
+    AppController app;
+    app.newDocument(40, 32);
+    app.setCaptureInterval(500);
+    paint(app);
+    const auto first = app.activeRecordingTimeline();
+    const auto source = app.recordingSessions(first).first().toMap()["id"].toString();
+    ASSERT_TRUE(waitFor([&]() { return app.recordedFrames() > 0; }));
+    const int before = app.recordedFrames();
+    paint(app, 18);
+    ASSERT_TRUE(waitFor([&]() { return app.recordedFrames() > before; }));
+    app.newDocument(64, 48);
+    const auto other = app.activeRecordingTimeline();
+    ASSERT_NE(first, other);
+    ASSERT_TRUE(
+        app.recoverRecordingAsync(QUrl::fromLocalFile(root.filePath("recordings/" + source))));
+    ASSERT_TRUE(waitFor([&]() { return !app.recordingRepairing(); }));
+    EXPECT_EQ(app.activeRecordingTimeline(), first);
+}
+TEST_F(RecordingWorkflow, LiveBundleRoundTripAndCancelledExportKeepDestination) {
+    AppController app;
+    app.newDocument(40, 32);
+    paint(app);
+    const auto id = app.activeRecordingTimeline();
+    const auto bundle = root.filePath("bundle.prismrec");
+    QVariantMap settings{{"seconds", 1}, {"fps", 12}, {"maxSide", 1280}, {"endSeconds", 0}};
+    ASSERT_TRUE(app.exportTimelapse(QUrl::fromLocalFile(bundle), settings, id));
+    ASSERT_TRUE(waitFor([&]() { return !app.recordingExporting(); }, 10000));
+    QString error;
+    ASSERT_TRUE(SessionRecorder::verify(bundle, &error)) << error.toStdString();
+    const auto count = app.recordingTimelines().size();
+    ASSERT_TRUE(app.importRecordingBundle(QUrl::fromLocalFile(bundle)));
+    ASSERT_TRUE(waitFor([&]() { return !app.recordingExporting(); }, 10000));
+    EXPECT_EQ(app.recordingTimelines().size(), count + 1);
+    const auto gif = root.filePath("keep.gif");
+    QFile file(gif);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write("keep");
+    file.close();
+    ASSERT_TRUE(app.exportTimelapse(QUrl::fromLocalFile(gif), settings, id));
+    app.cancelRecordingExport();
+    ASSERT_TRUE(waitFor([&]() { return !app.recordingExporting(); }, 10000));
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    EXPECT_EQ(file.readAll(), QByteArray("keep"));
+}
+
+TEST_F(RecordingWorkflow, SaveAsFreezesParentBeforeSubsequentPenEvents) {
+    AppController app;
+    app.newDocument(64, 48);
+    app.setBrushSize(3);
+    app.setBrushColor(Qt::red);
+    paint(app, 8);
+    ASSERT_TRUE(app.saveProject(QUrl::fromLocalFile(root.filePath("parent.prism"))));
+    const auto parent = app.activeRecordingTimeline();
+    const auto source = app.recordingSessions(parent).first().toMap()["id"].toString();
+    ASSERT_TRUE(app.saveProject(QUrl::fromLocalFile(root.filePath("child.prism"))));
+    app.setBrushColor(Qt::blue);
+    paint(app, 30);
+    ASSERT_TRUE(waitFor([&]() { return app.activeRecordingTimeline() != parent; }));
+    QString error;
+    auto frames = SessionRecorder::framesFromFile(root.filePath("recordings/" + source), &error);
+    ASSERT_GT(frames.count, 0) << error.toStdString();
+    QImage image;
+    qint64 ms = 0;
+    ASSERT_TRUE(frames.fetch(frames.count - 1, image, ms));
+    EXPECT_EQ(image.pixelColor(15, 30).alpha(), 0);
+}
+TEST_F(RecordingWorkflow, CaseVariantDestinationCannotReplaceRecordingSource) {
+#ifdef Q_OS_WIN
+    AppController app;
+    app.newDocument(40, 32);
+    paint(app);
+    ASSERT_TRUE(waitFor([&]() { return app.recordedFrames() > 0; }));
+    const auto source =
+        app.recordingSessions(app.activeRecordingTimeline()).first().toMap()["id"].toString();
+    const auto path = root.filePath("recordings/" + source);
+    QVariantMap settings{{"seconds", 1}, {"fps", 12}, {"maxSide", 1280}, {"endSeconds", 0}};
+    EXPECT_FALSE(app.exportTimelapse(QUrl::fromLocalFile(path.toUpper()), settings,
+                                     app.activeRecordingTimeline()));
+    ASSERT_TRUE(waitFor([&]() { return !app.recordingExporting(); }));
+    EXPECT_TRUE(SessionRecorder::verify(path));
+    EXPECT_TRUE(app.lastError().contains("destination"));
+#endif
+}
+
+TEST_F(RecordingWorkflow, CaptureTimerKeepsHeldStrokeAndLeavesIdleAlone) {
+    AppController app;
+    app.setCaptureInterval(500);
+    app.newDocument(64, 48);
+    ASSERT_TRUE(waitFor([&]() { return app.recordedFrames() > 0; }));
+    const int before = app.recordedFrames();
+    app.beginStroke(10, 10);
+    app.extendStroke(20, 15);
+    ASSERT_TRUE(waitFor([&]() { return app.recordedFrames() > before; }, 1500));
+    EXPECT_TRUE(app.strokeActive());
+    app.endStroke();
+    QTest::qWait(700);
+    const int settled = app.recordedFrames();
+    QTest::qWait(700);
+    EXPECT_EQ(app.recordedFrames(), settled);
+}
+
+TEST_F(RecordingWorkflow, DamagedTimelineIndexCannotPermitRawSourceDeletion) {
+    ASSERT_TRUE(QDir().mkpath(root.filePath("recordings")));
+    QFile index(root.filePath("recordings/timelines.json"));
+    ASSERT_TRUE(index.open(QIODevice::WriteOnly));
+    index.write("broken index");
+    index.close();
+    const auto source = root.filePath("recordings/11111111-1111-4111-8111-111111111111.prismrec");
+    QFile file(source);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write("preserved source");
+    file.close();
+    AppController app;
+    EXPECT_FALSE(app.deleteStoredRecording(QUrl::fromLocalFile(source)));
+    EXPECT_TRUE(QFileInfo::exists(source));
+    EXPECT_TRUE(app.lastError().contains("index"));
 }

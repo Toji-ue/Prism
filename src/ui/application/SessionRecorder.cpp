@@ -1,17 +1,24 @@
 #include "application/SessionRecorder.h"
+#include "application/RecordingTimeline.h"
+#include <QSet>
+#include <QTemporaryDir>
 
 #include <QBuffer>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QImageReader>
+#include <QImageWriter>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QThread>
 #include <QTimer>
 #include <QUuid>
 
@@ -23,9 +30,41 @@ constexpr int kRecordVersion = 2;
 QByteArray pngBytes(const QImage& image) {
     QByteArray bytes;
     QBuffer buffer(&bytes);
-    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG"))
+    if (!buffer.open(QIODevice::WriteOnly) || !([&]() {
+            QImageWriter writer(&buffer, "PNG");
+            // Qt PNG uses a 0-100 scale; tiny values round to no compression.
+            writer.setCompression(25);
+            return writer.write(image);
+        })())
         return {};
     return bytes;
+}
+
+bool decodePng(const QByteArray& bytes, QImage& out) {
+    QBuffer buffer;
+    buffer.setData(bytes);
+    if (!buffer.open(QIODevice::ReadOnly))
+        return false;
+    QImageReader reader(&buffer, "PNG");
+    const auto size = reader.size();
+    if (size.width() <= 0 || size.height() <= 0 || size.width() > 32768 || size.height() > 32768)
+        return false;
+    // Preallocate only after our own size check. This avoids changing Qt's
+    // process-wide reader limit while decoding an explicitly selected Original.
+    const qint64 pixels = qint64(size.width()) * size.height();
+    if (pixels > 64LL * 1024 * 1024) {
+        const auto format = reader.imageFormat();
+        const int depth = QImage::toPixelFormat(format).bitsPerPixel();
+        if (depth <= 0 || pixels * std::max(depth, 32) / 8 > 1024LL * 1024 * 1024)
+            return false;
+        out = QImage(size, format);
+        if (out.isNull() || !reader.read(&out))
+            return false;
+        out = out.scaled(1920, 1920, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        return !out.isNull();
+    }
+    out = reader.read();
+    return !out.isNull();
 }
 
 QByteArray jsonLine(const QJsonObject& object) {
@@ -75,16 +114,18 @@ bool SessionRecorder::persistMetadata() {
     QJsonObject metadata;
     {
         std::lock_guard lock(m_mutex);
-        metadata["session"] = m_sessionId;
-        metadata["documentName"] = m_documentName;
-        metadata["created"] = m_created;
-        metadata["updated"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-        metadata["state"] = m_recovered                       ? QStringLiteral("recovered")
-                            : m_workerFailed                  ? QStringLiteral("error")
-                            : m_finished && m_pending.empty() ? QStringLiteral("completed")
-                                                              : QStringLiteral("recording");
-        metadata["hasGaps"] = m_hasGaps;
-        metadata["error"] = m_lastError;
+        metadata[QLatin1String("session")] = m_sessionId;
+        metadata[QLatin1String("documentName")] = m_documentName;
+        metadata[QLatin1String("created")] = m_created;
+        metadata[QLatin1String("updated")] =
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+        metadata[QLatin1String("state")] = m_recovered      ? QStringLiteral("recovered")
+                                           : m_workerFailed ? QStringLiteral("error")
+                                           : m_finished && m_pending.empty()
+                                               ? QStringLiteral("completed")
+                                               : QStringLiteral("recording");
+        metadata[QLatin1String("hasGaps")] = m_hasGaps;
+        metadata[QLatin1String("error")] = m_lastError;
     }
     QSaveFile file(m_spoolPath + QStringLiteral(".meta.json"));
     const QByteArray bytes = QJsonDocument(metadata).toJson(QJsonDocument::Compact);
@@ -166,6 +207,7 @@ void SessionRecorder::restart() {
         m_metadataDirty = true;
         m_lastMetadataWriteMs = 0;
         m_pending.clear();
+        m_queuedImageBytes = 0;
         m_completed.clear();
     }
     startWorker();
@@ -197,6 +239,7 @@ void SessionRecorder::failWorker(const QString& error) {
         m_hasGaps = true;
         m_lastError = error;
         m_pending.clear();
+        m_queuedImageBytes = 0;
         m_stop = true;
     }
     persistMetadata();
@@ -378,44 +421,56 @@ bool SessionRecorder::captureDue() const {
     if (!isActive())
         return false;
     const qint64 now = m_timestampOffset + (m_clock.isValid() ? m_clock.elapsed() : 0);
-    return now - m_lastCaptureMs >= kMinIntervalMs;
+    return now - m_lastCaptureMs >= m_captureSettings.intervalMs;
 }
 
 quint64 SessionRecorder::capture(const QImage& canvas, const QString& label, bool force) {
     if (!isActive() || canvas.isNull())
         return 0;
     const qint64 now = m_timestampOffset + (m_clock.isValid() ? m_clock.elapsed() : 0);
-    if (!force && now - m_lastCaptureMs < kMinIntervalMs)
+    if (!force && now - m_lastCaptureMs < m_captureSettings.intervalMs)
         return 0;
-    QImage image = canvas.width() > kMaxFrameSide || canvas.height() > kMaxFrameSide
-                       ? canvas.scaled(kMaxFrameSide, kMaxFrameSide, Qt::KeepAspectRatio,
-                                       Qt::SmoothTransformation)
-                       : canvas.copy();
-    if (image.isNull())
-        return 0;
+    // Snapshot external compositor storage before returning to the render loop.
+    // Resize and PNG encoding belong to the existing I/O worker. One source
+    // larger than the queue budget is allowed alone, so large canvases still record.
+    const qint64 bytes = canvas.sizeInBytes();
     quint64 captureId = 0;
     {
         std::lock_guard lock(m_mutex);
         if (m_workerFailed)
             return 0;
-        if (!force && m_pending.size() >= 4) {
-            if (!m_hasGaps) {
-                m_hasGaps = true;
-                m_metadataDirty = true;
-                QMetaObject::invokeMethod(
-                    this, [this]() { emit stateChanged(); }, Qt::QueuedConnection);
-            }
+        if ((!force && m_pending.size() >= 4) ||
+            (m_queuedImageBytes > 0 && bytes > 256LL * 1024 * 1024 - m_queuedImageBytes)) {
+            m_hasGaps = true;
+            m_metadataDirty = true;
+            QMetaObject::invokeMethod(
+                this, [this]() { emit stateChanged(); }, Qt::QueuedConnection);
             return 0;
         }
+        QImage image = canvas.copy();
+        if (image.isNull())
+            return 0;
         captureId = m_nextCaptureId++;
-        m_pending.push_back(Pending{now, label, std::move(image), canvas.size(), captureId});
+        m_queuedImageBytes += bytes;
+        m_pending.push_back(Pending{now, label, std::move(image), canvas.size(), captureId,
+                                    m_captureSettings.maxSide});
     }
     m_lastCaptureMs = now;
     m_condition.notify_all();
     return captureId;
 }
 
+bool SessionRecorder::setCaptureSettings(CaptureSettings settings) {
+    if (!settings.valid())
+        return false;
+    m_captureSettings = settings;
+    return true;
+}
+
 void SessionRecorder::writerLoop(QString previous, int storedFrames) {
+    // Background PNG work must yield CPU time to input and rendering.
+    QThread::currentThread()->setPriority(QThread::LowPriority);
+    const bool profile = qEnvironmentVariableIsSet("PRISM_RECORD_PROFILE");
     QFile file(m_spoolPath);
     if (!QDir().mkpath(QFileInfo(m_spoolPath).absolutePath()) ||
         !file.open(QIODevice::WriteOnly | QIODevice::Append)) {
@@ -463,12 +518,12 @@ void SessionRecorder::writerLoop(QString previous, int storedFrames) {
         }
         if (file.size() == 0) {
             QJsonObject header;
-            header["format"] = QStringLiteral("prism-record");
-            header["version"] = kRecordVersion;
-            header["session"] = m_sessionId;
-            header["canvasWidth"] = job.canvasSize.width();
-            header["canvasHeight"] = job.canvasSize.height();
-            header["class"] = QStringLiteral("hand-drawn in Prism");
+            header[QLatin1String("format")] = QStringLiteral("prism-record");
+            header[QLatin1String("version")] = kRecordVersion;
+            header[QLatin1String("session")] = m_sessionId;
+            header[QLatin1String("canvasWidth")] = job.canvasSize.width();
+            header[QLatin1String("canvasHeight")] = job.canvasSize.height();
+            header[QLatin1String("class")] = QStringLiteral("hand-drawn in Prism");
             const QByteArray line = jsonLine(header);
             if (m_testFault == QLatin1String("header") && storedFrames >= m_testFailAfter) {
                 file.write(line.left(line.size() / 2));
@@ -483,19 +538,39 @@ void SessionRecorder::writerLoop(QString previous, int storedFrames) {
                 return;
             }
         }
+        QElapsedTimer phaseClock;
+        if (profile) {
+            phaseClock.start();
+            qInfo() << "record worker: begin" << QDateTime::currentMSecsSinceEpoch()
+                    << job.canvasSize << "max side" << job.maxSide;
+        }
+        const qint64 snapshotBytes = job.image.sizeInBytes();
+        if (job.maxSide > 0 &&
+            (job.image.width() > job.maxSide || job.image.height() > job.maxSide))
+            job.image = job.image.scaled(job.maxSide, job.maxSide, Qt::KeepAspectRatio,
+                                         Qt::SmoothTransformation);
+        const qint64 resizeMs = profile ? phaseClock.elapsed() : 0;
         const bool injectFault = !m_testFault.isEmpty() && storedFrames >= m_testFailAfter;
         const QByteArray png = injectFault && m_testFault == QLatin1String("encode")
                                    ? QByteArray()
                                    : pngBytes(job.image);
+        if (profile)
+            qInfo() << "record worker: encoded" << QDateTime::currentMSecsSinceEpoch()
+                    << "resize ms" << resizeMs << "PNG ms" << phaseClock.elapsed() - resizeMs;
         if (!png.isEmpty()) {
             const QString hash = hashParts(previous, job.ms, png);
             QJsonObject entry;
-            entry["ms"] = job.ms;
-            entry["label"] = job.label;
-            entry["previousHash"] = previous;
-            entry["hash"] = hash;
-            entry["png"] = QString::fromLatin1(png.toBase64());
+            entry[QLatin1String("ms")] = job.ms;
+            entry[QLatin1String("label")] = job.label;
+            entry[QLatin1String("previousHash")] = previous;
+            entry[QLatin1String("hash")] = hash;
+            entry[QLatin1String("png")] = QString::fromLatin1(png.toBase64());
             const QByteArray line = jsonLine(entry);
+            if (line.size() > 128 * 1024 * 1024) {
+                failWorker(tr("Original recording frame exceeds the safe record size. Choose 1920 "
+                              "px and Retry."));
+                return;
+            }
             const qint64 offset = file.size();
             if (injectFault && m_testFault == QLatin1String("write")) {
                 file.write(line.left(line.size() / 2));
@@ -528,6 +603,7 @@ void SessionRecorder::writerLoop(QString previous, int storedFrames) {
         {
             std::lock_guard lock(m_mutex);
             m_workerBusy = false;
+            m_queuedImageBytes -= snapshotBytes;
             // Frame progress touches the sidecar at most twice a minute.
             if (m_finished || m_clock.elapsed() - m_lastMetadataWriteMs >= 30000)
                 m_metadataDirty = true;
@@ -549,6 +625,11 @@ void SessionRecorder::drainCompleted() {
     }
 }
 
+bool SessionRecorder::isDrained() const {
+    std::lock_guard lock(m_mutex);
+    return !m_workerStarting && !m_workerBusy && m_pending.empty() && !m_metadataDirty;
+}
+
 bool SessionRecorder::flush() {
     if (m_worker.joinable()) {
         std::unique_lock lock(m_mutex);
@@ -568,8 +649,9 @@ bool SessionRecorder::frameAt(int index, QImage& out, qint64& ms) const {
     if (!file.open(QIODevice::ReadOnly) || !file.seek(m_frames[index].offset))
         return false;
     const QJsonObject entry = QJsonDocument::fromJson(file.readLine()).object();
-    const QByteArray png = QByteArray::fromBase64(entry["png"].toString().toLatin1());
-    if (!out.loadFromData(png, "PNG"))
+    const QByteArray png =
+        QByteArray::fromBase64(entry[QLatin1String("png")].toString().toLatin1());
+    if (!decodePng(png, out))
         return false;
     ms = m_frames[index].ms;
     return true;
@@ -613,8 +695,9 @@ RecordedFrames SessionRecorder::recordedFrames(int maxFrames, quint64 throughCap
         if (!file.open(QIODevice::ReadOnly) || !file.seek(frames[sourceIndex].offset))
             return false;
         const QJsonObject entry = QJsonDocument::fromJson(file.readLine()).object();
-        const QByteArray png = QByteArray::fromBase64(entry["png"].toString().toLatin1());
-        if (!out.loadFromData(png, "PNG"))
+        const QByteArray png =
+            QByteArray::fromBase64(entry[QLatin1String("png")].toString().toLatin1());
+        if (!decodePng(png, out))
             return false;
         ms = frames[sourceIndex].ms;
         return true;
@@ -693,7 +776,7 @@ bool SessionRecorder::exportRecovered(const QString& source, const QString& dest
     const QJsonObject header = QJsonDocument::fromJson(input.readLine()).object();
     input.close();
     qint64 bytes = 0;
-    if (header["version"].toInt() == 2) {
+    if (header[QLatin1String("version")].toInt() == 2) {
         if (!scanV2(source, nullptr, &bytes, nullptr, nullptr, error, true))
             return false;
     } else {
@@ -706,17 +789,17 @@ bool SessionRecorder::exportRecovered(const QString& source, const QString& dest
 
 bool SessionRecorder::scanV2(const QString& path, std::vector<Frame>* found, qint64* validBytes,
                              QString* session, QSize* canvasSize, QString* error, bool allowTail,
-                             bool allowEmpty) {
+                             bool allowEmpty, const std::function<bool()>& keepGoing) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         if (error)
             *error = QObject::tr("Could not read %1.").arg(path);
         return false;
     }
-    const QByteArray first = file.readLine();
+    const QByteArray first = file.readLine(8 * 1024 * 1024 + 1);
     const QJsonObject header = QJsonDocument::fromJson(first).object();
-    if (header["format"].toString() != QLatin1String("prism-record") ||
-        header["version"].toInt() != 2 || !first.endsWith('\n')) {
+    if (header[QLatin1String("format")].toString() != QLatin1String("prism-record") ||
+        header[QLatin1String("version")].toInt() != 2 || !first.endsWith('\n')) {
         // Only a fresh session with no acknowledged frames may repair its header.
         if (allowTail && allowEmpty && !first.endsWith('\n') && file.atEnd()) {
             if (validBytes)
@@ -728,15 +811,21 @@ bool SessionRecorder::scanV2(const QString& path, std::vector<Frame>* found, qin
         return false;
     }
     if (session)
-        *session = header["session"].toString();
+        *session = header[QLatin1String("session")].toString();
     if (canvasSize)
-        *canvasSize = QSize(header["canvasWidth"].toInt(), header["canvasHeight"].toInt());
+        *canvasSize = QSize(header[QLatin1String("canvasWidth")].toInt(),
+                            header[QLatin1String("canvasHeight")].toInt());
     qint64 end = file.pos();
     QString previous;
     int index = 0;
     while (!file.atEnd()) {
+        if (keepGoing && !keepGoing()) {
+            if (error)
+                *error = tr("Recording operation cancelled.");
+            return false;
+        }
         const qint64 offset = file.pos();
-        const QByteArray line = file.readLine();
+        const QByteArray line = file.readLine(128 * 1024 * 1024 + 1);
         if (!line.endsWith('\n')) {
             if (allowTail)
                 break;
@@ -745,18 +834,25 @@ bool SessionRecorder::scanV2(const QString& path, std::vector<Frame>* found, qin
             return false;
         }
         const QJsonObject entry = QJsonDocument::fromJson(line).object();
-        const QByteArray png = QByteArray::fromBase64(entry["png"].toString().toLatin1());
-        const qint64 ms = static_cast<qint64>(entry["ms"].toDouble(-1));
-        if (png.isEmpty() || ms < 0 || entry["previousHash"].toString() != previous ||
-            entry["hash"].toString() != hashParts(previous, ms, png)) {
+        const QByteArray png =
+            QByteArray::fromBase64(entry[QLatin1String("png")].toString().toLatin1());
+        const qint64 ms = static_cast<qint64>(entry[QLatin1String("ms")].toDouble(-1));
+        if (png.isEmpty() || ms < 0 ||
+            entry[QLatin1String("previousHash")].toString() != previous ||
+            entry[QLatin1String("hash")].toString() != hashParts(previous, ms, png)) {
             if (allowTail)
                 break;
             if (error)
                 *error = QObject::tr("Frame %1 does not match its hash.").arg(index);
             return false;
         }
-        previous = entry["hash"].toString();
+        previous = entry[QLatin1String("hash")].toString();
         end = file.pos();
+        if (index >= 1000000) {
+            if (error)
+                *error = tr("Record exceeds the safe frame index limit. Use smaller sessions.");
+            return false;
+        }
         if (found)
             found->push_back(Frame{ms, offset, end, previous, static_cast<quint64>(index + 1)});
         ++index;
@@ -785,11 +881,11 @@ void SessionRecorder::readArchive(const QString& path, ArchiveResult& result) {
     if (metadata.open(QIODevice::ReadOnly))
         info = QJsonDocument::fromJson(metadata.readAll()).object();
     // A valid byte prefix does not prove queued frames survived a crash.
-    result.gaps = info["state"].toString() != "completed" || info["hasGaps"].toBool() ||
-                  QFileInfo(path).size() > result.bytes;
-    result.name = info["documentName"].toString();
-    result.created =
-        info["created"].toString(QFileInfo(path).birthTime().toUTC().toString(Qt::ISODateWithMs));
+    result.gaps = info[QLatin1String("state")].toString() != "completed" ||
+                  info[QLatin1String("hasGaps")].toBool() || QFileInfo(path).size() > result.bytes;
+    result.name = info[QLatin1String("documentName")].toString();
+    result.created = info[QLatin1String("created")].toString(
+        QFileInfo(path).birthTime().toUTC().toString(Qt::ISODateWithMs));
 }
 
 void SessionRecorder::acceptArchive(const QString& path, ArchiveResult& result) {
@@ -899,18 +995,91 @@ void SessionRecorder::startArchiveWhenReady(const QString& path, bool wasFinishe
     });
 }
 
-bool SessionRecorder::verify(const QString& path, QString* error, int* frames) {
+RecordedFrames SessionRecorder::framesFromFile(const QString& path, QString* error,
+                                               qint64* validBytes, bool allowTail,
+                                               const std::function<bool()>& keepGoing) {
+    QFile input(path);
+    RecordedFrames result;
+    if (!input.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = tr("Could not open recording.");
+        return result;
+    }
+    const auto header = QJsonDocument::fromJson(input.readLine(1024 * 1024)).object();
+    if (header[QLatin1String("version")].toInt() == 1) {
+        if (input.size() > 128 * 1024 * 1024 || !verify(path, error, nullptr, keepGoing))
+            return result;
+        input.seek(0);
+        const auto frames =
+            QJsonDocument::fromJson(input.readAll()).object()[QLatin1String("frames")].toArray();
+        result.count = frames.size();
+        if (validBytes)
+            *validBytes = input.size();
+        result.fetch = [frames](int i, QImage& out, qint64& ms) {
+            if (i < 0 || i >= frames.size())
+                return false;
+            const auto f = frames[i].toObject();
+            ms = qint64(f[QLatin1String("ms")].toDouble());
+            return decodePng(QByteArray::fromBase64(f[QLatin1String("png")].toString().toLatin1()),
+                             out);
+        };
+        return result;
+    }
+    std::vector<Frame> frames;
+    if (!scanV2(path, &frames, validBytes, nullptr, nullptr, error, allowTail, false, keepGoing))
+        return result;
+    result.count = int(frames.size());
+    result.fetch = [path, frames = std::move(frames)](int i, QImage& out, qint64& ms) {
+        if (i < 0 || i >= int(frames.size()))
+            return false;
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly) || !file.seek(frames[i].offset))
+            return false;
+        const auto entry = QJsonDocument::fromJson(file.readLine(128 * 1024 * 1024 + 1)).object();
+        ms = frames[i].ms;
+        return decodePng(QByteArray::fromBase64(entry[QLatin1String("png")].toString().toLatin1()),
+                         out);
+    };
+    return result;
+}
+
+bool SessionRecorder::verify(const QString& path, QString* error, int* frames,
+                             const std::function<bool()>& keepGoing) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         if (error)
             *error = tr("Could not read %1.").arg(path);
         return false;
     }
-    const QByteArray first = file.readLine();
+    const QByteArray first = file.readLine(8 * 1024 * 1024 + 1);
     const QJsonObject header = QJsonDocument::fromJson(first).object();
-    if (header["version"].toInt() == 2) {
+    if (header[QLatin1String("version")].toInt() == 3) {
+        QTemporaryDir temporary;
+        QJsonObject manifest;
+        if (!temporary.isValid() ||
+            !RecordingTimeline::readBundle(path, temporary.path(), &manifest, error,
+                                           [&](int, int) { return !keepGoing || keepGoing(); }))
+            return false;
+        if (frames) {
+            int count = 0;
+            QSet<QString> seen;
+            for (const auto& t : manifest[QLatin1String("timelines")].toArray())
+                for (const auto& name : t[QLatin1String("sessions")].toArray())
+                    if (!seen.contains(name.toString())) {
+                        seen.insert(name.toString());
+                        int n = 0;
+                        if (!verify(temporary.filePath(name.toString()), error, &n, keepGoing) ||
+                            n > INT_MAX - count)
+                            return false;
+                        count += n;
+                    }
+            *frames = count;
+        }
+        return true;
+    }
+    if (header[QLatin1String("version")].toInt() == 2) {
         std::vector<Frame> found;
-        if (!scanV2(path, &found, nullptr, nullptr, nullptr, error, false))
+        if (!scanV2(path, &found, nullptr, nullptr, nullptr, error, false, false, keepGoing))
             return false;
         if (frames)
             *frames = static_cast<int>(found.size());
@@ -920,26 +1089,38 @@ bool SessionRecorder::verify(const QString& path, QString* error, int* frames) {
     // v1 is a single JSON object. Its hash input and field names must stay
     // unchanged for records already given to artists and clients.
     file.seek(0);
+    if (file.size() > 128 * 1024 * 1024) {
+        if (error)
+            *error = tr("Legacy record exceeds the safe import size limit.");
+        return false;
+    }
     const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
-    if (root["format"].toString() != QLatin1String("prism-record") ||
-        root["version"].toInt() != 1) {
+    if (root[QLatin1String("format")].toString() != QLatin1String("prism-record") ||
+        root[QLatin1String("version")].toInt() != 1) {
         if (error)
             *error = tr("Not a supported Prism record file.");
         return false;
     }
     QString previous;
     int index = 0;
-    for (const QJsonValue& value : root["frames"].toArray()) {
+    for (const QJsonValue& value : root[QLatin1String("frames")].toArray()) {
+        if (keepGoing && !keepGoing()) {
+            if (error)
+                *error = tr("Recording operation cancelled.");
+            return false;
+        }
         const QJsonObject entry = value.toObject();
-        const QByteArray png = QByteArray::fromBase64(entry["png"].toString().toLatin1());
-        if (png.isEmpty() || entry["previousHash"].toString() != previous ||
-            entry["hash"].toString() !=
-                hashParts(previous, static_cast<qint64>(entry["ms"].toDouble()), png)) {
+        const QByteArray png =
+            QByteArray::fromBase64(entry[QLatin1String("png")].toString().toLatin1());
+        if (png.isEmpty() || entry[QLatin1String("previousHash")].toString() != previous ||
+            entry[QLatin1String("hash")].toString() !=
+                hashParts(previous, static_cast<qint64>(entry[QLatin1String("ms")].toDouble()),
+                          png)) {
             if (error)
                 *error = tr("Frame %1 does not match its hash.").arg(index);
             return false;
         }
-        previous = entry["hash"].toString();
+        previous = entry[QLatin1String("hash")].toString();
         ++index;
     }
     if (index == 0) {

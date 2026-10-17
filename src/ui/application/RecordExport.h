@@ -10,11 +10,25 @@
 /// memory — 400 frames at 720px decoded is roughly 800 MB.
 struct RecordedFrames {
     int count = 0;
+    int fps = 12;
+    std::function<bool(int, int)> progress;
     /// Decodes frame \p index into \p out with its timestamp in \p ms.
     std::function<bool(int index, QImage& out, qint64& ms)> fetch;
 };
 
+struct TimelapseExportSettings {
+    int seconds = 120;
+    int fps = 30;
+    int maxSide = 1920;
+    int endSeconds = 5;
+    int introSeconds = 0;
+    double inputFps = 0; // Positive selects Custom; otherwise use target seconds.
+    bool valid() const;
+};
+
 namespace RecordExport {
+RecordedFrames timelapse(const RecordedFrames& source, const TimelapseExportSettings& settings,
+                         QString* error = nullptr);
 
 /// Frames per second of an exported timelapse. The recorder captures sparsely
 /// (one frame per 1.5s of drawing), so playing at the real timestamps would give
@@ -36,6 +50,7 @@ constexpr int kTimelapseFps = 12;
 
 /// Opens the written file again and counts decodable frames. A writer nobody can
 /// verify is a writer that silently produces empty files.
-[[nodiscard]] bool verifyVideo(const QString& path, int* frames, QString* error);
+[[nodiscard]] bool verifyVideo(const QString& path, int* frames, QString* error,
+                               const std::function<bool()>& keepGoing = {});
 
 } // namespace RecordExport

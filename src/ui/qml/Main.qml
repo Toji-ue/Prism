@@ -18,6 +18,27 @@ ApplicationWindow {
 
     // Injected from C++ so the image providers share this instance.
     required property AppController controller
+    property bool recordingDockOpen: false
+    function showRecordingDocker() {
+        if (pointerDown || controller.startPageVisible) return
+        if (focusMode) setDrawingChromeCollapsed(false)
+        setRecordingDockOpen(true)
+        recordingDocker.forceActiveFocus()
+    }
+    function setRecordingDockOpen(open) {
+        if (pointerDown || recordingDockOpen === open) return
+        pendingCanvasCentre = flick.mapToItem(canvasSheet, flick.width / 2, flick.height / 2)
+        pendingViewportWidth = false
+        pendingViewportHeight = true
+        recordingDockOpen = open
+    }
+    function openTimelapseExport(timeline, sessions, partial) {
+        timelapseExport.timelineId = timeline || controller.activeRecordingTimeline
+        timelapseExport.sessions = sessions || []
+        timelapseExport.partial = partial || false
+        controller.refreshRecordingPreview(timelapseExport.timelineId)
+        timelapseExport.open()
+    }
     property bool closeApproved: false
     onClosing: function(event) {
         if (!closeApproved) {
@@ -140,9 +161,10 @@ ApplicationWindow {
         function onRecordingRecovered(success) {
             if (!success) return
             if (controller.recordingHasGaps) partialRecordDialog.open()
-            else { recordDialog.partial = false; recordDialog.open() }
+            else root.openTimelapseExport(controller.activeRecordingTimeline, [], false)
         }
         function onDocumentReplaced() {
+            root.recordingDockOpen = false
             root.closeWorkspacePopups()
             Qt.callLater(() => controller.fitToViewport(canvasArea.width - 40, canvasArea.height - 40))
         }
@@ -214,7 +236,7 @@ ApplicationWindow {
         controller: root.controller
         onRequestNew: newDocDialog.open()
         onRequestOpen: openDialog.open()
-        onRequestRecordExport: { recordDialog.partial = false; recordDialog.open() }
+        onRequestRecordExport: { root.openTimelapseExport(controller.activeRecordingTimeline, [], false) }
     }
 
     // Switches the Advanced Color Selector docker to its Tool Options tab.
@@ -405,8 +427,9 @@ ApplicationWindow {
                 // whoever asks whether the artwork is hand-drawn.
                 text: qsTr("Export Drawing &Record (MP4 / GIF)...")
                 enabled: controller.recordedFrames > 0 && !controller.recordingExporting
-                onTriggered: { recordDialog.partial = false; recordDialog.open() }
+                onTriggered: { root.openTimelapseExport(controller.activeRecordingTimeline, [], false) }
             }
+            Action { objectName: "recordingDockerMenu"; text: qsTr("Recording panel"); onTriggered: root.showRecordingDocker() }
             Action { text: qsTr("Recording Storage…"); onTriggered: storageDialog.open() }
             Action { text: controller.recordingRepairing ? qsTr("Repairing recording…") : qsTr("Retry recording"); enabled: controller.recordingError.length > 0 && !controller.recordingRepairing; onTriggered: controller.retryRecording() }
             Action { text: qsTr("Export partial recording…"); enabled: controller.recordedFrames > 0 && !controller.recordingExporting; onTriggered: partialRecordDialog.open() }
@@ -586,14 +609,14 @@ ApplicationWindow {
                 font.pixelSize: 11
                 HoverHandler { id: recordingHover }
                 ToolTip.visible: recordingHover.hovered
-                ToolTip.text: controller.recordingError.length ? controller.recordingError : controller.recordingHasGaps ? qsTr("Recording resumed with gaps. Only partial export is available.") : qsTr("Recording is automatic. Click to open Storage.")
+                ToolTip.text: controller.recordingError.length ? controller.recordingError : controller.recordingHasGaps ? qsTr("Recording resumed with gaps. Only partial export is available.") : qsTr("Recording is automatic. Click to open Recording.")
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Open recording Storage")
-                Accessible.onPressAction: storageDialog.open()
-                Keys.onReturnPressed: storageDialog.open()
-                Keys.onSpacePressed: storageDialog.open()
-                MouseArea { anchors.fill: parent; anchors.margins: -8; onClicked: storageDialog.open() }
+                Accessible.name: qsTr("Open Recording panel")
+                Accessible.onPressAction: root.showRecordingDocker()
+                Keys.onReturnPressed: root.showRecordingDocker()
+                Keys.onSpacePressed: root.showRecordingDocker()
+                MouseArea { anchors.fill: parent; anchors.margins: -8; onClicked: root.showRecordingDocker() }
             }
             ToolbarButton {
                 objectName: "workspaceCollapseButton"
@@ -1206,6 +1229,20 @@ ApplicationWindow {
                 }
             }
         }
+        RecordingDocker {
+            id: recordingDocker
+            objectName: "recordingDocker"
+            controller: root.controller
+            Layout.preferredWidth: 320
+            Layout.minimumWidth: 320
+            Layout.fillHeight: true
+            visible: root.recordingDockOpen && !root.focusMode && !controller.startPageVisible
+            onCloseRequested: root.setRecordingDockOpen(false)
+            onExportRequested: (timeline, sessions) => root.openTimelapseExport(timeline, sessions, false)
+            onManageRequested: storageDialog.open()
+            onImportRequested: importRecordingFile.open()
+            onLinkRequested: timeline => { linkRecordingFile.timelineId = timeline; linkRecordingFile.open() }
+        }
     }
 
 
@@ -1330,7 +1367,7 @@ ApplicationWindow {
         onWidthChanged: if (visible) place()
         onHeightChanged: if (visible) place()
         z: 150
-        visible: (controller.lastError.length > 0 || root.toastVisible || controller.recordingRepairing || controller.recordingExporting || controller.saving) && !root.pointerDown
+        visible: (controller.lastError.length > 0 || root.toastVisible || controller.recordingRepairing || (controller.recordingExporting && !controller.recordingTaskQuiet) || controller.saving) && !root.pointerDown
         width: Math.min(480, root.width - 32)
         height: noticeContent.implicitHeight + 24
         x: Math.max(8, Math.min(position.x, root.contentItem.width - width - 8))
@@ -1421,7 +1458,7 @@ ApplicationWindow {
                 color: ThemeManager.themeColor("text")
                 font.pixelSize: 14
                 textFormat: Text.RichText
-                text: qsTr("<h3>Draw</h3><p>B selects the brush, E the eraser. Use Size and Flow in the bottom strip. Q opens Quick Controls near your pen; change that shortcut in Configure Tool Shortcuts. Ctrl+2 opens Choose a brush. Use Edit brush for Basic, Tip, Dynamics and Graphite settings; Save copy keeps changes and Reset restores the selected preset. HB and 2B use graphite grain; Ink tapers at release.</p><h3>Workspace</h3><p>Tab or the four-corner icon hides the interface. The top-right layout icon restores it. In the full workspace, Ctrl+1 focuses docked Layers and Ctrl+2 opens Choose a brush. Use Edit brush for Basic, Tip, Dynamics and Graphite settings; Save copy keeps changes and Reset restores the selected preset. Ctrl+3, the toolbar colour swatch and More open Colour, or focus the pinned picker. Colour contains colour controls; Tool Options opens Basic brush settings. Floating tabs only offer panels that are not already docked. In Focus mode, Ctrl+1/2/3 opens Layers, Brush Lab and Colour as floating tabs. These shortcuts wait while drawing and leave text fields alone. Every document opens with the full interface.</p><h3>Save and recover artwork</h3><p>Ctrl+S saves the native .prism project. Ctrl+Shift+S is Save As. Export creates a flat image and does not save your layers. Changes are protected by autosave after 45 seconds, once a stroke is committed. Recover Artwork on the Start Page opens a separate recovery copy; save it as a project. Save/Discard/Cancel protects closing or replacing modified artwork. Discard removes that artwork’s recovery copies.</p><h3>Recordings</h3><p>Recording runs automatically. A storage error is shown and can be retried. Earlier gaps remain marked as incomplete. Normal export waits for the final frame; Partial export explicitly exports the available timeline. .prismrec keeps every stored frame; GIF/MP4 samples the timeline to about four minutes. The hash chain verifies file consistency, not the identity of the artist.</p><h3>Storage</h3><p>Recording Storage lists sessions and disk usage. Recordings remain until you confirm deletion. Active sessions cannot be deleted. Recover Recording is separate from recovering your artwork.</p><h3>History and layers</h3><p>Ctrl+Z undoes and Ctrl+Shift+Z redoes. Layers supports groups, clipping, alpha lock and locking. Resize Canvas is reversible. Fit View fits the available canvas area; 100% shows actual pixel scale.</p>")
+                text: qsTr("<h3>Draw</h3><p>B selects the brush, E the eraser. Use Size and Flow in the bottom strip. Q opens Quick Controls near your pen; change that shortcut in Configure Tool Shortcuts. Ctrl+2 opens Choose a brush. Use Edit brush for Basic, Tip, Dynamics and Graphite settings; Save copy keeps changes and Reset restores the selected preset. HB and 2B use graphite grain; Ink tapers at release.</p><h3>Workspace</h3><p>Tab or the four-corner icon hides the interface. The top-right layout icon restores it. In the full workspace, Ctrl+1 focuses docked Layers and Ctrl+2 opens Choose a brush. Use Edit brush for Basic, Tip, Dynamics and Graphite settings; Save copy keeps changes and Reset restores the selected preset. Ctrl+3, the toolbar colour swatch and More open Colour, or focus the pinned picker. Colour contains colour controls; Tool Options opens Basic brush settings. Floating tabs only offer panels that are not already docked. In Focus mode, Ctrl+1/2/3 opens Layers, Brush Lab and Colour as floating tabs. These shortcuts wait while drawing and leave text fields alone. Every document opens with the full interface.</p><h3>Recording</h3><p>Recording is always on. Click REC to open its separate dock; choose a timeline, refresh stored-frame preview and scrub it. Capture interval is 0.5–60 seconds; 1920 px long edge is the default, with 720 px and Original options. Settings affect future frames. Save As inherits earlier sessions and branches; reopening a linked artwork continues its timeline. A changed file requires a link choice. Import a v1/v2/v3 record from Recording, then explicitly Link artwork and reopen that artwork to continue. Export MP4 on Windows, GIF, or a portable v3 record bundle. Default video is two minutes at 30 FPS with five seconds at the end; four minutes including intro/end is the maximum. Partial export acknowledges missing coverage. Storage deletes only confirmed, unshared recordings; it does not delete artwork.</p><h3>Save and recover artwork</h3><p>Ctrl+S saves the native .prism project. Ctrl+Shift+S is Save As. Export creates a flat image and does not save your layers. Changes are protected by autosave after 45 seconds, once a stroke is committed. Recover Artwork on the Start Page opens a separate recovery copy; save it as a project. Save/Discard/Cancel protects closing or replacing modified artwork. Discard removes that artwork’s recovery copies.</p><h3>Recordings</h3><p>Recording runs automatically. A storage error is shown and can be retried. Earlier gaps remain marked as incomplete. Normal export waits for the final frame; Partial export explicitly exports the available timeline. .prismrec keeps every stored frame; GIF/MP4 samples the timeline to about four minutes. The hash chain verifies file consistency, not the identity of the artist.</p><h3>Storage</h3><p>Recording Storage lists sessions and disk usage. Recordings remain until you confirm deletion. Active sessions cannot be deleted. Recover Recording is separate from recovering your artwork.</p><h3>History and layers</h3><p>Ctrl+Z undoes and Ctrl+Shift+Z redoes. Layers supports groups, clipping, alpha lock and locking. Resize Canvas is reversible. Fit View fits the available canvas area; 100% shows actual pixel scale.</p>")
             }
         }
     }
@@ -1430,6 +1467,7 @@ ApplicationWindow {
         objectName: "recordingStorageDialog"
         property var sessions: []
         property string exportSource: ""
+        property bool timelineMode: true
         title: qsTr("Recording Storage")
         anchors.centerIn: Overlay.overlay
         width: Math.min(680, root.width - 48)
@@ -1442,13 +1480,18 @@ ApplicationWindow {
         contentItem: ColumnLayout {
             spacing: 12
             Label { Layout.fillWidth: true; text: qsTr("Recordings are kept until you delete them. Artwork recovery is stored separately."); wrapMode: Text.WordWrap; color: ThemeManager.themeColor("text") }
-            PButton { text: qsTr("Open folder"); implicitHeight: 36; onClicked: controller.openRecordingFolder() }
+            RowLayout {
+                PButton { text: qsTr("Timelines"); checked: storageDialog.timelineMode; onClicked: storageDialog.timelineMode = true }
+                PButton { text: qsTr("Original sessions"); checked: !storageDialog.timelineMode; onClicked: storageDialog.timelineMode = false }
+                PButton { text: qsTr("Import…"); enabled: !controller.recordingExporting; onClicked: importRecordingFile.open() }
+                PButton { text: qsTr("Open folder"); onClicked: controller.openRecordingFolder() }
+            }
             ListView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 spacing: 8
-                model: storageDialog.sessions
+                model: storageDialog.timelineMode ? controller.recordingTimelines : storageDialog.sessions
                 delegate: Rectangle {
                     required property var modelData
                     width: ListView.view.width
@@ -1460,13 +1503,13 @@ ApplicationWindow {
                         anchors.margins: 8
                         Label { Layout.fillWidth: true; text: modelData.name; elide: Text.ElideRight; color: ThemeManager.themeColor("text") }
                         RowLayout {
-                            Label { Layout.fillWidth: true; text: modelData.state + (modelData.hasGaps ? qsTr(" · incomplete") : "") + " · " + (modelData.bytes / 1048576).toFixed(1) + " MiB"; color: ThemeManager.themeColor("textDim") }
-                            PButton { text: qsTr("Export"); implicitHeight: 32; enabled: !modelData.active && !controller.recordingExporting; onClicked: { storageDialog.exportSource = modelData.url; storedRecordDialog.open() } }
-                            PButton { text: qsTr("Delete"); implicitHeight: 32; enabled: !modelData.active && !controller.recordingExporting; onClicked: { deleteRecordDialog.url = modelData.url; deleteRecordDialog.open() } }
+                            Label { Layout.fillWidth: true; text: storageDialog.timelineMode ? qsTr("%1 sessions · shared frames retained by other branches").arg(modelData.sessions.length) : modelData.state + (modelData.hasGaps ? qsTr(" · incomplete") : "") + " · " + (modelData.bytes / 1048576).toFixed(1) + " MiB"; color: ThemeManager.themeColor("textDim") }
+                            PButton { text: storageDialog.timelineMode ? qsTr("Export…") : qsTr("Copy original…"); implicitHeight: 32; enabled: !modelData.active && !controller.recordingExporting; onClicked: { if (storageDialog.timelineMode) root.openTimelapseExport(modelData.id, [], false); else { storageDialog.exportSource = modelData.url; storedRecordDialog.open() } } }
+                            PButton { text: qsTr("Delete"); implicitHeight: 32; enabled: !modelData.active && !controller.recordingExporting; onClicked: { deleteRecordDialog.url = storageDialog.timelineMode ? modelData.id : modelData.url; deleteRecordDialog.timeline = storageDialog.timelineMode; deleteRecordDialog.open() } }
                         }
                     }
                 }
-                Label { anchors.centerIn: parent; visible: storageDialog.sessions.length === 0; text: qsTr("No recordings stored yet."); color: ThemeManager.themeColor("textDim") }
+                Label { anchors.centerIn: parent; visible: storageDialog.timelineMode ? controller.recordingTimelines.length === 0 : storageDialog.sessions.length === 0; text: qsTr("No recordings stored yet."); color: ThemeManager.themeColor("textDim") }
             }
         }
         Connections { target: controller; function onRecoveryChanged() { if (storageDialog.opened) storageDialog.refresh() } }
@@ -1474,13 +1517,14 @@ ApplicationWindow {
     Dialog {
         id: deleteRecordDialog
         property string url: ""
+        property bool timeline: false
         title: qsTr("Delete this recording permanently?")
         modal: true
         anchors.centerIn: Overlay.overlay
         standardButtons: Dialog.Yes | Dialog.Cancel
-        onAccepted: { controller.deleteStoredRecording(url); storageDialog.refresh() }
+        onAccepted: { if (timeline) controller.deleteRecordingTimeline(url); else controller.deleteStoredRecording(url); storageDialog.refresh() }
         background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
-        Label { text: qsTr("This removes its timelapse. Your artwork is kept."); color: ThemeManager.themeColor("text") }
+        Label { text: qsTr("This removes the selected recording link and unshared frames. Frames used by other timelines are retained. Your artwork is kept."); color: ThemeManager.themeColor("text") }
     }
     FileDialog {
         id: storedRecordDialog
@@ -1495,7 +1539,7 @@ ApplicationWindow {
         modal: true
         anchors.centerIn: Overlay.overlay
         standardButtons: Dialog.Yes | Dialog.Cancel
-        onAccepted: { recordDialog.partial = true; recordDialog.open() }
+        onAccepted: root.openTimelapseExport(controller.activeRecordingTimeline, [], true)
         background: Rectangle { color: ThemeManager.themeColor("popup"); radius: 12; border.color: ThemeManager.themeColor("popupBorder") }
         Label { width: 360; wrapMode: Text.WordWrap; text: qsTr("Only stored frames will be exported. Missing time or an unstored final frame cannot be recovered. This export does not prove full coverage."); color: ThemeManager.themeColor("text") }
     }
@@ -1641,21 +1685,21 @@ ApplicationWindow {
         fileMode: FileDialog.OpenFile
         onAccepted: controller.requestDocumentAction("open", {url: selectedFile.toString()})
     }
+    RecordingExportDialog { id: timelapseExport; controller: root.controller }
     FileDialog {
-        id: recordDialog
-        property bool partial: false
-        title: qsTr("Export Drawing Record")
-        // The suffix picks the format: .prismrec is the verifiable one (hash
-        // chain, checked by --check-record), mp4/gif are the shareable timelapse.
-        nameFilters: [
-            qsTr("Prism drawing record - verifiable (*.prismrec)"),
-            qsTr("Video (*.mp4)"),
-            qsTr("Animated GIF (*.gif)")
-        ]
-        fileMode: FileDialog.SaveFile
-        defaultSuffix: "prismrec"
-        onAccepted: if (!controller.exportRecordingAsync(selectedFile, partial))
-                        console.warn("export record failed: " + controller.lastError)
+        id: importRecordingFile
+        title: qsTr("Import Prism recording")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("Prism records (*.prismrec)")]
+        onAccepted: controller.importRecordingBundle(selectedFile)
+    }
+    FileDialog {
+        id: linkRecordingFile
+        property string timelineId: ""
+        title: qsTr("Link timeline to artwork")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("Prism artwork (*.prism)")]
+        onAccepted: controller.linkRecordingTimeline(timelineId, selectedFile)
     }
     FileDialog {
         id: exportDialog

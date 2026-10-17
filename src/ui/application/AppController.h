@@ -2,6 +2,7 @@
 
 #include "application/ArtworkSession.h"
 #include "application/LayerListModel.h"
+#include "application/RecordingTimeline.h"
 #include "application/SessionRecorder.h"
 #include "brush/BrushPresets.h"
 #include "brush/BrushStroke.h"
@@ -437,7 +438,7 @@ public:
     QString lastProtectedTime() const {
         return m_artwork ? m_artwork->lastProtectedTime() : QString();
     }
-    bool saving() const { return m_artwork && m_artwork->isSaving(); }
+    bool saving() const { return m_recordBranchPending || (m_artwork && m_artwork->isSaving()); }
     bool documentDecisionPending() const { return m_awaitingDocumentDecision; }
     bool documentActionPending() const { return !m_pendingDocumentAction.isEmpty(); }
     Q_PROPERTY(bool documentEditing READ documentEditing NOTIFY artworkStateChanged)
@@ -553,6 +554,47 @@ public:
     Q_INVOKABLE bool exportRecording(const QUrl& url);
     /// Starts a streamed export without blocking the drawing window.
     Q_INVOKABLE bool exportRecordingAsync(const QUrl& url, bool partial = false);
+    Q_PROPERTY(
+        int captureInterval READ captureInterval WRITE setCaptureInterval NOTIFY recordingChanged)
+    Q_PROPERTY(int captureResolution READ captureResolution WRITE setCaptureResolution NOTIFY
+                   recordingChanged)
+    Q_PROPERTY(QVariantList recordingTimelines READ recordingTimelines NOTIFY recordingChanged)
+    Q_PROPERTY(QString activeRecordingTimeline READ activeRecordingTimeline NOTIFY recordingChanged)
+    Q_PROPERTY(bool recordingLinkConflict READ recordingLinkConflict NOTIFY recordingChanged)
+    Q_PROPERTY(bool recordingTaskQuiet READ recordingTaskQuiet NOTIFY recordingExportingChanged)
+    bool recordingTaskQuiet() const { return m_recordQuiet; }
+    Q_PROPERTY(
+        int recordingExportProgress READ recordingExportProgress NOTIFY recordingProgressChanged)
+    Q_PROPERTY(QString recordingPreview READ recordingPreview NOTIFY recordingPreviewChanged)
+    Q_PROPERTY(QString recordingPreviewTimeline READ recordingPreviewTimeline NOTIFY
+                   recordingPreviewChanged)
+    Q_PROPERTY(
+        QVariantMap recordingFrameCounts READ recordingFrameCounts NOTIFY recordingPreviewChanged)
+    QString recordingPreviewTimeline() const { return m_recordPreviewTimeline; }
+    QVariantMap recordingFrameCounts() const { return m_recordFrameCounts; }
+    Q_PROPERTY(
+        int recordingPreviewFrames READ recordingPreviewFrames NOTIFY recordingPreviewChanged)
+    int captureInterval() const { return m_recorder->captureSettings().intervalMs; }
+    int captureResolution() const { return m_recorder->captureSettings().maxSide; }
+    void setCaptureInterval(int interval);
+    void setCaptureResolution(int side);
+    QVariantList recordingTimelines() const;
+    QString activeRecordingTimeline() const;
+    bool recordingLinkConflict() const;
+    int recordingExportProgress() const { return m_recordProgress; }
+    QString recordingPreview() const { return m_recordPreview; }
+    int recordingPreviewFrames() const { return m_recordPreviewSource.count; }
+    Q_INVOKABLE QVariantList recordingSessions(const QString& timeline) const;
+    Q_INVOKABLE void refreshRecordingPreview(const QString& timeline);
+    Q_INVOKABLE void seekRecordingPreview(int frame);
+    Q_INVOKABLE bool exportTimelapse(const QUrl& url, const QVariantMap& settings,
+                                     const QString& timeline, const QStringList& sessions = {},
+                                     bool partial = false);
+    Q_INVOKABLE bool importRecordingBundle(const QUrl& url);
+    Q_INVOKABLE bool linkRecordingTimeline(const QString& timeline, const QUrl& artwork);
+    Q_INVOKABLE bool resolveRecordingLink(bool continueExisting);
+    Q_INVOKABLE bool deleteRecordingTimeline(const QString& timeline);
+    Q_INVOKABLE void cancelRecordingExport();
     // --- theme ---------------------------------------------------------------
     /// "dark" or "light". Persisted in QSettings; QML's ThemeManager picks it
     /// up at startup and writes changes back through here.
@@ -610,6 +652,8 @@ public:
     Q_INVOKABLE void endStroke();
 
 signals:
+    void recordingProgressChanged();
+    void recordingPreviewChanged();
     void artworkStateChanged();
     void unsavedChangesDecisionRequested();
     void saveAsRequested();
@@ -721,6 +765,34 @@ private:
     void refreshSnapshots();
     /// Drawing-session recorder (frames + hash chain).
     SessionRecorder* m_recorder = nullptr;
+    static QString localPathFrom(const QUrl& url);
+    bool validateRecordingDestination(const QString& path);
+    std::unique_ptr<RecordingTimeline> m_recordTimelines;
+    QTimer m_recordTailTimer;
+    bool m_recordCanvasDirty = false;
+    bool m_recordBranchPending = false;
+    int m_recordProgress = 0;
+    bool m_recordQuiet = true;
+    QString m_recordPreview;
+    QString m_recordPreviewTimeline;
+    QVariantMap m_recordFrameCounts;
+    RecordedFrames m_recordPreviewSource;
+    std::shared_ptr<std::atomic_bool> m_recordCancel = std::make_shared<std::atomic_bool>(false);
+    QString m_recordLinkPath, m_recordLinkFingerprint;
+    void adoptRecordingTimeline();
+    quint64 m_recordPreviewEpoch = 0;
+    void beginRecordingTimeline(const QString& path, const QString& name);
+    void probeRecordingTimeline(const QString& path, const QString& expectedSpool);
+    void finishRecordingBranch(const QString& path, const QString& fingerprint,
+                               const QString& expectedSpool);
+    void recordingSaved(const QString& path, const QString& fingerprint,
+                        const QString& expectedSpool);
+    bool runRecordingTask(const std::function<QString()>& work,
+                          const std::function<void()>& success, bool quiet = true);
+    std::function<bool(int, int)> recordingProgressCallback();
+    void awaitTimelapse(const QString& path, const TimelapseExportSettings& settings,
+                        const QString& timeline, const QStringList& sessions, bool partial,
+                        const QString& spool, quint64 capture);
     QThread* m_exportThread = nullptr;
     bool m_recordingExporting = false;
     /// Drops the collected frames when the document is replaced: a record is the

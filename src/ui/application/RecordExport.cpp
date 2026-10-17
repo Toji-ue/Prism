@@ -2,11 +2,15 @@
 
 #include <QBuffer>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QImageReader>
 #include <QPainter>
 #include <QSaveFile>
+#include <QTemporaryDir>
 #include <QVector>
+#include <cmath>
+#include <memory>
 
 #ifdef Q_OS_WIN
 #include <mfapi.h>
@@ -21,8 +25,7 @@ namespace {
 /// The recorded frames come from the compositor, so the paper is transparent
 /// (QML paints the white behind the canvas). A video or a GIF has no alpha to
 /// speak of: flatten onto the same white the artist worked on.
-QImage flattenedOverPaper(const QImage& frame)
-{
+QImage flattenedOverPaper(const QImage& frame) {
     QImage out(frame.size(), QImage::Format_RGB32);
     out.fill(Qt::white);
     QPainter painter(&out);
@@ -32,15 +35,13 @@ QImage flattenedOverPaper(const QImage& frame)
 
 // ---------------------------------------------------------------------- GIF
 
-void appendLE16(QByteArray& out, int value)
-{
+void appendLE16(QByteArray& out, int value) {
     out.append(static_cast<char>(value & 0xFF));
     out.append(static_cast<char>((value >> 8) & 0xFF));
 }
 
 /// GIF's LZW: variable-width codes, clear code when the table fills up.
-QByteArray gifLzw(const QImage& indexed, int minCodeSize)
-{
+QByteArray gifLzw(const QImage& indexed, int minCodeSize) {
     const int clearCode = 1 << minCodeSize;
     const int endCode = clearCode + 1;
     int codeSize = minCodeSize + 1;
@@ -101,8 +102,7 @@ QByteArray gifLzw(const QImage& indexed, int minCodeSize)
 
 /// 3-3-2 bit RGB: 256 colours with no quantiser of our own and no dependence on
 /// what Qt does when it is asked for an 8-bit image without a palette.
-QImage toPaletted(const QImage& rgb)
-{
+QImage toPaletted(const QImage& rgb) {
     QImage out(rgb.size(), QImage::Format_Indexed8);
     QVector<QRgb> table(256);
     for (int i = 0; i < 256; ++i) {
@@ -117,15 +117,14 @@ QImage toPaletted(const QImage& rgb)
         uchar* dst = out.scanLine(y);
         for (int x = 0; x < rgb.width(); ++x) {
             const QRgb c = src[x];
-            dst[x] = static_cast<uchar>(((qRed(c) >> 5) << 5) | ((qGreen(c) >> 5) << 2)
-                                        | (qBlue(c) >> 6));
+            dst[x] = static_cast<uchar>(((qRed(c) >> 5) << 5) | ((qGreen(c) >> 5) << 2) |
+                                        (qBlue(c) >> 6));
         }
     }
     return out;
 }
 
-QByteArray frameDescriptor(const QImage& indexed)
-{
+QByteArray frameDescriptor(const QImage& indexed) {
     QByteArray out;
     appendLE16(out, indexed.width());
     appendLE16(out, indexed.height());
@@ -143,10 +142,75 @@ QByteArray frameDescriptor(const QImage& indexed)
 
 } // namespace
 
-namespace RecordExport {
+bool TimelapseExportSettings::valid() const {
+    return seconds >= 1 && seconds <= 240 && (fps == 12 || fps == 24 || fps == 30) &&
+           (maxSide == 1280 || maxSide == 1920) && introSeconds >= 0 && introSeconds <= 240 &&
+           endSeconds >= 0 && endSeconds <= 240 && introSeconds + endSeconds < seconds &&
+           std::isfinite(inputFps) && inputFps >= 0 && inputFps <= 1000;
+}
 
-bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
-{
+namespace RecordExport {
+RecordedFrames timelapse(const RecordedFrames& source, const TimelapseExportSettings& settings,
+                         QString* error) {
+    RecordedFrames out;
+    if (!settings.valid() || source.count <= 0 || !source.fetch) {
+        if (error)
+            *error = QObject::tr("Invalid timelapse settings or empty recording.");
+        return out;
+    }
+    const int intro = settings.introSeconds * settings.fps;
+    const int end = settings.endSeconds * settings.fps;
+    const double seconds = settings.inputFps > 0
+                               ? source.count / settings.inputFps
+                               : settings.seconds - settings.introSeconds - settings.endSeconds;
+    if (seconds * settings.fps > 240 * settings.fps - intro - end) {
+        if (error)
+            *error = QObject::tr("The video including intro and end must not exceed four minutes.");
+        return out;
+    }
+    const int body = std::max(source.count > 1 ? 2 : 1, int(std::ceil(seconds * settings.fps)));
+    out.count = intro + body + end;
+    out.fps = settings.fps;
+    out.progress = source.progress;
+    struct Cache {
+        int index = -1;
+        QImage frame;
+        QSize size;
+        qint64 ms = 0;
+    };
+    auto cache = std::make_shared<Cache>();
+    out.fetch = [source, settings, intro, body, cache](int index, QImage& image, qint64& ms) {
+        const int selected = index < intro || index >= intro + body ? source.count - 1
+                             : body == 1
+                                 ? source.count - 1
+                                 : int(qint64(index - intro) * (source.count - 1) / (body - 1));
+        if (selected != cache->index) {
+            QImage raw;
+            if (!source.fetch(selected, raw, cache->ms))
+                return false;
+            if (cache->size.isEmpty()) {
+                cache->size =
+                    raw.size().scaled(settings.maxSide, settings.maxSide, Qt::KeepAspectRatio);
+                cache->size.setWidth(std::max(16, (cache->size.width() + 1) & ~1));
+                cache->size.setHeight(std::max(16, (cache->size.height() + 1) & ~1));
+            }
+            cache->frame = QImage(cache->size, QImage::Format_RGB32);
+            cache->frame.fill(Qt::white);
+            const QImage fitted =
+                raw.scaled(cache->size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            QPainter painter(&cache->frame);
+            painter.drawImage((cache->size.width() - fitted.width()) / 2,
+                              (cache->size.height() - fitted.height()) / 2, fitted);
+            cache->index = selected;
+        }
+        image = cache->frame;
+        ms = cache->ms;
+        return true;
+    };
+    return out;
+}
+
+bool writeGif(const QString& path, const RecordedFrames& frames, QString* error) {
     if (frames.count <= 0) {
         if (error)
             *error = QObject::tr("Nothing recorded yet - draw something first.");
@@ -182,22 +246,28 @@ bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
     out.append("NETSCAPE2.0", 11);
     out.append("\x03\x01\x00\x00\x00", 5);
     if (file.write(out) != out.size()) {
-        if (error) *error = QObject::tr("Could not write GIF header.");
+        if (error)
+            *error = QObject::tr("Could not write GIF header.");
         return false;
     }
     out.clear();
 
-    const int delay = std::max(2, 100 / kTimelapseFps);
     for (int i = 0; i < frames.count; ++i) {
+        if (frames.progress && !frames.progress(i, frames.count)) {
+            if (error)
+                *error = QObject::tr("Export cancelled.");
+            return false;
+        }
+        const int delay = int(qint64(i + 1) * 100 / frames.fps - qint64(i) * 100 / frames.fps);
         QImage frame;
         qint64 ms = 0;
         if (i == 0)
             frame = first;
         else if (!frames.fetch(i, frame, ms)) {
-            if (error) *error = QObject::tr("Could not read frame %1.").arg(i);
+            if (error)
+                *error = QObject::tr("Could not read frame %1.").arg(i);
             return false;
-        }
-        else
+        } else
             frame = flattenedOverPaper(frame);
 
         const QImage indexed = toPaletted(frame);
@@ -223,7 +293,8 @@ bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
         }
         out.append(static_cast<char>(0));
         if (file.write(out) != out.size()) {
-            if (error) *error = QObject::tr("Could not write GIF frame %1.").arg(i);
+            if (error)
+                *error = QObject::tr("Could not write GIF frame %1.").arg(i);
             return false;
         }
         out.clear();
@@ -231,9 +302,12 @@ bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
     out.append(static_cast<char>(0x3B)); // trailer
 
     if (file.write(out) != out.size()) {
-        if (error) *error = QObject::tr("Could not finish GIF.");
+        if (error)
+            *error = QObject::tr("Could not finish GIF.");
         return false;
     }
+    if (frames.progress && !frames.progress(frames.count, frames.count))
+        return false;
     if (!file.commit()) {
         if (error)
             *error = QObject::tr("Could not write %1.").arg(path);
@@ -249,14 +323,10 @@ bool writeGif(const QString& path, const RecordedFrames& frames, QString* error)
 namespace {
 
 /// MF wants a plain wide string; QProcess-style helpers do not apply here.
-std::wstring toWide(const QString& text)
-{
-    return text.toStdWString();
-}
+std::wstring toWide(const QString& text) { return text.toStdWString(); }
 
 template <typename T>
-void release(T*& pointer)
-{
+void release(T*& pointer) {
     if (pointer) {
         pointer->Release();
         pointer = nullptr;
@@ -267,8 +337,7 @@ void release(T*& pointer)
 
 bool mp4Supported() { return true; }
 
-bool writeMp4(const QString& path, const RecordedFrames& frames, QString* error)
-{
+static bool writeMp4Direct(const QString& path, const RecordedFrames& frames, QString* error) {
     if (frames.count <= 0) {
         if (error)
             *error = QObject::tr("Nothing recorded yet - draw something first.");
@@ -331,7 +400,7 @@ bool writeMp4(const QString& path, const RecordedFrames& frames, QString* error)
         outputType->SetUINT32(MF_MT_AVG_BITRATE, 4'000'000);
         outputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
         MFSetAttributeSize(outputType, MF_MT_FRAME_SIZE, width, height);
-        MFSetAttributeRatio(outputType, MF_MT_FRAME_RATE, kTimelapseFps, 1);
+        MFSetAttributeRatio(outputType, MF_MT_FRAME_RATE, frames.fps, 1);
         MFSetAttributeRatio(outputType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
         hr = writer->AddStream(outputType, &streamIndex);
     }
@@ -342,20 +411,28 @@ bool writeMp4(const QString& path, const RecordedFrames& frames, QString* error)
         inputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
         inputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
         MFSetAttributeSize(inputType, MF_MT_FRAME_SIZE, width, height);
-        MFSetAttributeRatio(inputType, MF_MT_FRAME_RATE, kTimelapseFps, 1);
+        MFSetAttributeRatio(inputType, MF_MT_FRAME_RATE, frames.fps, 1);
         MFSetAttributeRatio(inputType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
         hr = writer->SetInputMediaType(streamIndex, inputType, nullptr);
     }
     if (SUCCEEDED(hr))
         hr = writer->BeginWriting();
 
-    const LONGLONG frameDuration = 10'000'000LL / kTimelapseFps;
+    const LONGLONG frameDuration = 10'000'000LL / frames.fps;
     for (int i = 0; SUCCEEDED(hr) && i < frames.count; ++i) {
+        if (frames.progress && !frames.progress(i, frames.count)) {
+            failure = QObject::tr("Export cancelled.");
+            hr = E_ABORT;
+            break;
+        }
         QImage frame = first;
         qint64 ms = 0;
         if (i > 0) {
-            if (!frames.fetch(i, frame, ms))
-                continue;
+            if (!frames.fetch(i, frame, ms)) {
+                failure = QObject::tr("Could not read recording frame.");
+                hr = E_FAIL;
+                break;
+            }
             frame = flattenedOverPaper(frame);
         }
         if (frame.width() != width || frame.height() != height)
@@ -398,7 +475,7 @@ bool writeMp4(const QString& path, const RecordedFrames& frames, QString* error)
     if (SUCCEEDED(hr))
         hr = writer->Finalize();
 
-    if (FAILED(hr)) {
+    if (FAILED(hr) && failure.isEmpty()) {
         failure = QObject::tr("Window's H.264 encoder refused the file (0x%1). Video export "
                               "needs the Media Feature Pack on Windows N editions.")
                       .arg(static_cast<quint32>(hr), 8, 16, QLatin1Char('0'));
@@ -413,12 +490,47 @@ bool writeMp4(const QString& path, const RecordedFrames& frames, QString* error)
     return true;
 }
 
+bool writeMp4(const QString& path, const RecordedFrames& frames, QString* error) {
+    QTemporaryDir temp(QFileInfo(path).absolutePath() + "/.prism-export-XXXXXX");
+    if (!temp.isValid()) {
+        if (error)
+            *error = QObject::tr("Cannot create temporary video.");
+        return false;
+    }
+    const QString name = temp.filePath("video.mp4");
+    if (!writeMp4Direct(name, frames, error))
+        return false;
+    if (frames.progress && !frames.progress(frames.count, frames.count))
+        return false;
+    int decoded = 0;
+    if (!verifyVideo(name, &decoded, error, [&]() {
+            return !frames.progress || frames.progress(frames.count, frames.count);
+        }))
+        return false;
+    if (decoded != frames.count) {
+        if (error)
+            *error = QObject::tr("The encoded video is incomplete. Destination was kept.");
+        return false;
+    }
+    QFile input(name);
+    QSaveFile output(path);
+    if (!input.open(QIODevice::ReadOnly) || !output.open(QIODevice::WriteOnly))
+        return false;
+    while (!input.atEnd()) {
+        if (frames.progress && !frames.progress(frames.count, frames.count))
+            return false;
+        const auto bytes = input.read(1024 * 1024);
+        if (bytes.isEmpty() || output.write(bytes) != bytes.size())
+            return false;
+    }
+    return output.commit();
+}
+
 #else // !Q_OS_WIN
 
 bool mp4Supported() { return false; }
 
-bool writeMp4(const QString&, const RecordedFrames&, QString* error)
-{
+bool writeMp4(const QString&, const RecordedFrames&, QString* error) {
     if (error)
         *error = QObject::tr("MP4 export needs the platform encoder, which this build does not "
                              "have. Use the GIF or the .prismrec instead.");
@@ -429,8 +541,8 @@ bool writeMp4(const QString&, const RecordedFrames&, QString* error)
 
 // -------------------------------------------------------------- verification
 
-bool verifyVideo(const QString& path, int* frames, QString* error)
-{
+bool verifyVideo(const QString& path, int* frames, QString* error,
+                 const std::function<bool()>& keepGoing) {
     QImageReader reader(path);
     if (!reader.canRead()) {
         // MP4 is not an image format Qt reads: on Windows let Media Foundation
@@ -465,7 +577,7 @@ bool verifyVideo(const QString& path, int* frames, QString* error)
         MFShutdown();
         if (ownsCom)
             CoUninitialize();
-        if (counted <= 0) {
+        if (counted <= 0 || FAILED(hr)) {
             if (error)
                 *error = QObject::tr("The decoder could not read any frame from %1.").arg(path);
             return false;
@@ -483,6 +595,11 @@ bool verifyVideo(const QString& path, int* frames, QString* error)
     // Animated GIF: Qt reads it back, which is exactly the check wanted.
     int counted = 0;
     while (true) {
+        if (keepGoing && !keepGoing()) {
+            if (error)
+                *error = QObject::tr("Export cancelled.");
+            return false;
+        }
         const QImage frame = reader.read();
         if (frame.isNull())
             break;

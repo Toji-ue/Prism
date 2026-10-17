@@ -39,7 +39,7 @@ signals:
     void stateChanged();
     void recoveryChanged();
     void errorOccurred(const QString& message, bool manual = false);
-    void saveFinished(bool success, const QString& path);
+    void saveFinished(bool success, const QString& path, const QString& fingerprint = {});
 
 private:
     struct Job {

@@ -58,6 +58,8 @@ qt_add_qml_module(prism
         src/ui/qml/PComboBox.qml
         src/ui/qml/PMenu.qml
         src/ui/qml/Main.qml
+        src/ui/qml/RecordingDocker.qml
+        src/ui/qml/RecordingExportDialog.qml
         src/ui/qml/StartPage.qml
         src/ui/qml/FocusGlassPanel.qml
         src/ui/qml/QuickControls.qml

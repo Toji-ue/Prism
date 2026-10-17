@@ -26,6 +26,6 @@ target_link_libraries(core_tests PRIVATE
 include(GoogleTest)
 gtest_discover_tests(core_tests)
 
-add_executable(ui_tests TestUiMain.cpp TestArtworkSession.cpp TestSessionRecorder.cpp)
+add_executable(ui_tests TestUiMain.cpp TestArtworkSession.cpp TestSessionRecorder.cpp TestRecordingTimeline.cpp)
 target_link_libraries(ui_tests PRIVATE Prism::ui Qt6::Test GTest::gtest)
 gtest_discover_tests(ui_tests DISCOVERY_MODE PRE_TEST)

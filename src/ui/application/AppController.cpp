@@ -115,22 +115,6 @@ void applyThemePalette(const QString& theme) {
 /// Windows path string converted to QUrl is NOT a local file URL â€”
 /// QUrl("C:\\x.png") parses "c" as a scheme â€” so toLocalFile() returns empty
 /// and the operation silently fails with an empty file name. Accept both.
-QString localPathFrom(const QUrl& url) {
-    const QString path = url.toLocalFile();
-    if (!path.isEmpty())
-        return path;
-
-    QString raw = url.toString();
-    if (raw.isEmpty())
-        return raw;
-    // The path string was parsed as a URL, so separators arrived
-    // percent-encoded ("C:%5CUsers%5C..."). Decode before handing it to Qt's
-    // file APIs, which want a plain filesystem path.
-    raw = QUrl::fromPercentEncoding(raw.toUtf8());
-    if (raw.startsWith(QLatin1String("file:"), Qt::CaseInsensitive))
-        raw = QUrl(raw).toLocalFile();
-    return raw;
-}
 
 /// Human label for a Qt image format, so extensions that mean the same thing
 /// (jpg/jpeg/jfif) collapse into one dialog entry.
@@ -183,6 +167,23 @@ QStringList filterStringsFor(const QList<QByteArray>& formats) {
 }
 
 } // namespace
+
+QString AppController::localPathFrom(const QUrl& url) {
+    const QString path = url.toLocalFile();
+    if (!path.isEmpty())
+        return path;
+
+    QString raw = url.toString();
+    if (raw.isEmpty())
+        return raw;
+    // The path string was parsed as a URL, so separators arrived
+    // percent-encoded ("C:%5CUsers%5C..."). Decode before handing it to Qt's
+    // file APIs, which want a plain filesystem path.
+    raw = QUrl::fromPercentEncoding(raw.toUtf8());
+    if (raw.startsWith(QLatin1String("file:"), Qt::CaseInsensitive))
+        raw = QUrl(raw).toLocalFile();
+    return raw;
+}
 
 AppController::AppController(QObject* parent)
     : QObject(parent), m_layersModel(new LayerListModel(this)),
@@ -266,6 +267,8 @@ AppController::AppController(QObject* parent)
     });
     connect(m_recorder, &SessionRecorder::retryFinished, this, [this](bool ok) {
         if (ok) {
+            if (m_recordCanvasDirty)
+                m_recordTailTimer.start(0);
             if (m_errorContext == QLatin1String("recording"))
                 setLastError({});
             setStatusMessage(tr("Recording resumed. Earlier gaps remain marked as incomplete."));
@@ -275,6 +278,7 @@ AppController::AppController(QObject* parent)
     connect(m_recorder, &SessionRecorder::archiveLoaded, this,
             [this](bool ok, const QString& error) {
                 if (ok) {
+                    adoptRecordingTimeline();
                     setLastError({});
                     setStatusMessage(tr("Recording loaded. Artwork recovery is separate; "
                                         "incomplete coverage requires partial export."));
@@ -283,11 +287,38 @@ AppController::AppController(QObject* parent)
                 emit recordingRecovered(ok);
                 emit recoveryChanged();
             });
+    m_recordTimelines =
+        std::make_unique<RecordingTimeline>(QFileInfo(m_recorder->spoolPath()).absolutePath());
+    CaptureSettings capture;
+    capture.intervalMs = QSettings().value("recording/intervalMs", 1500).toInt();
+    capture.maxSide = QSettings().value("recording/maxSide", 1920).toInt();
+    if (capture.valid())
+        m_recorder->setCaptureSettings(capture);
+    m_recordTailTimer.setSingleShot(true);
+    connect(&m_recordTailTimer, &QTimer::timeout, this, [this]() {
+        if (!m_recordCanvasDirty || !m_recorder->isActive())
+            return;
+        if (documentActionPending()) {
+            m_recordTailTimer.start(50);
+            return;
+        }
+        if (m_recorder->capture(canvasImage(), tr("Drawing"), true))
+            m_recordCanvasDirty = false;
+        else if (m_recorder->isActive())
+            m_recordTailTimer.start(50);
+    });
     connect(this, &AppController::canvasChanged, this, [this](int, int, int, int) {
-        // Most pen ticks are throttled. Avoid a QImage wrapper and a
-        // translated history-label allocation for every rejected tick.
-        if (m_recorder->captureDue())
-            m_recorder->capture(canvasImage(), undoLabel());
+        // A pending dirty snapshot already includes every later pen tick.
+        if (m_recordCanvasDirty)
+            return;
+        m_recordCanvasDirty = true;
+        // The timer owns capture cadence; avoid a recorder mutex and clock read
+        // on every pen tick while a capture is already scheduled.
+        if (m_recordTailTimer.isActive())
+            return;
+        if (m_recorder->captureDue() && m_recorder->capture(canvasImage(), undoLabel()))
+            m_recordCanvasDirty = false;
+        m_recordTailTimer.start(captureInterval());
     });
 
     m_artworkRoot = recoveryRoot();
@@ -305,26 +336,28 @@ AppController::AppController(QObject* parent)
             [this](const QString& message, bool manual) {
                 setLastError(message, manual ? "artwork-save" : "autosave");
             });
-    connect(m_artwork, &ArtworkSession::saveFinished, this, [this](bool ok, const QString& path) {
-        if (ok) {
-            addRecentFile(path);
-            cacheRecentPreview(path);
-            setDocumentName(QFileInfo(path).fileName());
-            if (m_errorContext == QLatin1String("artwork-save") ||
-                m_errorContext == QLatin1String("autosave"))
-                setLastError({});
-            setStatusMessage(tr("Saved %1.").arg(QFileInfo(path).fileName()));
-            if (!m_pendingDocumentAction.isEmpty()) {
-                if (hasUnsavedChanges())
-                    settleDocumentDecision();
-                else
-                    executeDocumentAction();
-            }
-        } else if (!m_pendingDocumentAction.isEmpty()) {
-            m_awaitingDocumentDecision = true;
-            emit unsavedChangesDecisionRequested();
-        }
-    });
+    connect(m_artwork, &ArtworkSession::saveFinished, this,
+            [this](bool ok, const QString& path, const QString& fingerprint) {
+                if (ok) {
+                    recordingSaved(path, fingerprint, m_recorder->spoolPath());
+                    addRecentFile(path);
+                    cacheRecentPreview(path);
+                    setDocumentName(QFileInfo(path).fileName());
+                    if (m_errorContext == QLatin1String("artwork-save") ||
+                        m_errorContext == QLatin1String("autosave"))
+                        setLastError({});
+                    setStatusMessage(tr("Saved %1.").arg(QFileInfo(path).fileName()));
+                    if (!m_pendingDocumentAction.isEmpty()) {
+                        if (hasUnsavedChanges())
+                            settleDocumentDecision();
+                        else
+                            executeDocumentAction();
+                    }
+                } else if (!m_pendingDocumentAction.isEmpty()) {
+                    m_awaitingDocumentDecision = true;
+                    emit unsavedChangesDecisionRequested();
+                }
+            });
     connect(this, &AppController::historyChanged, this, [this]() { m_artwork->edited(); });
     connect(this, &AppController::strokeActiveChanged, this, [this]() {
         if (m_strokeActive)
@@ -341,6 +374,7 @@ AppController::AppController(QObject* parent)
 }
 
 AppController::~AppController() {
+    m_recordCancel->store(true);
     if (m_exportThread)
         m_exportThread->wait();
     // References to the document/history must be drained before member destruction.
@@ -348,7 +382,9 @@ AppController::~AppController() {
     m_artwork = nullptr;
 }
 
-bool AppController::recording() const { return m_recorder && m_recorder->isActive(); }
+bool AppController::recording() const {
+    return m_recordBranchPending || (m_recorder && m_recorder->isActive());
+}
 
 void AppController::forgetRecordedFrames() {
     if (!m_recorder)
@@ -411,6 +447,11 @@ bool AppController::deleteStoredRecording(const QUrl& url) {
         setLastError(tr("This recording is in use or is outside Prism storage."));
         return false;
     }
+    if (m_recordTimelines && !m_recordTimelines->canDeleteSource(info.fileName())) {
+        setLastError(tr("This session is referenced by a timeline, or the timeline index is "
+                        "unavailable. Delete its timeline to remove only unshared frames."));
+        return false;
+    }
     if (!QFile::remove(path)) {
         setLastError(tr("Could not delete the recording. Check storage permissions."));
         return false;
@@ -431,6 +472,8 @@ void AppController::openRecordingFolder() {
 bool AppController::exportStoredRecording(const QUrl& source, const QUrl& destination) {
     const QString input = localPathFrom(source);
     QString output = localPathFrom(destination);
+    if (!output.isEmpty() && !validateRecordingDestination(output))
+        return false;
     if (QFileInfo(input).absolutePath() != QDir(recoveryRoot() + "/recordings").absolutePath() ||
         input == m_recorder->spoolPath() || output.isEmpty() || m_recordingExporting)
         return false;
@@ -469,6 +512,8 @@ bool AppController::exportRecording(const QUrl& url) {
         return false;
     }
     const QString path = localPathFrom(url);
+    if (!path.isEmpty() && !validateRecordingDestination(path))
+        return false;
     if (path.isEmpty()) {
         setLastError(tr("No file name specified."));
         return false;
@@ -522,6 +567,8 @@ bool AppController::exportRecording(const QUrl& url) {
 
 bool AppController::exportRecordingAsync(const QUrl& url, bool partial) {
     const QString path = localPathFrom(url);
+    if (!path.isEmpty() && !validateRecordingDestination(path))
+        return false;
     if (path.isEmpty() || m_recordingExporting || recordingRepairing()) {
         setLastError(path.isEmpty() ? tr("No file name specified.")
                                     : tr("A drawing record is already being exported."));
@@ -2179,8 +2226,11 @@ void AppController::setStartPageVisible(bool visible) {
         if (m_recorder && !m_recorder->isActive() && !m_recorder->hasError()) {
             forgetRecordedFrames();
             m_recorder->capture(canvasImage(), tr("Document"), true);
+            beginRecordingTimeline(projectPath(), m_documentName);
         }
     }
+    if (!visible && m_recordTimelines && m_recordTimelines->activeId().isEmpty())
+        beginRecordingTimeline(projectPath(), m_documentName);
     m_startPageVisible = visible;
     emit startPageChanged();
 }
@@ -2445,6 +2495,7 @@ bool AppController::recoverRecording(const QUrl& url) {
         return false;
     }
     setLastError(QString());
+    adoptRecordingTimeline();
     emit recordingChanged();
     return true;
 }
@@ -2500,6 +2551,7 @@ void AppController::installDocument(core::Document&& document, const QString& na
     m_artwork->beginDocument(path, name, initialContents);
     forgetRecordedFrames();
     m_recorder->setDocumentName(name);
+    beginRecordingTimeline(path, name);
     m_compositor.canvasResized();
     m_activeLayer = activeLayer;
     const auto size = m_doc.canvasSize();
@@ -3365,6 +3417,7 @@ bool AppController::saveProject(const QUrl& url) {
     const bool ok = io::ProjectIO::save(m_doc, path);
     if (ok) {
         m_artwork->acceptedSave(path, m_history.stateId());
+        recordingSaved(path, RecordingTimeline::fingerprint(path), m_recorder->spoolPath());
         cacheRecentPreview(path);
         addRecentFile(path);
         setDocumentName(QFileInfo(path).fileName());

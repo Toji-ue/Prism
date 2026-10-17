@@ -57,3 +57,14 @@ Implemented: independent save checkpoints, bounded autosave, guarded document tr
 
 The existing recording-soak, clean-machine, remote/platform CI, dependency and
 distribution gates above remain required.
+
+## Recording timelapse continuation
+
+Implementation covers the separate Recording dock, configurable PNG capture,
+local multi-session/Save As timelines, portable record v3 and configurable
+MP4/GIF export. Automated and native-window evidence is recorded in local
+candidate validation. The 4000×4000 median-point benchmark currently exceeds
+the agreed 10% regression threshold and remains an open acceptance gate.
+The eight-hour actual drawing/recovery/export soak,
+physical tablet, clean Windows and remote/platform CI gates remain open; local
+functionality does not approve runtime distribution licenses.

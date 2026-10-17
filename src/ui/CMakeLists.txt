@@ -3,6 +3,7 @@
 # Types are registered with qmlRegisterType in main.cpp.
 
 add_library(prism_ui STATIC
+    application/AppControllerRecording.cpp
     application/AppController.cpp
     application/AppController.h
     application/ArtworkSession.cpp
@@ -10,6 +11,9 @@ add_library(prism_ui STATIC
     application/LayerListModel.cpp
     application/LayerListModel.h
     application/PresetImageProvider.cpp
+    application/RecordingTimeline.cpp
+    application/RecordingTimeline.h
+    application/CaptureSettings.h
     application/RecordExport.cpp
     application/SessionRecorder.cpp
     application/PresetImageProvider.h

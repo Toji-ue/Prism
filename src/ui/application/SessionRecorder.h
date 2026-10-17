@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/CaptureSettings.h"
 #include "application/RecordExport.h"
 
 #include <QElapsedTimer>
@@ -22,7 +23,7 @@ class SessionRecorder : public QObject {
     Q_OBJECT
 public:
     static constexpr int kMinIntervalMs = 1500;
-    static constexpr int kMaxFrameSide = 720;
+    static constexpr int kMaxFrameSide = 1920;
     static constexpr int kMaxTimelapseFrames = 4 * 60 * 12;
 
     explicit SessionRecorder(QObject* parent = nullptr);
@@ -41,7 +42,10 @@ public:
     quint64 capture(const QImage& canvas, const QString& label, bool force = false);
     [[nodiscard]] bool captureDue() const;
     void restart();
+    bool setCaptureSettings(CaptureSettings settings);
+    CaptureSettings captureSettings() const { return m_captureSettings; }
     bool flush();
+    bool isDrained() const;
     bool retry();
     bool retryAsync();
     [[nodiscard]] bool isRepairing() const;
@@ -62,8 +66,12 @@ public:
     /// earlier frame and its hash chain.
     [[nodiscard]] bool adoptRecovered(const QString& path, QString* error = nullptr);
     bool adoptRecoveredAsync(const QString& path);
+    static RecordedFrames framesFromFile(const QString& path, QString* error = nullptr,
+                                         qint64* validBytes = nullptr, bool allowTail = false,
+                                         const std::function<bool()>& keepGoing = {});
     [[nodiscard]] static bool verify(const QString& path, QString* error = nullptr,
-                                     int* frames = nullptr);
+                                     int* frames = nullptr,
+                                     const std::function<bool()>& keepGoing = {});
 
 signals:
     void frameStored();
@@ -85,6 +93,7 @@ private:
         QImage image;
         QSize canvasSize;
         quint64 captureId = 0;
+        int maxSide = 1920;
     };
     struct RepairResult {
         std::vector<Frame> frames;
@@ -110,7 +119,7 @@ private:
     static QString hashParts(const QString& previous, qint64 ms, const QByteArray& png);
     static bool scanV2(const QString& path, std::vector<Frame>* found, qint64* validBytes,
                        QString* session, QSize* canvasSize, QString* error, bool allowTail,
-                       bool allowEmpty = false);
+                       bool allowEmpty = false, const std::function<bool()>& keepGoing = {});
     void writerLoop(QString previous, int storedFrames);
     void drainCompleted();
     void stopWorker();
@@ -119,6 +128,8 @@ private:
     bool persistMetadata();
     void removeEmptySpool();
 
+    CaptureSettings m_captureSettings;
+    qint64 m_queuedImageBytes = 0;
     bool m_recovered = false;
     bool m_finished = false;
     QElapsedTimer m_clock;

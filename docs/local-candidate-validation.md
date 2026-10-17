@@ -1,6 +1,126 @@
 # Local candidate validation
 
-## Artist workflow candidate — 2026-10-16
+## Recording timelapse candidate — 2026-10-17
+
+Candidate **0.3.0-beta.1**, Windows/MSYS2 UCRT64, Qt 6.11.1, Release.
+This section supersedes the artist workflow candidate below for recording.
+`deploy/candidate-manifest.json` remains authoritative for the deployed commit,
+source fingerprint, executable and runtime payload. Local deployment is separate
+from distribution approval.
+
+### Implementation and automated proof
+
+- Recording defaults to 1.5 seconds and 1920 px long edge. The separate 320 px
+  Recording dock is closed on document entry and hidden in Focus. The preview
+  loads one stored-frame snapshot on opening, with explicit Refresh/scrubbing;
+  it does not repeatedly rescan a long session as drawing continues.
+- Local timelines use canonical paths and saved-file fingerprints. Save As
+  freezes the parent before later pen events and starts a child referencing
+  shared immutable sources. Link failures cannot report success. Raw deletion
+  and export destinations cannot bypass shared-source/internal-storage guards.
+  A damaged local index blocks raw source deletion.
+- Portable v3 bundles retain original v1/v2 streams and validate hashes, lengths,
+  references and limits before staged publication. Cancel/failure rolls back
+  imports and preserves existing export destinations. Gap/unknown-completion
+  sources require explicit Partial export. Project and brush formats are unchanged.
+- Full Release CTest: **152/152 passed**. Isolated Release `--selftest`: **zero
+  failures**. The recovery fixture now exports outside protected Storage before
+  staging a recovery source; async export waits for the preceding link probe.
+- Native Windows QTest: **73 UX assertions, zero failures**, plus the Focus
+  regression. Recording assertions cover real REC input, dock width, initial
+  preview, numeric capture interval, keyboard access to Export, Focus capture,
+  zoom and viewed-canvas-centre preservation on opening/closing the dock.
+- Independent external ffmpeg/Pillow comparison passed for configured MP4/GIF,
+  sampling all 12 frames of asymmetric source fixtures, including first/last.
+  Upright error was lower than vertical-flip error. This exercises the independent
+  decoder rather than relying only on Prism's Media Foundation readback.
+- A 2,000-frame, 256x256 streaming test passed, including first/last pixels,
+  complete frame count, gap state and hash verification. Sampled process working
+  set peaked at **27.15 MiB** (72 samples), versus **500 MiB** for retaining all
+  decoded frames. Metadata/index memory can grow with frame count; decoded-frame
+  storage does not. This short synthetic test is not the eight-hour soak.
+- An 8500x8000 canvas records at 720 and Original without a false queue-limit
+  rejection. One oversized immutable snapshot is allowed alone. Original decode
+  uses bounded preallocation instead of changing Qt's global allocation policy.
+  The cadence timer avoids per-point recorder mutex/clock polling; held strokes
+  remain recordable and idle creates no extra frames, covered by a regression.
+  PNG compression is explicitly set on Qt's 0–100 scale; existing source hashes
+  are preserved.
+
+Evidence: `build/record-final-tests3.log`, `build/record-selftest-final3/`,
+`build/record-native-final3/`, `build/record-media-evidence-v2/`,
+`build/record-orientation2.log`, `build/record-memory-test.log` and
+`build/record-memory-samples.json`. Deployment repeats Release tests and staged
+selftest/formats checks; its manifest supplies the final executable identity.
+
+The final local Release executable SHA-256 is
+`B09244CB6B6F2C981967BD74A79E32C54019E30096ABC2AC10868CA79D445D35`.
+An unrelated untracked `dsh-session-session-*` directory is preserved. It can
+make the manifest's repository-wide `gitDirty` true; the manifest separately
+identifies the application source fingerprint and committed revision.
+
+### Performance gate — open
+
+Three interleaved before/after runs used visible Windows rendering, 300 points,
+and default capture settings (new capture at 1920 px). Before is the previous
+deployed candidate (`28C75D0F…`); after is `09C946B6…`, before the final opt-in
+diagnostics/logging mutex. Values below are medians of the three run statistics.
+
+| Canvas | Median point before → after | Change | Mouse-up before → after | Texture upload before → after |
+| --- | --- | --- | --- | --- |
+| 1280×800 | 0.0272 → 0.0272 ms | 0% | 3 → 3 ms | 14,745,600 → 12,910,592 bytes |
+| 2000×3000 | 0.0201 → 0.0136 ms | −32.3% | 12 → 9 ms | 59,291,136 → 47,232,512 bytes |
+| 4000×4000 | 0.0281 → 0.0328 ms | **+16.7%** | 22 → 23 ms | 146,477,056 → 157,487,104 bytes |
+
+The 4000×4000 result exceeds the agreed 10% median threshold. **Recording
+performance acceptance is not complete.** Earlier paired batches also varied;
+selecting a faster individual run would not close this gate. Evidence:
+`build/record-final-paired-*` and `build/record-final-bench-summary.json`.
+
+Capture cadence no longer polls the recorder mutex/clock at every point; an
+already-pending timer captures current pixels. The existing PNG worker uses low
+priority. A diagnostic run on the final binary (`build/record-phase-profile2/`)
+measured a 119 ms instrumented resize phase (including its initial log write)
+and 157 ms PNG encoding for a 4000×4000 snapshot; both
+finished 889 ms before the CPU point loop began. This does **not** establish
+encoding contention as the cause of the median regression. Diagnostics are
+opt-in via `PRISM_RECORD_PROFILE=1`; regular runs do not log worker timings.
+The shared log sink is synchronized for GUI/worker diagnostics.
+
+Further performance work must reproduce and isolate the regression before
+claiming acceptance; the local deployment is available for development only.
+
+### Visual coverage
+
+Two batches inspect Recording dock, shared export dialog and Focus in light/dark
+at requested logical sizes 1280x780 and 1000x620: **12 captures per batch**.
+The first batch found the unthemed dialog header and a race leaving initial
+preview empty; both were fixed and the confirmation batch plus native QTest
+passed. Controls below the minimum-height viewport scroll and keyboard focus
+reveals Export. The dock does not create a second Layers/Colour panel.
+
+Artifacts: `build/record-visual-*`, `build/record-confirm-*` and
+`build/record-confirm-contact-{light,dark}.jpg`. Process scale is 1 and the Windows
+host DPR is 1.25; this does not establish other Windows scaling settings or
+physical pen accessibility. No QML reference/type/binding-loop errors appeared
+in accepted captures.
+
+### Review and remaining gates
+
+Separate Standards/Spec reviews found shared-source deletion, retry lifecycle,
+parser bounds, import rollback/thread ownership, stale preview/recovery, final
+capture, live metadata, large canvas, destination aliases, Save As and failed-link
+issues. Fixes have regression coverage; focused final static rechecks reported
+no remaining findings in those items. The initial-preview follow-up also had no
+obvious state loop.
+
+The 4000×4000 performance gate, physical tablet, actual eight-hour
+drawing/recovery/export, clean Windows,
+remote Windows/macOS/Linux CI and supported-hardware latency remain pending.
+The TIFF/libtiff/GPL jbigkit chain and other runtime licenses are not approved;
+external packaging remains blocked. No UX 40/40 or production-ready claim is made.
+
+## Previous artist workflow candidate — 2026-10-16
 
 Candidate **0.3.0-beta.1**, Windows/MSYS2 UCRT64, Qt 6.11.1, Release.
 This section supersedes the earlier candidate below. Local implementation and
