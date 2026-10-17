@@ -143,7 +143,9 @@ private:
     QSize m_canvasSize;
     qint64 m_validBytes = 0;
     std::vector<Frame> m_frames;
-    std::jthread m_worker;
+    // stopWorker() and the retry/archive transitions join before replacement.
+    // Apple libc++ on supported macOS runners does not provide std::jthread.
+    std::thread m_worker;
     mutable std::mutex m_mutex;
     std::condition_variable m_condition;
     std::deque<Pending> m_pending;

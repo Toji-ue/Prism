@@ -168,7 +168,7 @@ void SessionRecorder::stopWorker() {
     }
     m_condition.notify_all();
     m_worker.join();
-    m_worker = std::jthread{};
+    m_worker = std::thread{};
 }
 
 void SessionRecorder::restart() {
@@ -225,7 +225,7 @@ void SessionRecorder::startWorker() {
     m_testFailAfter = std::max(0, qEnvironmentVariableIntValue("PRISM_TEST_RECORD_FAIL_AFTER"));
     const int storedFrames = static_cast<int>(m_frames.size());
     m_workerExited.store(false);
-    m_worker = std::jthread([this, previous, storedFrames]() {
+    m_worker = std::thread([this, previous, storedFrames]() {
         writerLoop(previous, storedFrames);
         m_workerExited.store(true);
     });
@@ -353,7 +353,7 @@ void SessionRecorder::startRepairWhenReady() {
     const auto acknowledged = m_frames;
     const QString path = m_spoolPath;
     m_workerExited.store(false);
-    m_worker = std::jthread([this, result, acknowledged, path]() {
+    m_worker = std::thread([this, result, acknowledged, path]() {
         try {
             repairSpool(path, acknowledged, *result);
         } catch (const std::exception&) {
@@ -961,7 +961,7 @@ void SessionRecorder::startArchiveWhenReady(const QString& path, bool wasFinishe
     drainCompleted();
     auto result = std::make_shared<ArchiveResult>();
     m_workerExited.store(false);
-    m_worker = std::jthread([this, path, wasFinished, result]() {
+    m_worker = std::thread([this, path, wasFinished, result]() {
         try {
             readArchive(path, *result);
         } catch (const std::exception&) {

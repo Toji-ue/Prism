@@ -153,14 +153,14 @@ QSGNode* CanvasView::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*)
             continue;
 
         auto* node = static_cast<QSGSimpleTextureNode*>(root->childAtIndex(i));
+        const bool newTile = !node;
         if (!node) {
             node = new QSGSimpleTextureNode;
             node->setOwnsTexture(true);
             node->setFiltering(QSGTexture::Nearest);
-            root->appendChildNode(node);
         }
 
-        if (m_tileDirty[static_cast<std::size_t>(i)]) {
+        if (newTile || m_tileDirty[static_cast<std::size_t>(i)]) {
             QImage tile = canvas.copy(x, y, w, h);
             if (mirrorH || mirrorV)
                 tile = tile.mirrored(mirrorH, mirrorV);
@@ -177,6 +177,10 @@ QSGNode* CanvasView::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*)
         const qreal ix = (mirrorH ? (canvasW - (x + w)) : x) * sx;
         const qreal iy = (mirrorV ? (canvasH - (y + h)) : y) * sy;
         node->setRect(QRectF(ix, iy, w * sx, h * sy));
+        // An attached software scene graph inspects added nodes immediately.
+        // Publish only after the texture and geometry exist (including grid growth).
+        if (newTile)
+            root->appendChildNode(node);
     }
 
     return root;

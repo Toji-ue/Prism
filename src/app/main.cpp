@@ -3511,11 +3511,14 @@ int main(int argc, char* argv[]) {
                               controller->captureInterval() == 500,
                           "recording interval accepts keyboard entry");
                     controller->setCaptureInterval(1500);
-                    controller->setFocusMode(true);
+                    focusCanvas();
+                    QTest::keyClick(window, Qt::Key_Tab);
                     QTest::qWait(100);
-                    check(recordDock && !recordDock->isVisible() && controller->recording(),
+                    check(controller->focusMode() && recordDock && !recordDock->isVisible() &&
+                              controller->recording(),
                           "Focus hides Recording while capture remains enabled");
-                    controller->setFocusMode(false);
+                    focusCanvas();
+                    QTest::keyClick(window, Qt::Key_Tab);
                     QTest::qWait(100);
                     if (auto* exportButton = findItemByName(
                             window->contentItem(), QStringLiteral("recordingDockExport"), true))
