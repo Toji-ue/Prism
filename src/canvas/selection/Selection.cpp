@@ -287,8 +287,8 @@ void Selection::selectContiguousOpaque(const RasterBuffer& source, int x, int y)
     RasterBuffer alphaOnly(source.width(), source.height());
     for (int py = 0; py < source.height(); ++py)
         for (int px = 0; px < source.width(); ++px) {
-            const std::uint8_t a = source.at(px, py).a;
-            alphaOnly.set(px, py, Color{ 255, 255, 255, a == 0 ? 0 : 255 });
+            const std::uint8_t alpha = source.at(px, py).a == 0 ? 0 : 255;
+            alphaOnly.set(px, py, Color{ 255, 255, 255, alpha });
         }
     m_mask.fill(kTransparent);
     floodFillRegion(alphaOnly, x, y, 0,
