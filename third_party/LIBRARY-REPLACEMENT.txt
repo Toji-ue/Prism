@@ -1,0 +1,60 @@
+PRISM THIRD-PARTY LIBRARIES: SOURCE AND REPLACEMENT
+=================================================
+
+The included LGPL libraries are dynamically linked and replaceable. You may
+modify or replace them, and reverse engineer the application as necessary to
+debug modifications to those libraries. Application terms do not restrict these
+LGPL rights. Keep a backup of the installation before changing runtime files.
+
+SOURCE INCLUDED WITH THIS WINDOWS CANDIDATE
+
+THIRD-PARTY/SOURCES contains the complete signed MSYS2 source packages for the
+exact reviewed Qt, GLib, gettext/libintl and libiconv package versions. Each
+archive includes upstream source archives, PKGBUILD build instructions, patches
+and .SRCINFO. distribution-review.json identifies the source hashes and selected
+runtime licenses; package folders contain the full license/copyright texts.
+The MSYS2 packager public key and detached signatures are included. A network
+source URL is provenance, not a substitute for these included source copies.
+
+With GnuPG, import msys2-source-signing-key.asc into a keyring of your choice,
+then run: gpg --verify <source-package>.sig <source-package>
+The reviewed signer fingerprint is:
+5F94 4B02 7F7F E209 1985 AA2E FA11 531A A0AA 7F57
+Verify the SHA-256 values in distribution-review.json as well.
+
+REBUILD ON WINDOWS
+
+1. Install MSYS2 and open its UCRT64 shell. Use the x86_64 UCRT compiler family.
+2. Extract a *.src.tar.zst archive into a new working directory using tar -xf.
+3. Enter the contained mingw-w64-* directory. Read PKGBUILD and .SRCINFO; these
+   record the source inputs, patches, configure flags and build dependencies.
+4. Install the listed build prerequisites. Run:
+      MINGW_ARCH=ucrt64 makepkg-mingw --syncdeps --log
+   Verify source signatures using the maintainer keys listed by that recipe.
+   Rebuild dependent Qt modules/plugins together if your changes alter their ABI.
+5. Extract the resulting binary package into a temporary directory. Quit Prism.
+   Replace the corresponding DLLs in the Prism installation, keeping matching
+   plugin DLLs under plugins/ and QML plugin files under qml/ at the same relative
+   paths. These files are ordinary replaceable files; Prism does not enforce
+   the candidate manifest hashes at application startup.
+6. Start prism.exe normally. --check-formats checks image plugins; --selftest
+   runs development compatibility checks. Manifest verification tools report
+   local modifications, which is expected after replacing a library.
+
+The tested development compiler/package versions and runtime hashes are in
+candidate-manifest.json and THIRD-PARTY/dependency-inventory.json. Different
+compiler or library versions can require rebuilding their dependent modules.
+
+TIFF
+
+TIFF uses shared libtiff 4.7.2 with the optional JBIG codec disabled. The pinned
+upstream archive, license and exact PowerShell build recipe are in tiff-runtime/.
+Run that recipe from a Prism source checkout with MSYS2 UCRT64 to rebuild it.
+TIFF with JBIG compression is unsupported. Other configured TIFF codecs remain.
+
+OTHER TARGETS
+
+This document and distribution-review.json describe the Windows UCRT64 payload.
+macOS and Linux need their own native payload/source inventory and replacement
+instructions before publication. A successful Windows review does not approve
+those artifacts. No signed/notarized macOS or clean-machine claim is made here.

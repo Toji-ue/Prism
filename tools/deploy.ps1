@@ -36,6 +36,19 @@ Copy-Item -Path (Join-Path $plugins 'imageformats\q*.dll') -Destination $formats
 # windeployqt selects qwindows only; staged headless validation also needs this.
 Copy-Item -LiteralPath (Join-Path $plugins 'platforms\qoffscreen.dll') -Destination (Join-Path $stage 'plugins\platforms\qoffscreen.dll') -Force
 [IO.File]::WriteAllText((Join-Path $stage 'qt.conf'), "[Paths]`nPlugins=plugins`nQml2Imports=qml`n", [Text.UTF8Encoding]::new($false))
+# Keep TIFF, using the explicitly approved build without JBIG compression.
+& (Join-Path $PSScriptRoot 'build-tiff-runtime.ps1') -MsysRoot $MsysRoot
+$tiffProvenance = Join-Path $root 'build\tiff-runtime\provenance'
+$tiff = Get-Content -LiteralPath (Join-Path $tiffProvenance 'manifest.json') -Raw | ConvertFrom-Json
+Copy-Item -LiteralPath (Join-Path $tiffProvenance 'libtiff-6.dll') -Destination (Join-Path $stage 'libtiff-6.dll') -Force
+$tiffNotice = Join-Path $stage 'tiff-runtime'
+New-Item -ItemType Directory -Force $tiffNotice | Out-Null
+foreach ($name in @('manifest.json', 'LICENSE.md', 'build-tiff-runtime.ps1', 'tiff-4.7.2.tar.gz')) {
+    Copy-Item -LiteralPath (Join-Path $tiffProvenance $name) -Destination $tiffNotice
+}
+# windeployqt may have copied the old optional codec before the replacement.
+$oldJbig = Join-Path $stage 'libjbig-0.dll'
+if (Test-Path -LiteralPath $oldJbig) { Remove-Item -LiteralPath $oldJbig }
 # Walk PE imports, including every codec plugin's transitive runtime dependency.
 $queue = [Collections.Generic.Queue[string]]::new()
 $seen = @{}
@@ -49,11 +62,13 @@ while ($queue.Count) {
     foreach ($line in $imports) {
         if ($line -notmatch 'DLL Name:\s*(\S+)') { continue }
         $name = $Matches[1]
+        if ($name -match 'jbig') { throw "Unexpected JBIG dependency in $file" }
         $installed = Join-Path $bin $name
         if (Test-Path -LiteralPath $installed) {
             $destination = Join-Path $stage $name
             if (-not (Test-Path -LiteralPath $destination)) { Copy-Item -LiteralPath $installed -Destination $destination }
-            if ((Get-PrismHash $destination) -ne (Get-PrismHash $installed)) { throw "Runtime DLL mismatch: $name" }
+            $expectedHash = if ($name -ieq 'libtiff-6.dll') { $tiff.dllSha256 } else { Get-PrismHash $installed }
+            if ((Get-PrismHash $destination) -ne $expectedHash) { throw "Runtime DLL mismatch: $name" }
             $queue.Enqueue($destination)
         } elseif ($name -notmatch '^(api-ms-|ext-ms-)' -and -not (Test-Path -LiteralPath (Join-Path $env:SystemRoot "System32\$name"))) {
             throw "Unresolved runtime import $name in $file"

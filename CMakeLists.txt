@@ -37,6 +37,27 @@ qt_add_executable(prism
 # WIN32 GUI subsystem: no console window attaches when launched from Explorer.
 set_target_properties(prism PROPERTIES WIN32_EXECUTABLE TRUE)
 
+# Native staging is a separate preset; Windows uses its hash/license-gated scripts.
+option(PRISM_STAGE_NATIVE_RUNTIME "Stage the macOS/Linux runtime for release review" OFF)
+if(PRISM_STAGE_NATIVE_RUNTIME)
+    if(WIN32)
+        message(FATAL_ERROR "Use tools/deploy.ps1 and tools/package.ps1 on Windows")
+    endif()
+    include(GNUInstallDirs)
+    if(APPLE)
+        string(REGEX REPLACE "-.*$" "" PRISM_BUNDLE_VERSION "${PRISM_VERSION}")
+        set_target_properties(prism PROPERTIES
+            MACOSX_BUNDLE TRUE
+            OUTPUT_NAME Prism
+            MACOSX_BUNDLE_BUNDLE_NAME Prism
+            MACOSX_BUNDLE_GUI_IDENTIFIER io.github.toji-ue.prism
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PRISM_BUNDLE_VERSION}"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PRISM_BUNDLE_VERSION}")
+    else()
+        set_target_properties(prism PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    endif()
+endif()
+
 # Runtime theme switching: one shared QML singleton instance.
 set_source_files_properties(src/ui/qml/ThemeManager.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE)
@@ -85,6 +106,13 @@ target_link_libraries(prism PRIVATE
     Qt6::Test)
 target_compile_definitions(prism PRIVATE PRISM_VERSION="${PRISM_VERSION}")
 target_compile_definitions(prism_ui PRIVATE PRISM_VERSION="${PRISM_VERSION}")
+
+if(PRISM_STAGE_NATIVE_RUNTIME)
+    install(TARGETS prism BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    # An unsupported deployment platform must fail rather than emit a bare executable.
+    qt_generate_deploy_qml_app_script(TARGET prism OUTPUT_SCRIPT prism_deploy_script NO_TRANSLATIONS)
+    install(SCRIPT ${prism_deploy_script})
+endif()
 
 # --------------------------------------------------------------------------- #
 # tests

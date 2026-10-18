@@ -1,0 +1,34 @@
+PRISM THIRD-PARTY SOFTWARE NOTICES
+================================
+
+Prism uses Qt under the GNU Lesser General Public License version 3. Included
+GLib, libintl and libiconv libraries use the LGPL terms identified in their
+package folders. Full license texts and copyright notices are included in
+THIRD-PARTY. Corresponding source copies are in THIRD-PARTY/SOURCES, including
+the build recipes and modifications for the reviewed Windows packages.
+LIBRARY-REPLACEMENT.txt explains how to rebuild and replace these libraries.
+
+You may modify and replace the LGPL libraries and reverse engineer the
+application as necessary to debug those modifications. No application terms
+restrict these library rights. There is no runtime integrity lock preventing
+replacement of the included library files.
+
+Portions of this software are copyright © 1996-2026 The FreeType Project
+(https://freetype.org). All rights reserved. FreeType is used under the FTL
+option; the complete notice and license are retained in its package folder.
+
+The included libjpeg API library is based in part on the work of the Independent
+JPEG Group. Its IJG, BSD and zlib notices are retained in the libjpeg-turbo folder.
+
+The included GCC runtime libraries are used under GPLv3 with the GCC Runtime
+Library Exception 3.1 for eligible compilation of this independent application.
+The full exception and license texts are retained in the gcc-libs folder.
+
+The reviewed libgraphite2 and libzstd runtime components use their available MIT
+and BSD license alternatives respectively. liblcms2 uses MIT; liblzma uses 0BSD.
+All applicable copyright/license texts are retained; see distribution-review.json
+and dependency-inventory.json for the exact reviewed component versions and files.
+
+TIFF support is retained through libtiff 4.7.2 under its upstream MIT-style
+license, with JBIG compression disabled. JBIG-compressed TIFF is unsupported.
+No JBIG-KIT runtime is bundled. Source, recipe and license are in tiff-runtime/.

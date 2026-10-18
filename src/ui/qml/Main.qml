@@ -1610,6 +1610,7 @@ ApplicationWindow {
             Text { text: qsTr("Version %1").arg(controller.versionString()); color: ThemeManager.themeColor("textDim"); font.pixelSize: 13 }
             Text { text: qsTr("A canvas-first drawing studio for digital artists."); color: ThemeManager.themeColor("text"); font.pixelSize: 12; wrapMode: Text.WordWrap; width: 320 }
             Text { text: qsTr("Artwork stays in local Prism project files."); color: ThemeManager.themeColor("textDim"); font.pixelSize: 12 }
+            Text { text: qsTr("Uses Qt under LGPLv3. You may modify and replace the included LGPL libraries. See THIRD-PARTY in the installation for licenses, source and replacement instructions."); color: ThemeManager.themeColor("textDim"); font.pixelSize: 12; wrapMode: Text.WordWrap; width: 320 }
         }
     }
 

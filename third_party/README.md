@@ -23,7 +23,7 @@ source, build recipes and applicable runtime exceptions require distribution
 review. Upstream/recipe URLs identify provenance; they do not substitute for
 providing the exact corresponding source where required.
 
-## Current concrete blocker
+## TIFF/JBIG resolution — approved 2026-10-17
 
 PE imports inspected on the development machine:
 
@@ -31,11 +31,26 @@ PE imports inspected on the development machine:
 
 The installed package `mingw-w64-ucrt-x86_64-jbigkit`, version `2.1-5`, declares
 `spdx:GPL-2.0`; its installed `COPYING` contains GPL version 2. AGENTS.md requires
-explicit sign-off for GPL dependencies that ship. **External candidate packaging
-fails while this blocker is unresolved.** Development deployment retains TIFF
-and this dependency so functionality is not silently changed. No alternative
-codec, commercial license, distribution authorization or dependency replacement
-has been assumed.
+explicit sign-off for GPL dependencies that ship. The user chose to retain TIFF
+and approved omitting its optional JBIG compression codec. The installed MSYS2
+DLLs remain untouched. `tools/build-tiff-runtime.ps1` builds shared libtiff 4.7.2
+from its upstream archive with `jbig=OFF`, leaving the other available codecs on.
+The source archive SHA-256 is
+`672bd7d10aee4606171afb864f3570b83340f6a33e2c186dc0512f7145ffdf6a`, matching
+the MSYS2 recipe for this version. libtiff's source license is MIT-style.
+
+Windows deployment substitutes this DLL and rejects remaining JBIG imports.
+The payload includes the source archive, LICENSE.md, recipe and build manifest.
+Packaging validates their hashes before recognizing the custom TIFF dependency;
+an unknown DLL remains blocked. TIFF with JBIG compression is unsupported and
+must be disclosed in tester/release notes. TIFF itself is retained. The initial
+engineering proof passed 18/18 upstream tests plus Qt TIFF None/LZW/Deflate
+checks; decoded None/LZW RGBA pixels matched the installed baseline exactly.
+
+Older deployments and the historical inventory above still contain JBIG.
+Rebuild/deploy before inspecting the new payload. This change does not approve
+other dependencies or certify macOS/Linux runtime contents. Detailed findings
+and remaining obligations are in [release-license-review.md](release-license-review.md).
 
 ## Other distribution review work
 
@@ -51,6 +66,13 @@ its new inventory is authoritative for that candidate. No runtime dependencies
 were newly installed for this work. Build/test-only GoogleTest is BSD-3-Clause;
 MSYS2 GCC/CMake/Ninja and GitHub build actions are development tools, not a claim
 that those tool binaries form the application payload.
+
+For the reviewed Windows versions, `distribution-review.json` binds component
+selection to exact package versions, DLL paths and installed license hashes.
+Packaging includes the complete signed Qt/GLib/libintl/libiconv source packages,
+rebuild/replacement instructions and notices, and verifies the pinned source
+hashes. Missing sources or changed components keep the gate closed. This is a
+specific engineering review, not approval of a new toolchain or another OS.
 
 ## Candidate verification and unverified gates
 

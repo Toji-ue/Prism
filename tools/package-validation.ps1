@@ -100,6 +100,70 @@ function Read-PrismMsysPackages([string]$MsysRoot) {
     }
 }
 
+function Assert-PrismTiffProvenance([string]$Payload) {
+    $notice = Join-Path $Payload 'tiff-runtime'
+    $manifest = Get-Content -LiteralPath (Join-Path $notice 'manifest.json') -Raw | ConvertFrom-Json
+    if ($manifest.schemaVersion -ne 1 -or $manifest.version -ne '4.7.2' -or $manifest.jbig -ne $false) { throw 'Unsupported TIFF build provenance' }
+    $sourceHash = '672bd7d10aee4606171afb864f3570b83340f6a33e2c186dc0512f7145ffdf6a'
+    $licenseHash = '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade'
+    if ($manifest.sourceSha256 -ne $sourceHash -or (Get-PrismHash (Join-Path $notice 'tiff-4.7.2.tar.gz')) -ne $sourceHash) { throw 'TIFF source provenance mismatch' }
+    if ($manifest.licenseSha256 -ne $licenseHash -or (Get-PrismHash (Join-Path $notice 'LICENSE.md')) -ne $licenseHash) { throw 'TIFF license mismatch' }
+    $recipeHash = Get-PrismHash (Join-Path $PSScriptRoot 'build-tiff-runtime.ps1')
+    if ($manifest.recipeSha256 -ne $recipeHash -or (Get-PrismHash (Join-Path $notice 'build-tiff-runtime.ps1')) -ne $recipeHash) { throw 'TIFF build recipe mismatch' }
+    if ((Get-PrismHash (Join-Path $Payload 'libtiff-6.dll')) -ne $manifest.dllSha256) { throw 'TIFF runtime hash mismatch' }
+    return $manifest
+}
+
+function Read-PrismDistributionReview {
+    $path = Join-Path $PSScriptRoot '..\third_party\distribution-review.json'
+    $review = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    if ($review.schemaVersion -ne 1 -or $review.platform -ne 'windows-ucrt64') { throw 'Unsupported distribution review' }
+    return $review
+}
+
+function Find-PrismRuntimeReview($Package, $RuntimeFiles, [string]$MsysRoot, $Review) {
+    $matches = @($Review.runtimeReviews | Where-Object { $_.package -eq $Package.name -and $_.version -eq $Package.version })
+    if ($matches.Count -ne 1) { return $null }
+    $entry = $matches[0]
+    $actual = @($RuntimeFiles | Where-Object package -eq $Package.name)
+    foreach ($file in $actual) {
+        if ($entry.runtimeFiles -notcontains $file.path) { return $null }
+    }
+    if (@($entry.licenseFiles).Count -eq 0) { return $null }
+    foreach ($license in $entry.licenseFiles) {
+        if ($Package.files -notcontains $license.path) { return $null }
+        $path = Join-Path $MsysRoot $license.path
+        if (-not (Test-Path -LiteralPath $path) -or (Get-PrismHash $path) -ne $license.sha256) { return $null }
+    }
+    return $entry
+}
+
+function Copy-PrismCorrespondingSources($Inventory, [string]$Destination) {
+    $review = Read-PrismDistributionReview
+    New-Item -ItemType Directory -Force $Destination | Out-Null
+    $cache = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\build\corresponding-sources'))
+    New-Item -ItemType Directory -Force $cache | Out-Null
+    foreach ($name in @($Inventory.packages | Where-Object sourcePackage | ForEach-Object sourcePackage | Sort-Object -Unique)) {
+        if ($name -notmatch '^mingw-w64-[a-z0-9.+-]+\.src\.tar\.zst$') { throw 'Invalid corresponding-source name' }
+        $sources = @($review.sources | Where-Object file -eq $name)
+        if ($sources.Count -ne 1) { throw "Missing source review: $name" }
+        $entry = $sources[0]
+        foreach ($suffix in @('', '.sig')) {
+            $file = Join-Path $cache ($name + $suffix)
+            if (-not (Test-Path -LiteralPath $file)) {
+                Invoke-WebRequest -UseBasicParsing -Uri ("https://repo.msys2.org/mingw/sources/" + $name + $suffix) -OutFile $file
+            }
+            $expected = if ($suffix) { $entry.signatureSha256 } else { $entry.sha256 }
+            if ((Get-PrismHash $file) -ne $expected) { throw "Corresponding source checksum mismatch: $name$suffix" }
+            Copy-Item -LiteralPath $file -Destination $Destination -Force
+        }
+    }
+    $key = Join-Path $PSScriptRoot '..\third_party\msys2-source-signing-key.asc'
+    if ((Get-PrismHash $key) -ne $review.publicKeySha256) { throw 'Source signing key changed since review' }
+    Copy-Item -LiteralPath $key -Destination $Destination -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\third_party\distribution-review.json') -Destination $Destination -Force
+}
+
 function Export-PrismNotices([string]$Payload, [string]$Output, [string]$MsysRoot = 'C:\msys64') {
     New-Item -ItemType Directory -Force -Path $Output | Out-Null
     $packages = @(Read-PrismMsysPackages $MsysRoot)
@@ -113,19 +177,32 @@ function Export-PrismNotices([string]$Payload, [string]$Output, [string]$MsysRoo
     }
     $used = @{}; $runtimes = @(); $unmatched = @()
     $base = [IO.Path]::GetFullPath($Payload).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    $customTiff = $null
     foreach ($file in Get-ChildItem -LiteralPath $Payload -File -Recurse -Filter '*.dll') {
         $hash = Get-PrismHash $file.FullName
+        $relative = $file.FullName.Substring($base.Length).Replace('\', '/')
+        if ($relative -ieq 'libtiff-6.dll' -and (Test-Path -LiteralPath (Join-Path $Payload 'tiff-runtime\manifest.json'))) {
+            $customTiff = Assert-PrismTiffProvenance $Payload
+            $runtimes += [ordered]@{ path = $relative; sha256 = $hash; package = 'prism-libtiff-no-jbig'; sourcePath = 'tiff-runtime/tiff-4.7.2.tar.gz' }
+            continue
+        }
         $match = $null
         foreach ($candidate in $dlls[$file.Name.ToLowerInvariant()]) {
             $source = Join-Path $MsysRoot $candidate.path
             if ((Test-Path -LiteralPath $source) -and (Get-PrismHash $source) -eq $hash) { $match = $candidate; break }
         }
-        $relative = $file.FullName.Substring($base.Length).Replace('\', '/')
         if (-not $match) { $unmatched += $relative; continue }
         $used[$match.package.name] = $match.package
         $runtimes += [ordered]@{ path = $relative; sha256 = $hash; package = $match.package.name; sourcePath = $match.path }
     }
     $inventory = @()
+    $distributionReview = Read-PrismDistributionReview
+    if ($customTiff) {
+        $folder = Join-Path $Output 'prism-libtiff-no-jbig'
+        New-Item -ItemType Directory -Force $folder | Out-Null
+        Copy-Item -Path (Join-Path $Payload 'tiff-runtime\*') -Destination $folder -Force
+        $inventory += [ordered]@{ name = 'prism-libtiff-no-jbig'; version = $customTiff.version; licenseFromPacman = 'MIT (pinned upstream LICENSE.md, custom build)'; upstream = 'https://libtiff.gitlab.io/libtiff/'; recipe = 'build-tiff-runtime.ps1'; review = 'recorded-permissive'; licenseFiles = @('LICENSE.md'); limitation = $customTiff.limitation }
+    }
     foreach ($package in $used.Values | Sort-Object name) {
         $folder = Join-Path $Output $package.name
         New-Item -ItemType Directory -Force -Path $folder | Out-Null
@@ -139,19 +216,44 @@ function Export-PrismNotices([string]$Payload, [string]$Output, [string]$MsysRoo
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
             Copy-Item -LiteralPath $source -Destination $destination -Force
         }
-        $status = 'recorded-permissive'
+        $status = 'distribution-review-required'
+        $componentReview = Find-PrismRuntimeReview $package $runtimes $MsysRoot $distributionReview
+        $sourcePackage = $null
+        $selectedLicense = $null
+        if ($componentReview) {
+            $sourcePackage = $componentReview.sourcePackage
+            $selectedLicense = $componentReview.selectedLicense
+            $status = if ($sourcePackage) { 'reviewed-LGPL-source-required' } else { 'reviewed-permissive-or-runtime-exception' }
+            if ($componentReview.requiresGplExceptionSignoff -and -not $componentReview.gplExceptionSignoff) {
+                $status = 'blocked-GPL-exception-signoff-required'
+            }
+        }
         if ($package.name -like '*-jbigkit') { $status = 'blocked-GPL-signoff-required' }
-        elseif ($package.license -match 'LGPL|MPL|GPL|LicenseRef|custom') { $status = 'distribution-review-required' }
         if ($licensePaths.Count -eq 0) { $status = 'missing-license-text' }
-        $inventory += [ordered]@{ name = $package.name; version = $package.version; licenseFromPacman = $package.license; upstream = $package.upstream; recipe = "https://github.com/msys2/MINGW-packages/tree/master/$($package.packageBase)"; review = $status; licenseFiles = $licensePaths }
+        $inventory += [ordered]@{ name = $package.name; version = $package.version; licenseFromPacman = $package.license; selectedLicense = $selectedLicense; sourcePackage = $sourcePackage; upstream = $package.upstream; recipe = "https://github.com/msys2/MINGW-packages/tree/master/$($package.packageBase)"; review = $status; licenseFiles = $licensePaths }
     }
-    $result = [ordered]@{ schemaVersion = 1; recordedUtc = [DateTime]::UtcNow.ToString('o'); origin = 'Installed MSYS2 pacman database and byte-matched DLLs, not a compliance certification'; packages = $inventory; runtimeFiles = $runtimes; unmatchedDlls = $unmatched }
+    $result = [ordered]@{ schemaVersion = 1; recordedUtc = [DateTime]::UtcNow.ToString('o'); origin = 'Byte-matched MSYS2 DLLs and hash-validated custom TIFF provenance, not a compliance certification'; packages = $inventory; runtimeFiles = $runtimes; unmatchedDlls = $unmatched }
     Write-PrismJson (Join-Path $Output 'dependency-inventory.json') $result
     return $result
 }
 
-function Assert-PrismDistributionLicenses($Inventory) {
-    $issues = @($Inventory.packages | Where-Object review -ne 'recorded-permissive' | ForEach-Object { "$($_.name) $($_.version): $($_.review) [$($_.licenseFromPacman)]" })
+function Assert-PrismDistributionLicenses($Inventory, [string]$Sources = '') {
+    $review = Read-PrismDistributionReview
+    $issues = @()
+    foreach ($package in $Inventory.packages) {
+        if ($package.review -in @('recorded-permissive', 'reviewed-permissive-or-runtime-exception')) { continue }
+        if ($package.review -eq 'reviewed-LGPL-source-required' -and $Sources) {
+            $entries = @($review.sources | Where-Object file -eq $package.sourcePackage)
+            if ($entries.Count -eq 1) {
+                $entry = $entries[0]
+                $file = Join-Path $Sources $entry.file
+                $signature = $file + '.sig'
+                if ((Test-Path -LiteralPath $file) -and (Test-Path -LiteralPath $signature) -and
+                    (Get-PrismHash $file) -eq $entry.sha256 -and (Get-PrismHash $signature) -eq $entry.signatureSha256) { continue }
+            }
+        }
+        $issues += "$($package.name) $($package.version): $($package.review) [$($package.licenseFromPacman)]"
+    }
     $issues += @($Inventory.unmatchedDlls | ForEach-Object { "Unknown DLL provenance: $_" })
     if ($issues.Count -gt 0) { throw ("Candidate distribution is blocked. Review the staged THIRD-PARTY inventory and exact license texts:`n" + ($issues -join "`n")) }
 }
@@ -188,5 +290,33 @@ if ($SelfTest) {
     $blocked = $false
     try { Assert-PrismDistributionLicenses @{ packages = @(@{ name = 'jbigkit'; version = '2.1'; review = 'blocked-GPL-signoff-required'; licenseFromPacman = 'GPL-2.0' }); unmatchedDlls = @() } } catch { $blocked = $true }
     if (-not $blocked) { throw 'Blocked dependency was accepted' }
-    Write-Output 'PASS: staged/ZIP hashes, modified payload/ZIP rejection, GPL distribution gate'
+    New-Item -ItemType Directory -Force (Join-Path $fixture 'payload\tiff-runtime') | Out-Null
+    Write-PrismJson (Join-Path $fixture 'payload\tiff-runtime\manifest.json') @{ schemaVersion = 1; version = '4.7.2'; jbig = $false; sourceSha256 = 'untrusted' }
+    $blocked = $false
+    try { Assert-PrismTiffProvenance (Join-Path $fixture 'payload') | Out-Null } catch { $blocked = $true }
+    if (-not $blocked) { throw 'Untrusted TIFF provenance was accepted' }
+    $licenseRoot = Join-Path $fixture 'toolchain'
+    $licenseRelative = 'share/licenses/fixture/LICENSE'
+    $licensePath = Join-Path $licenseRoot $licenseRelative
+    New-Item -ItemType Directory -Force (Split-Path -Parent $licensePath) | Out-Null
+    [IO.File]::WriteAllText($licensePath, 'reviewed permissive license')
+    $package = [pscustomobject]@{ name = 'fixture'; version = '1'; files = @($licenseRelative) }
+    $runtime = @([pscustomobject]@{ package = 'fixture'; path = 'fixture.dll' })
+    $review = [pscustomobject]@{ runtimeReviews = @([pscustomobject]@{
+        package = 'fixture'; version = '1'; runtimeFiles = @('fixture.dll')
+        licenseFiles = @([pscustomobject]@{ path = $licenseRelative; sha256 = Get-PrismHash $licensePath })
+    }) }
+    if (-not (Find-PrismRuntimeReview $package $runtime $licenseRoot $review)) { throw 'Matching component review was rejected' }
+    $package.version = '2'
+    if (Find-PrismRuntimeReview $package $runtime $licenseRoot $review) { throw 'Changed component version was accepted' }
+    $package.version = '1'
+    $runtime[0].path = 'unreviewed.dll'
+    if (Find-PrismRuntimeReview $package $runtime $licenseRoot $review) { throw 'Unreviewed component DLL was accepted' }
+    $runtime[0].path = 'fixture.dll'
+    [IO.File]::WriteAllText($licensePath, 'changed license')
+    if (Find-PrismRuntimeReview $package $runtime $licenseRoot $review) { throw 'Changed license bytes were accepted' }
+    $blocked = $false
+    try { Assert-PrismDistributionLicenses @{ packages = @(@{ name = 'fixture'; version = '1'; review = 'reviewed-LGPL-source-required'; sourcePackage = 'missing.src.tar.zst' }); unmatchedDlls = @() } } catch { $blocked = $true }
+    if (-not $blocked) { throw 'LGPL runtime without corresponding sources was accepted' }
+    Write-Output 'PASS: payload/ZIP integrity, GPL and TIFF gates, exact component review, missing LGPL source rejection'
 }

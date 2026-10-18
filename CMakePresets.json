@@ -21,11 +21,21 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "native-release",
+      "displayName": "Native macOS/Linux release staging",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-native-release",
+      "cacheVariables": {
+        "PRISM_STAGE_NATIVE_RUNTIME": "ON"
+      }
     }
   ],
   "buildPresets": [
     { "name": "default", "configurePreset": "default" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "release", "configurePreset": "release" },
+    { "name": "native-release", "configurePreset": "native-release" }
   ],
   "testPresets": [
     {

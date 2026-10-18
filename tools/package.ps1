@@ -87,6 +87,8 @@ drawing/recording/recovery/export, and clean-machine install/upgrade/uninstall
 remain external acceptance gates unless separately recorded for THIS identity.
 Linux/macOS CI checks build/core tests only; it does not certify those releases.
 Current colour support: RGB/Alpha, 8-bit, sRGB. No wet pigment simulation.
+TIFF supports the configured non-JBIG codecs. TIFF with JBIG compression is
+unsupported; the optional GPL JBIG-KIT runtime is not bundled.
 Manifest checks identify exactly which automated gates ran; unlisted checks
 are unverified. License provenance is not a claim of legal compliance.
 
@@ -98,7 +100,12 @@ and %APPDATA%\Prism\Prism\prism.log. Do not send private artwork unnecessarily.
 [IO.File]::WriteAllText((Join-Path $stage 'README-TESTER.txt'), $notes, [Text.UTF8Encoding]::new($false))
 $notices = Join-Path $stage 'THIRD-PARTY'
 $inventory = Export-PrismNotices $stage $notices $MsysRoot
-$licenseStatus = if (@($inventory.packages | Where-Object review -ne 'recorded-permissive').Count -gt 0 -or @($inventory.unmatchedDlls).Count -gt 0) { 'blocked-unreviewed-dependencies' } else { 'permissive-metadata-recorded; obligations not certified' }
+$sources = Join-Path $notices 'SOURCES'
+Copy-PrismCorrespondingSources $inventory $sources
+Copy-Item -LiteralPath (Join-Path $root 'third_party\LIBRARY-REPLACEMENT.txt') -Destination $notices
+Copy-Item -LiteralPath (Join-Path $root 'third_party\NOTICES.txt') -Destination $notices
+Assert-PrismDistributionLicenses $inventory $sources
+$licenseStatus = 'byte-matched component review with corresponding sources and replacement instructions; not a legal certification'
 Copy-Item -LiteralPath (Join-Path $root 'third_party\README.md') -Destination (Join-Path $notices 'README.md')
 # Installer removes only these exact relative application files, never user-data trees.
 $ownedDirectories = @(Get-ChildItem -LiteralPath $stage -Directory -Recurse | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object { $_.FullName.Substring($stage.Length + 1) })
@@ -109,7 +116,7 @@ $manifest = [ordered]@{ schemaVersion = 1; version = $identity.version; gitCommi
 Write-PrismJson (Join-Path $stage 'candidate-manifest.json') $manifest
 Assert-PrismPayload $stage $manifest $release
 # Stage remains reviewable if this fails, but no distributable ZIP/installer is emitted.
-Assert-PrismDistributionLicenses $inventory
+Assert-PrismDistributionLicenses $inventory $sources
 $makensis = Join-Path $MsysRoot 'mingw64\bin\makensis.exe'
 if (-not (Test-Path -LiteralPath $makensis)) { throw "NSIS compiler missing: $makensis. Install the build tool explicitly before packaging." }
 $setup = Join-Path $dist "$name-Setup.exe"

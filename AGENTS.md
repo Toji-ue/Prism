@@ -130,6 +130,18 @@ Add presets in `CMakePresets.json` rather than inventing ad-hoc flag combination
 all — `tools/deploy.ps1` copies whatever plugins exist and then fails on `--check-formats` if the
 essentials are missing, so a machine without the package cannot ship a silently crippled installer.
 
+**TIFF distribution build.** The user approved keeping TIFF without the optional
+JBIG codec on 2026-10-17. Windows deployment runs `tools/build-tiff-runtime.ps1`,
+which builds pinned libtiff 4.7.2 with `jbig=OFF`, tests it, and bundles its source,
+license and recipe provenance. Never replace the installed MSYS2 DLL globally.
+TIFF compressed with JBIG is unsupported in this build. Packaging validates the
+custom DLL/source/recipe hashes; other runtime license reviews remain required.
+
+**GCC runtime exception.** On 2026-10-18 the user explicitly approved shipping
+`libgcc_s_seh-1.dll` and `libstdc++-6.dll` under GPLv3 with GCC Runtime Library
+Exception 3.1, with their licenses/notices. This sign-off covers only these two
+runtime DLLs in the reviewed Windows payload; GPL/JBIG remains unapproved.
+
 ## Core domain concepts
 
 Understand these before touching canvas, rendering, or history code:
@@ -157,6 +169,12 @@ Understand these before touching canvas, rendering, or history code:
 ## Known gotchas
 
 Mistakes that are easy to make in this codebase and easy to miss in review:
+
+- **Publishing a texture node before its texture exists.** On a growing canvas,
+  the software renderer inspects a newly appended tile immediately. Initialize
+  its texture and rectangle before `appendChildNode`. A recreated scene graph
+  also needs fresh textures even if the canvas dirty flags are clear. The
+  Windows software-backend UX test caught this crash; RHI-only tests did not.
 
 - **Full-canvas recompute on a single-layer change.** A visibility/opacity toggle, a blend-mode change, or a single stroke tick must only touch the dirty region's composite cache, not re-rasterize the whole 4000×4000 canvas.
 - **Mutating pixel data without a history entry.** Any code path that writes into layer pixel data outside the command/history system will silently break undo — this is a correctness bug, not just a UX gap.
@@ -250,4 +268,4 @@ Get explicit sign-off before:
 
 ## Local candidate validation
 
-For UX-beta completion evidence, review `docs/local-candidate-validation.md` and `docs/ux-beta-plan.md`. `PrismVersion.txt` supplies the compiled/runtime candidate version (do not use a root VERSION file: Windows resolves it instead of C++ `<version>`). Development deployment uses fresh dynamic Qt files, Release tests, executable/payload hashes and a source fingerprint. External packaging is separately blocked by the TIFF → libtiff → GPL jbigkit dependency and other unreviewed runtime licenses; see `third_party/README.md`. Do not silently remove codecs, claim distribution approval, or treat local CI files as completed remote CI runs.
+For UX-beta completion evidence, review `docs/local-candidate-validation.md` and `docs/ux-beta-plan.md`. `PrismVersion.txt` supplies the compiled/runtime candidate version (do not use a root VERSION file: Windows resolves it instead of C++ `<version>`). Deployment uses fresh dynamic Qt files, Release tests, payload hashes and a source fingerprint. Windows packaging requires the exact component/notice review in `third_party/distribution-review.json`, corresponding source copies and replacement instructions; see `third_party/release-license-review.md`. Changed or unreviewed dependencies remain blocked. The original MSYS2 TIFF → libtiff → GPL jbigkit chain is replaced only by the approved no-JBIG recipe. macOS/Linux need separate native payload/source reviews. Do not silently remove codecs, claim blanket distribution approval, or treat local CI files as completed remote CI runs.
