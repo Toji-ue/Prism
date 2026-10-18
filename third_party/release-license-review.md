@@ -136,6 +136,20 @@ separate; a license review does not close them.
 
 The native-release preset stages through Qt's deployment API. CI uploads only
 test logs and inventory reports while native component/source review is pending.
-The macOS inventory records `otool -L` install names; it does not yet resolve
-`@rpath` dependencies and explicitly labels closure verification as unverified.
+The macOS inventory resolves install names against each image's LC_RPATH and
+the application's LC_RPATH, with explicit loader/executable expansion. Missing
+bundled files and external non-system libraries fail validation. Unit tests
+cover missing @rpath files; native execution remains a separate CI gate.
 Linux `ldd` results establish resolution on the runner, not on a clean machine.
+
+Run 39096336188 built and passed all 152 tests on macOS and Linux. macOS passed
+the format probe but its staged probe incorrectly requested offscreen while the
+bundle selected cocoa. The staged macOS probe now uses its native platform.
+Linux failed its format probe for TIFF; the next run builds the approved pinned
+no-JBIG libtiff and supplies it beside the Qt plugin. This remains unverified
+until that run completes.
+
+Windows PS 5.1 attached provider metadata to pacman strings read by Get-Content.
+JSON serialization then followed those object graphs and consumed excessive
+memory. The package reader now uses plain .NET file lines; the regression test
+checks actual parsed metadata remains a small JSON value without provider data.

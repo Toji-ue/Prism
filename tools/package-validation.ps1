@@ -90,12 +90,14 @@ function Assert-PrismZip([string]$Zip, $Manifest) {
 function Read-PrismMsysPackages([string]$MsysRoot) {
     foreach ($dir in Get-ChildItem -LiteralPath (Join-Path $MsysRoot 'var\lib\pacman\local') -Directory -Filter 'mingw-w64-ucrt-x86_64-*') {
         $values = @{}; $key = ''
-        foreach ($line in Get-Content -LiteralPath (Join-Path $dir.FullName 'desc')) {
+        # Get-Content attaches PSDrive/provider graphs to strings on Windows PS 5.1;
+        # serializing those expands a tiny inventory into gigabytes of metadata.
+        foreach ($line in [IO.File]::ReadAllLines((Join-Path $dir.FullName 'desc'))) {
             if ($line -match '^%(.+)%$') { $key = $Matches[1]; $values[$key] = @() }
             elseif ($line -ne '' -and $key) { $values[$key] += $line }
         }
         if ($values.NAME[0] -like '*-debug') { continue }
-        $files = @(Get-Content -LiteralPath (Join-Path $dir.FullName 'files') | Where-Object { $_ -notmatch '^%' -and $_ -ne '' -and $_ -notmatch '/$' })
+        $files = @([IO.File]::ReadAllLines((Join-Path $dir.FullName 'files')) | Where-Object { $_ -notmatch '^%' -and $_ -ne '' -and $_ -notmatch '/$' })
         [pscustomobject]@{ name = $values.NAME[0]; version = $values.VERSION[0]; license = $values.LICENSE -join ' '; upstream = $values.URL[0]; packageBase = $values.BASE[0]; description = $values.DESC[0]; files = $files; metadata = Join-Path $dir.FullName 'desc' }
     }
 }
@@ -265,6 +267,13 @@ if ($SelfTest) {
     if (-not $fixture.StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) { throw 'Fixture must remain inside build' }
     if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
     New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'payload\plugins') | Out-Null
+    $pacman = Join-Path $fixture 'var\lib\pacman\local\mingw-w64-ucrt-x86_64-fixture-1'
+    New-Item -ItemType Directory -Force $pacman | Out-Null
+    [IO.File]::WriteAllText((Join-Path $pacman 'desc'), "%NAME%`nmingw-w64-ucrt-x86_64-fixture`n`n%VERSION%`n1`n`n%LICENSE%`nMIT`n`n%BASE%`nfixture`n`n%URL%`nhttps://example.invalid`n`n%DESC%`nFixture runtime`n")
+    [IO.File]::WriteAllText((Join-Path $pacman 'files'), "%FILES%`nucrt64/bin/fixture.dll`n")
+    $parsed = @(Read-PrismMsysPackages $fixture)
+    $serialized = $parsed | ConvertTo-Json -Depth 3 -Compress
+    if ($parsed.Count -ne 1 -or $serialized.Length -gt 1024 -or $serialized -match 'PSDrive|PSProvider') { throw 'Package metadata must serialize as plain values' }
     [IO.File]::WriteAllText((Join-Path $fixture 'release.exe'), 'tested release')
     Copy-Item -LiteralPath (Join-Path $fixture 'release.exe') -Destination (Join-Path $fixture 'payload\prism.exe')
     [IO.File]::WriteAllText((Join-Path $fixture 'payload\plugins\plugin.dll'), 'plugin bytes')

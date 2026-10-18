@@ -12,6 +12,25 @@ spec.loader.exec_module(inventory)
 
 
 class NativeRuntimeInventoryTest(unittest.TestCase):
+    def test_macos_rpath_requires_a_real_bundled_library(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            executable = root / 'Prism.app/Contents/MacOS/Prism'
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b'program')
+            library = root / 'Prism.app/Contents/Frameworks/QtCore.framework/Versions/A/QtCore'
+            library.parent.mkdir(parents=True)
+            library.write_bytes(b'library')
+            commands = 'cmd LC_RPATH\ncmdsize 48\npath @executable_path/../Frameworks (offset 12)'
+            dependencies = 'Prism:\n\t@rpath/QtCore.framework/Versions/A/QtCore (compatibility version 6.0.0, current version 6.11.1)'
+            with patch.object(inventory.subprocess, 'run', return_value=
+                              inventory.subprocess.CompletedProcess([], 0, commands, '')):
+                result = inventory.resolve_macho_dependencies(executable, executable, root, dependencies, {})
+                self.assertEqual(result[0]['path'], library.relative_to(root).as_posix())
+                library.unlink()
+                with self.assertRaisesRegex(ValueError, 'Unresolved bundled macOS dependency'):
+                    inventory.resolve_macho_dependencies(executable, executable, root, dependencies, {})
+
     def test_source_text_is_hashed_without_executing_dependency_tools(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 
 
@@ -20,6 +21,51 @@ def is_binary(header):
 def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def expand_macho_path(value, binary, executable):
+    for token, base in (('@loader_path', binary.parent), ('@executable_path', executable.parent)):
+        if value == token or value.startswith(token + '/'):
+            return base / value[len(token):].lstrip('/')
+    return Path(value) if value.startswith('/') else None
+
+def macho_commands(binary, environment):
+    output = subprocess.run(['otool','-l',str(binary)], capture_output=True, text=True, env=environment, check=True).stdout
+    rpaths = re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (.+?) \(offset \d+\)', output)
+    names = re.findall(r'cmd LC_ID_DYLIB\s+cmdsize \d+\s+name (.+?) \(offset \d+\)', output)
+    return rpaths, names
+
+def resolve_macho_dependencies(binary, executable, root, dependencies, environment):
+    search = []
+    own_names = []
+    for owner in dict.fromkeys((binary, executable)):
+        rpaths, names = macho_commands(owner, environment)
+        if owner == binary:
+            own_names = names
+        for value in rpaths:
+            folder = expand_macho_path(value, owner, executable)
+            if folder is not None:
+                search.append(folder)
+    resolved = []
+    for line in dependencies.splitlines():
+        if ' (compatibility version ' not in line:
+            continue
+        name = line.strip().split(' (compatibility version ',1)[0]
+        if name in own_names:
+            continue
+        if name.startswith(('/System/Library/', '/usr/lib/')):
+            resolved.append({'name':name,'provider':'macOS'})
+            continue
+        if name.startswith('@rpath/'):
+            candidates = [folder / name[len('@rpath/'):] for folder in search]
+        else:
+            direct = expand_macho_path(name, binary, executable)
+            candidates = [direct] if direct else []
+        actual = next((p.resolve() for p in candidates if p.is_file() and p.resolve().is_relative_to(root)), None)
+        if actual is None:
+            raise ValueError(f'Unresolved bundled macOS dependency in {binary.relative_to(root)}: {name}')
+        resolved.append({'name':name,'path':actual.relative_to(root).as_posix()})
+    return resolved
 
 
 def inspect(root):
@@ -54,6 +100,12 @@ def inspect(root):
             if qt_root and qt_root in dependencies:
                 raise ValueError(f"Deployment still references Qt SDK for {relative}")
             entry["dependencies"] = dependencies.splitlines()
+            if system == "Darwin":
+                executables = list(root.glob("*.app/Contents/MacOS/Prism"))
+                if len(executables) != 1:
+                    raise ValueError("Expected one Prism.app executable in native payload")
+                entry["resolvedDependencies"] = resolve_macho_dependencies(
+                    path, executables[0], root, dependencies, environment)
         result.append(entry)
     return result
 
@@ -68,7 +120,7 @@ def main():
         parser.error("Use an existing payload directory and a report outside that directory")
     data = {"schemaVersion": 1, "platform": platform.platform(), "machine": platform.machine(),
             "distributionReview": "pending native component/source review",
-            "dependencyResolution": ("unverified: otool lists install names only; macOS closure review required"
+            "dependencyResolution": ("bundled install names resolved with LC_RPATH; macOS system libraries supplied by OS"
                                      if platform.system() == "Darwin" else "ldd resolved on build host; clean-machine acceptance pending"),
             "payload": inspect(root)}
     args.output.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

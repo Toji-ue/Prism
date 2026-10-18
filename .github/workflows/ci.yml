@@ -99,6 +99,11 @@ jobs:
       - name: Core and recorder compatibility tests
         # Windows Media Foundation MP4/selftest hooks are deliberately not invoked here.
         run: ctest --test-dir build-native-release --output-on-failure
+      - name: Build approved Linux TIFF runtime
+        if: runner.os == 'Linux'
+        run: |
+          python3 -B tools/build-native-tiff.py
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-tiff/prefix/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
       - name: Required image formats including TIFF
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
@@ -115,8 +120,24 @@ jobs:
           else
             exe="$GITHUB_WORKSPACE/build/native-stage/bin/prism"
           fi
-          env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH "$exe" --check-formats
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            env -u QT_QPA_PLATFORM -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH "$exe" --check-formats
+          else
+            cp -P build/native-tiff/prefix/lib/libtiff.so* build/native-stage/lib/
+            env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH "$exe" --check-formats
+          fi
           python3 -B tools/native-runtime-inventory.py build/native-stage build/native-runtime-inventory.json
+          python3 - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          sdk = Path(os.environ['QT_ROOT_DIR'])
+          out = Path('build/native-qt-evidence')
+          for p in sdk.rglob('*'):
+              if p.is_file() and (any(part.lower() in ('sbom', 'licenses') for part in p.relative_to(sdk).parts) or p.name in ('qconfig.pri', 'config.opt')):
+                  dest = out / p.relative_to(sdk)
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(p, dest)
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -124,4 +145,5 @@ jobs:
           path: |
             build-native-release/Testing/Temporary/LastTest.log
             build/native-runtime-inventory.json
+            build/native-qt-evidence/
           if-no-files-found: warn
