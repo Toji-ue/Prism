@@ -1,6 +1,7 @@
 """Build the approved TIFF variant for the Linux Qt image plugin, without JBIG."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,3 +33,27 @@ for library in (prefix / 'lib').glob('libtiff.so*'):
     if 'jbig' in deps.lower() or 'not found' in deps:
         raise ValueError('Unapproved or missing TIFF dependency: ' + deps)
 print('Verified TIFF prefix:', prefix)
+
+# The SDK's image plugin is a separate build product. Build its TIFF target
+# against this exact runtime instead of relying on a vendor plugin's ABI.
+qt = Path(os.environ['QT_ROOT_DIR'])
+plugin_archive = work / 'qtimageformats-everywhere-src-6.11.1.tar.xz'
+plugin_hash = 'b2bf6c6845ac175ed7f819145483ba4676f617aaa6a5012c8efee63c8bbac413'
+if not plugin_archive.exists():
+    with urllib.request.urlopen('https://download.qt.io/official_releases/qt/6.11/6.11.1/submodules/' + plugin_archive.name, timeout=120) as source_stream, plugin_archive.open('wb') as target:
+        shutil.copyfileobj(source_stream, target)
+with plugin_archive.open('rb') as source_stream:
+    if hashlib.file_digest(source_stream, 'sha256').hexdigest() != plugin_hash:
+        raise ValueError('Qt imageformats source checksum mismatch')
+subprocess.run(['cmake', '-E', 'tar', 'xJf', str(plugin_archive)], cwd=work, check=True)
+plugin_source = work / 'qtimageformats-everywhere-src-6.11.1'
+plugin_build = work / 'qtimageformats-build'
+subprocess.run(['cmake', '-S', str(plugin_source), '-G', 'Ninja',
+                '-B', str(plugin_build), '-DCMAKE_BUILD_TYPE=Release',
+                '-DQT_BUILD_TESTS=OFF', '-DQT_BUILD_EXAMPLES=OFF', '-DINPUT_tiff=system',
+                '-DTIFF_ROOT=' + str(prefix), '-DCMAKE_PREFIX_PATH=' + str(qt) + ';' + str(prefix)], check=True)
+subprocess.run(['cmake', '--build', str(plugin_build), '--target', 'QTiffPlugin', '--parallel', '2'], check=True)
+plugin = plugin_build / 'plugins/imageformats/libqtiff.so'
+if not plugin.is_file():
+    raise ValueError('Expected Qt TIFF plugin was not built')
+shutil.copy2(plugin, qt / 'plugins/imageformats/libqtiff.so')

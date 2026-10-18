@@ -102,6 +102,7 @@ jobs:
       - name: Build approved Linux TIFF runtime
         if: runner.os == 'Linux'
         run: |
+          find "$QT_ROOT_DIR/plugins/imageformats" -name '*tiff*' -exec ldd {} \;
           python3 -B tools/build-native-tiff.py
           echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-tiff/prefix/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
       - name: Required image formats including TIFF
@@ -124,7 +125,13 @@ jobs:
             env -u QT_QPA_PLATFORM -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH "$exe" --check-formats
           else
             cp -P build/native-tiff/prefix/lib/libtiff.so* build/native-stage/lib/
+            cp "$QT_ROOT_DIR/plugins/platforms/libqoffscreen.so" build/native-stage/plugins/platforms/
             env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH "$exe" --check-formats
+          fi
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            env -u QT_QPA_PLATFORM -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u DYLD_LIBRARY_PATH QT_QUICK_BACKEND=software "$exe" --screenshot-only --screenshot="$GITHUB_WORKSPACE/build/native-start.png"
+          else
+            env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH QT_QUICK_BACKEND=software "$exe" --screenshot-only --screenshot="$GITHUB_WORKSPACE/build/native-start.png"
           fi
           python3 -B tools/native-runtime-inventory.py build/native-stage build/native-runtime-inventory.json
           python3 - <<'PY'
@@ -146,4 +153,5 @@ jobs:
             build-native-release/Testing/Temporary/LastTest.log
             build/native-runtime-inventory.json
             build/native-qt-evidence/
+            build/native-start.png
           if-no-files-found: warn
