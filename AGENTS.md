@@ -142,6 +142,16 @@ custom DLL/source/recipe hashes; other runtime license reviews remain required.
 Exception 3.1, with their licenses/notices. This sign-off covers only these two
 runtime DLLs in the reviewed Windows payload; GPL/JBIG remains unapproved.
 
+**Native packaging.** `native-release` stages macOS/Linux through Qt's native
+deployment API. `tools/package-native.py` requires a platform-specific binary
+path/SPDX/source review before writing artifacts; see
+`third_party/native-release-license-review.md`. macOS candidates use an ad-hoc
+local signature and include source/replacement instructions; they are not
+Developer ID signed or notarized. Linux candidates target Ubuntu 24.04 x86_64,
+retain reviewed ICU and a no-JBIG TIFF/plugin build, and require their own native
+review. Hardware/clean-machine gates stay
+separate from these build and archive checks.
+
 ## Core domain concepts
 
 Understand these before touching canvas, rendering, or history code:
