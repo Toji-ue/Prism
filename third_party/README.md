@@ -60,9 +60,9 @@ flagged in the inventory. Supply the matching source/build provenance required
 by those licenses. Preserve all relevant copyright and license notices. The
 current script deliberately refuses to certify or ship an unreviewed payload.
 
-The existing local runtime also includes excess Qt/QML modules. A fresh
-`windeployqt --qmldir` deployment replaces that broad copy with resolved imports;
-its new inventory is authoritative for that candidate. No runtime dependencies
+Historical local runtimes included excess Qt/QML modules. Fresh
+`windeployqt --qmldir` deployments use resolved imports;
+their new inventory is authoritative for each candidate. No runtime dependencies
 were newly installed for this work. Build/test-only GoogleTest is BSD-3-Clause;
 MSYS2 GCC/CMake/Ninja and GitHub build actions are development tools, not a claim
 that those tool binaries form the application payload.
@@ -88,5 +88,7 @@ remain gates requiring recorded results for the exact candidate identity.
 
 Run `powershell -ExecutionPolicy Bypass -File tools/package-validation.ps1 -SelfTest`
 for the isolated payload/ZIP/tamper/license fixtures. CI checks Windows synthetic
-interactions and Linux/macOS builds/core tests; it does not publish a candidate
-or replace the external acceptance gates.
+interactions and Linux/macOS builds/core tests. Reviewed native payloads also
+produce source-bearing prerelease artifacts through `tools/package-native.py`.
+Platform reviews and limits are in `native-release-license-review.md`; CI
+artifacts do not replace external acceptance or a deliberate Release publication.

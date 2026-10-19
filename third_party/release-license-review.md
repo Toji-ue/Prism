@@ -106,17 +106,19 @@ link them into Prism. The GCC runtime exception selection applies to the listed
 runtime libraries used by this independent application through normal eligible
 GCC compilation, not to bundling compiler tools.
 
-The remaining proof is the fresh no-JBIG payload, manifest/ZIP checks and native
-installer smoke testing. New toolchain versions require a new component/source
-review; the current review cannot approve another platform or a changed payload.
+Windows candidate 8deb20e passed fresh no-JBIG deployment, 152 tests, staged
+selftest and manifest/ZIP checks, with complete source copies in its artifacts.
+Clean-machine installer testing remains open. New toolchain versions require
+a new component/source review; this Windows review does not approve another OS.
 
 ## Platform status and publication
 
-The existing workflow builds/tests clients; it does not package three releases.
+The workflow builds/tests clients and gates native prerelease packaging.
+The current release evidence is in docs/local-candidate-validation.md.
 The first actual master run at `ba36462` passed Linux build/tests and failed
 macOS compilation on a narrowing alpha conversion. Commit `63694b2` fixes that
-conversion; its Windows Release suite passed **152/152**. Fresh native CI must
-establish the macOS result. The next macOS failure identified unavailable
+conversion; its Windows Release suite passed **152/152**. Subsequent native CI
+established the macOS result. The next macOS failure identified unavailable
 `std::jthread` in the runner's Apple libc++; the recorder now uses `std::thread`
 with its existing explicit stop/join lifecycle. The Windows software-renderer
 crash was reproduced locally with QTest/GDB: new canvas tiles were attached
@@ -126,16 +128,15 @@ test invokes Focus through real Tab input so viewport preservation uses the same
 route as the product. Portable CI now installs qtimageformats and checks
 required formats including TIFF, rather than treating a core build as codec proof.
 
-macOS still needs a deployed app bundle, runtime/license inventory, replacement
-instructions and signing/notarization decisions. Linux needs a relocatable
-payload, runtime/license inventory and target-distribution smoke checks. Windows
-needs the fresh no-JBIG deployment inventory and the remaining LGPL deliverables.
-No GitHub Release binary assets may be published until these requirements pass.
+macOS/Linux have separate runtime/SPDX/source reviews, replacement instructions
+and native startup checks in `native-release-license-review.md`. Their exact
+source/archive checks must pass before Release assets are published. macOS uses
+an ad-hoc signature; Developer ID/notarization remains unverified.
 Hardware, eight-hour soak, clean-machine, and the recorded performance gate are
 separate; a license review does not close them.
 
-The native-release preset stages through Qt's deployment API. CI uploads only
-test logs and inventory reports while native component/source review is pending.
+The native-release preset stages through Qt's deployment API. CI uploads
+prerelease artifacts only after the matching native packaging review passes.
 The macOS inventory resolves install names against each image's LC_RPATH and
 the application's LC_RPATH, with explicit loader/executable expansion. Missing
 bundled files and external non-system libraries fail validation. Unit tests
@@ -145,9 +146,9 @@ Linux `ldd` results establish resolution on the runner, not on a clean machine.
 Run 39096336188 built and passed all 152 tests on macOS and Linux. macOS passed
 the format probe but its staged probe incorrectly requested offscreen while the
 bundle selected cocoa. The staged macOS probe now uses its native platform.
-Linux failed its format probe for TIFF; the next run builds the approved pinned
-no-JBIG libtiff and supplies it beside the Qt plugin. This remains unverified
-until that run completes.
+Linux initially failed its TIFF probe: the SDK plugin required libtiff.so.5.
+Rebuilding that plugin against pinned no-JBIG libtiff 4.7.2 passed in run
+39097262425. The current native review records its source and runtime scope.
 
 Windows PS 5.1 attached provider metadata to pacman strings read by Get-Content.
 JSON serialization then followed those object graphs and consumed excessive

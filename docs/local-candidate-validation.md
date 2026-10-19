@@ -349,11 +349,77 @@ and long-session responsiveness still require hardware/soak evidence.
 - Eight-hour actual drawing session, retry responsiveness, forced crash, recovered
   recording and full/partial exports; keep user recordings until confirmed deletion.
 - Clean Windows install/upgrade/uninstall and user-data preservation.
-- Completed remote Windows CI, macOS/Linux build/test runs and supported hardware
-  performance; workflow files alone are not successful CI runs.
-- Distribution license review remains blocked by the shipped TIFF chain
-  `qtiff.dll → libtiff-6.dll → libjbig-0.dll` (jbigkit GPL-2.0), plus other runtime
-  review items in `third_party/README.md`. No codec was removed and no dependency
-  was approved by this task. Local deployment and external packaging are separate.
+- Supported-hardware performance, including the recorded 4000×4000 regression.
+- Repeat exact package/source/archive review whenever a distributed runtime
+  changes. The identities below passed this gate; changed or unknown runtimes
+  still require review. See `third_party/release-license-review.md` and
+  `third_party/native-release-license-review.md`.
 
 These gates remain open in `roadmap.md` and `ux-beta-plan.md`.
+
+## Three-platform prerelease continuation — 2026-10-19
+
+This section supersedes earlier statements that all remote CI or Windows
+distribution work is unverified. Run **39097262425** passed Windows, macOS 14
+arm64 and Ubuntu 24.04 x86_64 build/tests. Each platform passed **152 tests**;
+Windows also passed selftest and native QTest interactions. Final run
+[39199227884](https://github.com/Toji-ue/Prism/actions/runs/39199227884)
+at commit **93e470551b08c302db4cfd39043f616474e67789** passed all three jobs,
+including native package/source/archive validation and startup binding checks.
+
+### Windows candidate
+
+- Source commit: `8deb20e0cc47f91e7fe185bb8804b2b414555331`.
+- Source fingerprint: `2afe57ce72966733925d15ad5a14bb8f0070da48302c55d1f93be012d61fea6e`.
+- Executable SHA-256: `f00b9d07e10149818a99dd71506fa109e54987ce081eff58e30f586f380a8d5a`.
+- Canonical deploy passed **152/152**, version/format probes and staged selftest.
+  The visible-window UX run without a loose Prism module passed **0 failures**
+  (`build/embedded-theme-visible-ux`). A hidden-window attempt failed seven
+  popup/grab assertions and is excluded from acceptance evidence.
+- `tools/package.ps1` produced and verified installer/ZIP in
+  `dist/Prism-0.3.0-beta.1-8deb20e0cc47-2afe57ce7296`.
+- Installer SHA-256: `d85397adc08992646bcc3b4d80ee8697fa7c102a1af1f578504f8681bd7731b0`.
+- ZIP SHA-256: `d376fc07af0f6388c9fc5334288ed13aa16b8cc4f5a3e2b35dd5ab6a50b52a8a`.
+- Published GitHub assets returned the same SHA-256 digests.
+
+### Published native candidates
+
+- macOS 14+, Apple Silicon: `Prism-0.3.0-beta.1-macos-arm64-93e470551b08.dmg`,
+  SHA-256 `0a9220f5680051a1c1d6cbcda01b2e160d95074cc9442a6aba6e07f1c3421dbf`.
+  The alternative `.tar.gz` has SHA-256
+  `a032d5f5bc2d264c8868b488860cc3bef22a0cf1a3d59aacc6aa149d8a862495`.
+- Ubuntu 24.04 x86_64/glibc 2.39:
+  `Prism-0.3.0-beta.1-linux-x86_64-93e470551b08.tar.gz`, SHA-256
+  `e89e5664208c8c01bfdca140db1de9489631af7b3e79d8eef53f7d9f9abf5259`.
+- Native packages use commit `93e4705`; the only change after the Windows
+  source `8deb20e` is ignoring the generated CI `aqtinstall.log`.
+- [Published prerelease v0.3.0-beta.1](https://github.com/Toji-ue/Prism/releases/tag/v0.3.0-beta.1)
+  contains nine verified assets: five binaries/archives, three platform manifests
+  and `SHA256SUMS.txt`. GitHub upload digests match the local artifact hashes.
+  The release tag targets the tested native commit above; later evidence-only
+  documentation commits do not change these artifact identities.
+
+### Dependency and native fixes
+
+TIFF is retained. The approved Windows build uses libtiff 4.7.2 without JBIG;
+its upstream suite passed **18/18** and Qt TIFF pixel/alpha checks matched the
+old runtime baseline. The two GCC runtime DLLs have the owner's explicit
+2026-10-18 exception sign-off. Six signed complete MSYS2 source packages,
+notices and library-replacement instructions accompany the Windows artifact.
+
+Native inventories review exact runtime paths and SDK SPDX hashes. macOS uses
+replaceable Qt frameworks with an ad-hoc signature; it is not Developer ID
+signed/notarized. Linux retains reviewed ICU 73.2 and builds its TIFF plugin
+against the approved no-JBIG runtime: the SDK plugin required libtiff.so.5.
+Archive gates check source hashes, payload bytes, links and permissions.
+
+Visual review caught a missing embedded QML import even though startup returned
+zero. `qrc:/` is now registered for the explicit `qrc:/Prism` module contract.
+An isolated Windows fixture reproduced the failure and then passed after the
+fix. Native Start Page/workspace startup rejects binding errors. The generated
+`aqtinstall.log` is ignored explicitly; the clean-source gate remains enforced.
+
+Physical tablet/three-artist UX, eight-hour recording, clean installation and
+the performance gate remain open. MP4 encoding remains Windows-only. These
+artifacts are published prereleases and do not establish UX 40/40 or production
+readiness.

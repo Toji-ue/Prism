@@ -66,7 +66,7 @@ default. Commit only task-related work; preserve unrelated workspace files.
 - [x] Recorder failure/retry/coverage, final-frame export and Storage. Local automated coverage; external acceptance remains below.
 - [x] Honest document setup and DPI metadata. Local automated coverage; external acceptance remains below.
 - [x] Notifications, accessible controls, colour pinning and offline help. Local automated coverage; external acceptance remains below.
-- [x] Candidate packaging code, notices, CI workflows and local validation documentation. Distribution license approval and actual remote CI remain open.
+- [x] Candidate packaging code, notices, CI workflows and local validation documentation. Exact release identities and platform source/archive checks are recorded in `local-candidate-validation.md`.
 - [x] Local automated/pixel/interaction verification and independent Standards/Spec review with focused rechecks. This does not establish a UX score or physical hardware acceptance.
 - [ ] Physical pen, eight-hour real drawing, clean-machine/platform acceptance.
 
@@ -74,7 +74,12 @@ default. Commit only task-related work; preserve unrelated workspace files.
 
 Async retry and archive recovery use the existing file-I/O worker, with a busy state and no GUI wait for spool scans. Publishing the new index happens through a queued callback. Transitions preserve active pointer grabs and match the final capture to its spool. Cancelling a failed recording close keeps artwork recovery. Completed sessions do not appear as crash recovery, and a clean crash prefix still has incomplete coverage without completion metadata.
 
-Packaging code, runtime notices and CI jobs are implemented. External distribution is blocked by license review; remote CI, physical hardware, eight-hour and clean-machine results are not claimed. Final local Release/hash evidence is recorded separately in `local-candidate-validation.md`.
+Packaging code, runtime notices and CI jobs are implemented. Three-platform CI
+has passed, and reviewed Windows candidates include corresponding source and
+verified installer/ZIP hashes. Native packaging passed in run 39199227884;
+the published v0.3.0-beta.1 identities are recorded in
+`local-candidate-validation.md`. Physical hardware, eight-hour and clean-machine
+acceptance remain open.
 
 ## Artist workflow UX — approved 2026-10-15
 
@@ -108,7 +113,8 @@ format changes are part of this work.
 Local results belong in local-candidate-validation.md. Physical tablet and at
 least three artists completing Sketch → Ink → Paint → Save/export remain pending;
 record wrong-panel searches, misclicks and canvas obstruction before accepting UX.
-Eight-hour recording, clean Windows, remote/platform CI and license gates stay open.
+Eight-hour recording, clean Windows and supported-hardware acceptance stay open.
+CI and component/source/archive results are recorded per candidate in the ledger.
 
 ## Recording workflow — approved 2026-10-16
 
@@ -132,5 +138,7 @@ acknowledgment and atomic output are required. Missing completion evidence or
 gaps require explicit Partial export. See recording-format.md for compatibility
 and input bounds; local-candidate-validation.md records measured acceptance.
 
-Physical pen, eight-hour drawing, clean installation, remote/platform CI and
-runtime license review remain open gates.
+Physical pen, eight-hour drawing, clean installation and supported-hardware
+performance remain open. Exact platform runtime/source reviews and final
+archive validation are required for each distributed identity; see the current
+candidate ledger.

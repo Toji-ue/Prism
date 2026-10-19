@@ -35,7 +35,7 @@ ICC-aware color management and a working Color Space Browser, Grayscale and 16-b
 
 ## UX-beta continuation
 
-Implemented: independent save checkpoints, bounded autosave, guarded document transitions, real New Document DPI/clipboard, persistent notices, pinned colour, offline help, recorder error/retry/recovery and explicit partial coverage, retained recording Storage, version/payload identity and license gates. Current local evidence is in [local candidate validation](local-candidate-validation.md); earlier release-validation measurements describe an older binary. Physical tablet, eight-hour drawing, clean-machine install, completed multi-platform CI and distribution licensing remain open. UX 40/40 and production readiness have not been established.
+Implemented: independent save checkpoints, bounded autosave, guarded document transitions, real New Document DPI/clipboard, persistent notices, pinned colour, offline help, recorder error/retry/recovery and explicit partial coverage, retained recording Storage, version/payload identity and license gates. Current evidence is in [local candidate validation](local-candidate-validation.md), including completed multi-platform CI and exact component/source reviews. Physical tablet, eight-hour drawing, clean-machine installation and supported-hardware performance remain open. UX 40/40 and production readiness have not been established.
 
 ## Artist workflow UX — local implementation 2026-10-16
 
@@ -55,8 +55,9 @@ Implemented: independent save checkpoints, bounded autosave, guarded document tr
 - [ ] Complete supported Windows display-scaling, accessibility and physical pen
   acceptance. Local process-factor screenshots alone do not close this gate.
 
-The existing recording-soak, clean-machine, remote/platform CI, dependency and
-distribution gates above remain required.
+The recording-soak, clean-machine and supported-hardware gates remain required.
+Per-candidate build, dependency/source and archive proof is recorded in
+local-candidate-validation.md.
 
 ## Recording timelapse continuation
 
@@ -66,5 +67,16 @@ MP4/GIF export. Automated and native-window evidence is recorded in local
 candidate validation. The 4000×4000 median-point benchmark currently exceeds
 the agreed 10% regression threshold and remains an open acceptance gate.
 The eight-hour actual drawing/recovery/export soak,
-physical tablet, clean Windows and remote/platform CI gates remain open; local
-functionality does not approve runtime distribution licenses.
+physical tablet and clean Windows gates remain open. Three-platform CI has
+passed; the published identities passed their exact packaging checks.
+
+## Native prerelease packaging — 2026-10-19
+
+Windows installer/ZIP with the approved no-JBIG TIFF runtime, exact component
+review and corresponding sources have been built and hash-verified. Native
+macOS arm64 and Ubuntu 24.04 x86_64 builds/tests, startup probes and final
+packaging passed in run 39199227884. The three-platform
+[v0.3.0-beta.1 prerelease](https://github.com/Toji-ue/Prism/releases/tag/v0.3.0-beta.1)
+is published with verified hashes and platform manifests. See the candidate ledger for
+commit/hash identities and the open hardware, soak, installer and performance
+gates. Signed/notarized production distribution remains separate.
