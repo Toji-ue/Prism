@@ -115,7 +115,7 @@ a new component/source review; this Windows review does not approve another OS.
 ## Platform status and publication
 
 The workflow builds/tests clients and gates native prerelease packaging.
-The current release evidence is in docs/local-candidate-validation.md.
+Release provenance is recorded in GitHub Actions and each package's candidate-manifest.json.
 The first actual master run at `ba36462` passed Linux build/tests and failed
 macOS compilation on a narrowing alpha conversion. Commit `63694b2` fixes that
 conversion; its Windows Release suite passed **152/152**. Subsequent native CI

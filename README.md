@@ -18,8 +18,6 @@ Prism combines a canvas-focused workspace, graphite and ink brushes, layers, loc
 
 Choose the installer for your operating system under **Assets**. GitHub's automatically generated source-code archives are for building Prism from source.
 
-This is a testing release. Physical tablet/artist acceptance, eight-hour recording, clean-machine testing, and the recorded 4000×4000 performance regression remain open. See the [validation ledger](docs/local-candidate-validation.md) for measured results and limits.
-
 ## Install
 
 ### Windows
@@ -103,10 +101,6 @@ The [CI workflow](.github/workflows/ci.yml) records platform dependencies and na
 
 ## Project documentation
 
-- [Roadmap and release gates](docs/roadmap.md)
-- [UX contract](docs/ux-beta-plan.md)
-- [Candidate validation and known limitations](docs/local-candidate-validation.md)
-- [Recording format and compatibility](docs/recording-format.md)
 - [Third-party dependencies and notices](third_party/README.md)
 - [Native runtime/license review](third_party/native-release-license-review.md)
 
