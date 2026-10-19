@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -11,6 +12,27 @@ spec.loader.exec_module(package)
 
 
 class NativePackageTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('dpkg-deb') and shutil.which('dpkg-shlibdeps'),
+                         'Debian package tools required')
+    def test_deb_retains_sources_links_and_executable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage = root / 'stage'
+            (stage / 'bin').mkdir(parents=True)
+            shutil.copy2('/usr/bin/true', stage / 'bin/prism')
+            (stage / 'THIRD-PARTY/SOURCES').mkdir(parents=True)
+            (stage / 'THIRD-PARTY/SOURCES/notice.txt').write_text('retained source notice')
+            (stage / 'bin/alias').symlink_to('prism')
+            candidate = root / 'prism.deb'
+            package.build_deb(stage, '0.3.0-beta.1', candidate)
+            self.assertTrue(candidate.is_file())
+            with self.assertRaisesRegex(ValueError, 'existing Debian candidate'):
+                package.build_deb(stage, '0.3.0-beta.1', candidate)
+
+    def test_deb_rejects_invalid_version(self):
+        with self.assertRaisesRegex(ValueError, 'Invalid Debian candidate version'):
+            package.build_deb(Path('.'), '1.0\nDepends: injected', Path('unused.deb'))
+
     def test_payload_and_sdk_changes_block_review(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

@@ -152,6 +152,14 @@ retain reviewed ICU and a no-JBIG TIFF/plugin build, and require their own nativ
 review. Hardware/clean-machine gates stay
 separate from these build and archive checks.
 
+**Ubuntu installer.** Linux native packaging also builds a `.deb` using
+`dpkg-deb`, retaining the reviewed payload and sources under `/opt/prism`.
+`dpkg-shlibdeps` scans every ELF for OS dependencies; private bundled libraries
+have no system package metadata. The package adds `/usr/bin/prism` and an
+application-menu entry, without user-data cleanup scripts. CI verifies every
+installed file and runs install/startup/remove checks on Ubuntu 24.04; this does
+not establish clean-machine or tablet acceptance.
+
 ## Core domain concepts
 
 Understand these before touching canvas, rendering, or history code:

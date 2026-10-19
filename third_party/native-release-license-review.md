@@ -72,6 +72,15 @@ components. The candidate targets Ubuntu 24.04 x86_64/glibc 2.39; other Linux
 distributions have not been accepted. New paths, SDK versions or ICU hashes
 block packaging pending review.
 
+The Ubuntu `.deb` retains the same reviewed runtime, notices, source archives
+and replacement instructions under `/opt/prism`. Debian tools are build inputs,
+not bundled libraries. The installer adds a launcher and desktop entry; it has
+no maintainer scripts that remove user data. `dpkg-shlibdeps` derives OS package
+requirements from every ELF, with xcb-cursor added for Qt's dynamic loading.
+Packaging verifies the Debian data archive against the staged files, including
+source hashes, symlinks and modes. CI install/startup/remove checks run on an
+Ubuntu runner and do not replace clean-machine acceptance.
+
 ## Acceptance outside this review
 
 Hardware/tablet, an eight-hour recording, clean OS installation, signing and the

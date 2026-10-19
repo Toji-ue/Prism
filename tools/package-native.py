@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import urllib.request
 
 inventory_spec = importlib.util.spec_from_file_location(
@@ -97,10 +98,11 @@ def verify_archive(archive, stage):
         for member in contents:
             if member.isdir():
                 continue
-            if member.name in seen or member.name not in expected:
+            name = member.name.removeprefix('./')
+            if name in seen or name not in expected:
                 raise ValueError('Unexpected or duplicate native archive entry')
-            seen.add(member.name)
-            original = expected[member.name]
+            seen.add(name)
+            original = expected[name]
             if original.is_symlink():
                 if not member.issym() or member.linkname != os.readlink(original):
                     raise ValueError('Native archive link mismatch')
@@ -114,6 +116,78 @@ def verify_archive(archive, stage):
                         raise ValueError('Native archive content mismatch')
     if seen != set(expected):
         raise ValueError('Native archive missing files')
+
+
+def build_deb(stage, version, destination):
+    if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?', version):
+        raise ValueError('Invalid Debian candidate version')
+    if destination.exists():
+        raise ValueError('Preserve the existing Debian candidate')
+    version = version.replace('-', '~', 1)
+    with tempfile.TemporaryDirectory(dir=destination.parent) as folder:
+        work = Path(folder)
+        root = work / 'package'
+        application = root / 'opt/prism'
+        shutil.copytree(stage, application, symlinks=True)
+        (root / 'usr/bin').mkdir(parents=True)
+        (root / 'usr/bin/prism').symlink_to('/opt/prism/bin/prism')
+        desktop = root / 'usr/share/applications/prism.desktop'
+        desktop.parent.mkdir(parents=True)
+        desktop.write_text('''[Desktop Entry]
+Type=Application
+Name=Prism
+Comment=Drawing and illustration
+Exec=/opt/prism/bin/prism
+TryExec=/opt/prism/bin/prism
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+''', encoding='utf-8')
+        # Debian derives OS dependencies from every ELF, including Qt plugins.
+        # Our reviewed private Qt/ICU/TIFF libraries have no dpkg package metadata.
+        (work / 'debian').mkdir()
+        (work / 'debian/control').write_text('Source: prism\n\nPackage: prism\nArchitecture: amd64\n')
+        command = ['dpkg-shlibdeps', '-O', '--ignore-missing-info', '-l' + str(application / 'lib')]
+        for path in sorted(application.rglob('*')):
+            if path.is_file() and not path.is_symlink():
+                with path.open('rb') as stream:
+                    if stream.read(4) == b'\x7fELF':
+                        command.append('-e' + str(path))
+        result = subprocess.run(command, cwd=work, capture_output=True, text=True)
+        if result.returncode:
+            raise ValueError('Debian dependency scan failed:\n' + result.stderr)
+        dependencies = next((line.removeprefix('shlibs:Depends=') for line in result.stdout.splitlines()
+                             if line.startswith('shlibs:Depends=')), '')
+        if not dependencies or 'libc6' not in dependencies:
+            raise ValueError('Debian system dependencies could not be established')
+        # Qt loads xcb-cursor dynamically, so ELF dependency scanning cannot see it.
+        dependencies += ', libxcb-cursor0'
+        size = sum(p.stat().st_size for p in root.rglob('*') if p.is_file() and not p.is_symlink())
+        control = root / 'DEBIAN/control'
+        control.parent.mkdir()
+        control.write_text(f'''Package: prism
+Version: {version}
+Architecture: amd64
+Maintainer: Toji-ue
+Section: graphics
+Priority: optional
+Installed-Size: {(size + 1023) // 1024}
+Depends: {dependencies}
+Homepage: https://github.com/Toji-ue/Prism
+Description: Prism drawing and illustration prerelease
+ Includes the reviewed dynamic runtime and corresponding third-party sources.
+ Target: Ubuntu 24.04 amd64. Hardware and clean-machine acceptance remain open.
+''', encoding='utf-8')
+        subprocess.run(['dpkg-deb', '--root-owner-group', '--build', str(root), str(destination)], check=True)
+        actual = subprocess.check_output(['dpkg-deb', '--field', str(destination), 'Version'], text=True).strip()
+        if actual != version:
+            raise ValueError('Debian candidate metadata differs')
+        # Verify the installed data, including sources, permissions and links.
+        control.unlink()
+        control.parent.rmdir()
+        archive = work / 'data.tar'
+        with archive.open('wb') as stream:
+            subprocess.run(['dpkg-deb', '--fsys-tarfile', str(destination)], stdout=stream, check=True)
+        verify_archive(archive, root)
 
 
 def main():
@@ -235,12 +309,17 @@ Include candidate-manifest.json with a bug report; preserve private artwork.
                         '-format', 'UDZO', str(dmg)], check=True)
         subprocess.run(['hdiutil', 'verify', str(dmg)], check=True)
         artifacts.append({'path': dmg.name, 'sha256': digest(dmg)})
+    else:
+        deb = output / (name + '.deb')
+        build_deb(stage, version, deb)
+        artifacts.append({'path': deb.name, 'sha256': digest(deb)})
     if commit != subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip():
         raise ValueError('Source commit changed during native packaging')
     (output / 'artifacts-manifest.json').write_text(json.dumps({
         'candidate': manifest, 'artifacts': artifacts,
         'verified': ['reviewed binary paths and SDK SPDX', 'runtime payload hashes',
-                     'corresponding source hashes', 'every tar entry', 'DMG verification if applicable']}, indent=2) + '\n')
+                     'corresponding source hashes', 'every tar entry', 'DMG verification if applicable',
+                     'Debian metadata and every installed file if applicable']}, indent=2) + '\n')
     print('Verified native prerelease:', output)
 
 
