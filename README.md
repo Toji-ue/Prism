@@ -1,5 +1,10 @@
 # Prism
 
+[![Build](https://img.shields.io/github/actions/workflow/status/Toji-ue/Prism/ci.yml?branch=master&label=build&style=flat)](https://github.com/Toji-ue/Prism/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Toji-ue/Prism?include_prereleases&label=release&style=flat)](https://github.com/Toji-ue/Prism/releases)
+[![License](https://img.shields.io/github/license/Toji-ue/Prism?style=flat&color=blue)](LICENSE)
+[![Platforms: Windows, macOS, Ubuntu](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Ubuntu-555555?style=flat)](#downloads)
+
 **A drawing studio for Sketch → Ink → Paint.**
 
 An open-source desktop app for building an illustration from the first pencil marks to the final colour. Graphite pencils, ink brushes, layers, a canvas-focused workspace, and automatic timelapse recording — built with C++20 and Qt Quick.
@@ -126,6 +131,8 @@ For a debug build, use the `default` configure/build/test presets. Maintainers u
 | macOS | [Download disk image (.dmg)](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/Prism-0.3.0-beta.1-macos-arm64-93e470551b08.dmg) | macOS 14+, Apple Silicon; no Intel build |
 | Ubuntu | [Download package (.deb)](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/Prism-0.3.0-beta.1-linux-x86_64-0ce08f79aa5a.deb) | Ubuntu 24.04 desktop, amd64/x86_64 |
 
+Verify downloads with [**SHA256SUMS.txt**](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/SHA256SUMS.txt).
+
 ### Windows
 
 Run Setup and follow the installer. The build does not have a verified publisher signature.
@@ -146,7 +153,7 @@ sudo apt install ./Prism-0.3.0-beta.1-linux-x86_64-*.deb
 
 Launch **Prism** from the application menu or run `prism`. To remove the application, run `sudo apt remove prism`; artwork and user recordings are preserved. Other distributions and older glibc versions have not been validated.
 
-Compare your download's SHA-256 with the values in the release notes. GitHub's automatic source-code archives are for building from source.
+The same SHA-256 values are included in the release notes. GitHub's automatic source-code archives are for building from source.
 
 ## Contributing
 
