@@ -12,7 +12,7 @@ Prism combines a canvas-focused workspace, graphite and ink brushes, layers, loc
 | --- | --- | --- |
 | Windows | [Windows Setup (.exe)](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/Prism-0.3.0-beta.1-8deb20e0cc47-2afe57ce7296-Setup.exe) | Windows 10/11, x64 |
 | macOS | [macOS disk image (.dmg)](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/Prism-0.3.0-beta.1-macos-arm64-93e470551b08.dmg) | macOS 14+, Apple Silicon; no Intel build |
-| Ubuntu | [Ubuntu installer (.deb), under release Assets](https://github.com/Toji-ue/Prism/releases/tag/v0.3.0-beta.1#assets) | Ubuntu 24.04 desktop, x86_64/amd64 |
+| Ubuntu | [Ubuntu installer (.deb)](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/Prism-0.3.0-beta.1-linux-x86_64-0ce08f79aa5a.deb) | Ubuntu 24.04 desktop, x86_64/amd64 |
 
 Portable Windows ZIP and macOS/Linux TAR archives are also available under **Assets** on the release page. Download the package for your operating system, not GitHub's automatically generated source-code archives.
 

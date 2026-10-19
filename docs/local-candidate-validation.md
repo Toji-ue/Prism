@@ -393,8 +393,8 @@ including native package/source/archive validation and startup binding checks.
   `e89e5664208c8c01bfdca140db1de9489631af7b3e79d8eef53f7d9f9abf5259`.
 - Native packages use commit `93e4705`; the only change after the Windows
   source `8deb20e` is ignoring the generated CI `aqtinstall.log`.
-- [Published prerelease v0.3.0-beta.1](https://github.com/Toji-ue/Prism/releases/tag/v0.3.0-beta.1)
-  contains nine verified assets: five binaries/archives, three platform manifests
+- The initial [v0.3.0-beta.1 publication](https://github.com/Toji-ue/Prism/releases/tag/v0.3.0-beta.1)
+  contained nine verified assets: five binaries/archives, three platform manifests
   and `SHA256SUMS.txt`. GitHub upload digests match the local artifact hashes.
   The release tag targets the tested native commit above; later evidence-only
   documentation commits do not change these artifact identities.
@@ -423,3 +423,36 @@ Physical tablet/three-artist UX, eight-hour recording, clean installation and
 the performance gate remain open. MP4 encoding remains Windows-only. These
 artifacts are published prereleases and do not establish UX 40/40 or production
 readiness.
+
+## Ubuntu installer and README — 2026-10-19
+
+- Source `0ce08f79aa5a9348c4ef71eb9460198df0550658` adds the project README,
+  Debian packaging and its interaction with CI. It preserves the intervening
+  owner commit deleting `build-four.png`; application source under `src/` is
+  unchanged from the initial prerelease.
+- [Run 39201746041](https://github.com/Toji-ue/Prism/actions/runs/39201746041)
+  passed Windows, macOS and Ubuntu jobs. Ubuntu passed **152/152** client tests,
+  **18/18** upstream TIFF tests and **9/9** native packaging/inventory tests.
+  Local Windows Python checks passed seven tests with two explicit skips
+  (Debian tools and symlink privileges); an initial sandbox-temp failure was
+  rerun using the writable workspace test-temp directory.
+- `Prism-0.3.0-beta.1-linux-x86_64-0ce08f79aa5a.deb` SHA-256:
+  `d21430d7f724d0876d2634e90e7846f0d74f9933cd95e3d3378f804404efcce1`.
+  Debian version is `0.3.0~beta.1`, architecture `amd64`, target Ubuntu 24.04.
+- Packaging derives OS dependencies with `dpkg-shlibdeps`, builds with
+  `dpkg-deb` and verifies every installed file, symlink and permission against
+  its staging tree. The complete reviewed runtime, notices, source archives
+  and replacement instructions remain under `/opt/prism`; the package adds
+  `/usr/bin/prism` and an application-menu entry without cleanup scripts.
+- CI installed the real `.deb` through APT, checked retained sources and the
+  desktop entry, passed the installed format probe (including TIFF), launched
+  the drawing workspace without QML binding errors, then removed the package
+  and confirmed the executable/launcher were gone. This was a CI runner,
+  **not clean-machine or physical-tablet acceptance**.
+- The published release now contains **11 assets**, including the `.deb` and
+  `ubuntu-installer-manifest.json`. Their GitHub digests match local hashes;
+  updated `SHA256SUMS.txt` covers all ten other assets. Original Windows,
+  macOS and portable Linux downloads retain their existing bytes and hashes.
+- README and release notes link directly to Windows Setup, macOS DMG and
+  Ubuntu DEB, with requirements and installation instructions. All earlier
+  hardware, soak, performance and publisher-signing limitations remain open.

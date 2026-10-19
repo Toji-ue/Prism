@@ -80,3 +80,8 @@ packaging passed in run 39199227884. The three-platform
 is published with verified hashes and platform manifests. See the candidate ledger for
 commit/hash identities and the open hardware, soak, installer and performance
 gates. Signed/notarized production distribution remains separate.
+
+The Ubuntu `.deb` installer was added at `0ce08f7` and passed packaging plus
+APT install, installed-app startup and removal in run 39201746041. The release
+includes it alongside Windows Setup and macOS DMG; the root README provides
+download/install instructions. This CI result does not close clean-machine QA.
