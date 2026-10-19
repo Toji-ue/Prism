@@ -1,3 +1,5 @@
+<img src="assets/branding/prism-logo.png" alt="Prism logo" width="96" height="96" />
+
 # Prism
 
 [![Build](https://img.shields.io/github/actions/workflow/status/Toji-ue/Prism/ci.yml?branch=master&label=build&style=flat)](https://github.com/Toji-ue/Prism/actions/workflows/ci.yml)
