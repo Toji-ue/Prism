@@ -26,6 +26,7 @@ def digest(path):
 
 
 def validate_runtime(payload, inventory, review, evidence):
+    payload = payload.resolve(strict=True)
     paths = {p.relative_to(payload).as_posix(): p for p in payload.rglob('*')
              if p.is_file() or p.is_symlink()}
     recorded = [x['path'] for x in inventory['payload']]
@@ -132,8 +133,9 @@ def main():
     inventory = json.loads(args.inventory.read_text())
     payload = args.payload.resolve(strict=True)
     validate_runtime(payload, inventory, review, args.evidence)
-    if subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).strip():
-        raise ValueError('Commit the native candidate source before packaging')
+    status = subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).strip()
+    if status:
+        raise ValueError('Commit the native candidate source before packaging:\n' + status)
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
     version = (root / 'PrismVersion.txt').read_text().strip()
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', version):
@@ -218,6 +220,7 @@ Include candidate-manifest.json with a bug report; preserve private artwork.
     manifest = {'schemaVersion': 1, 'version': version, 'gitCommit': commit,
                 'createdUtc': datetime.now(timezone.utc).isoformat(), 'platform': target,
                 'machine': review['machine'], 'runtimeInventory': inventory,
+                'distributionLicenseStatus': 'Exact native component/SPDX review matched; corresponding sources and notices included; not a legal certification',
                 'acceptance': 'prerelease; hardware, eight-hour, clean-machine and performance gates open'}
     (stage / 'candidate-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     archive = output / (name + '.tar.gz')

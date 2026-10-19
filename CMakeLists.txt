@@ -65,6 +65,7 @@ set_source_files_properties(src/ui/qml/ThemeManager.qml PROPERTIES
 qt_add_qml_module(prism
     URI Prism
     VERSION 1.0
+    RESOURCE_PREFIX /
     QML_FILES
         src/ui/qml/ThemeManager.qml
         src/ui/qml/Icon.qml

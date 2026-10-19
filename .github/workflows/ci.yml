@@ -129,11 +129,18 @@ jobs:
             cp "$QT_ROOT_DIR/plugins/platforms/libqoffscreen.so" build/native-stage/plugins/platforms/
             env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH "$exe" --check-formats
           fi
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            env -u QT_QPA_PLATFORM -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u DYLD_LIBRARY_PATH QT_QUICK_BACKEND=software "$exe" --screenshot-only --screenshot="$GITHUB_WORKSPACE/build/native-start.png"
-          else
-            env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH QT_QUICK_BACKEND=software "$exe" --screenshot-only --screenshot="$GITHUB_WORKSPACE/build/native-start.png"
-          fi
+          set -o pipefail
+          for scene in start workspace; do
+            args=()
+            if [ "$scene" = "workspace" ]; then args+=(--demo-drawing); fi
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              env -u QT_QPA_PLATFORM -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u DYLD_LIBRARY_PATH QT_QUICK_BACKEND=software "$exe" "${args[@]}" --screenshot-only --screenshot="$GITHUB_WORKSPACE/build/native-$scene.png" 2>&1 | tee "build/native-$scene.log"
+            else
+              env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH -u LD_LIBRARY_PATH QT_QUICK_BACKEND=software "$exe" "${args[@]}" --screenshot-only --screenshot="$GITHUB_WORKSPACE/build/native-$scene.png" 2>&1 | tee "build/native-$scene.log"
+            fi
+            test -s "build/native-$scene.png"
+            if grep -E 'TypeError:|ReferenceError:|Binding loop detected|Unable to assign' "build/native-$scene.log"; then exit 1; fi
+          done
           python3 -B tools/native-runtime-inventory.py build/native-stage build/native-runtime-inventory.json
           python3 - <<'PY'
           import os, shutil
@@ -167,4 +174,6 @@ jobs:
             build/native-runtime-inventory.json
             build/native-qt-evidence/
             build/native-start.png
+            build/native-workspace.png
+            build/native-*.log
           if-no-files-found: warn

@@ -180,6 +180,11 @@ Understand these before touching canvas, rendering, or history code:
 
 Mistakes that are easy to make in this codebase and easy to miss in review:
 
+- **Embedded QML needs its import prefix.** Prism keeps its Qt 6.4 resource
+  contract at `qrc:/Prism`; register `qrc:/` on the engine import path. A loose
+  Windows `qml/Prism/qmldir` previously masked this requirement. Native startup
+  must reject QML binding errors as well as checking the process exit code.
+
 - **Publishing a texture node before its texture exists.** On a growing canvas,
   the software renderer inspects a newly appended tile immediately. Initialize
   its texture and rectangle before `appendChildNode`. A recreated scene graph

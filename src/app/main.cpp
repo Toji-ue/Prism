@@ -2336,6 +2336,9 @@ int main(int argc, char* argv[]) {
                                                "Exposed via AppController.layers");
 
     QQmlApplicationEngine engine;
+    // Prism's Qt 6.4-compatible module lives at qrc:/Prism, outside Qt's
+    // newer qrc:/qt/qml default. Native bundles have no loose Prism/qmldir.
+    engine.addImportPath(QStringLiteral("qrc:/"));
 
     // Image providers need the live controller: preset thumbnails include
     // user presets, and layer rows show their own pixels.

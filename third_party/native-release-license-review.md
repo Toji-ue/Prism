@@ -34,6 +34,11 @@ bundle integrity only; it is not Developer ID signing or notarization. Replacing
 frameworks remains allowed and re-signing locally is documented.
 
 Native GUI startup and archive checks remain necessary in the packaging run.
+Visual review exposed missing theme bindings despite a zero startup exit code:
+the embedded `qrc:/Prism` module was outside the default import path. Registering
+`qrc:/` fixes it; an isolated Windows fixture reproduced the same failure with
+its loose Prism module removed and then passed with the fix. Native Start Page
+and drawing startup now reject QML binding errors in addition to saving images.
 This is an engineering review of the identified payload, not a blanket license
 approval or legal certification. A changed binary path set or SDK SPDX document
 requires a fresh review.
