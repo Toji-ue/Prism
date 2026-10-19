@@ -2,7 +2,9 @@
 
 Guidance for AI coding agents (Claude Code, Copilot, Cursor, etc.) working in this repo.
 
-**Status**: greenfield. The decisions below are the plan of record — the codebase is being built toward them. When reality diverges, update this file in the same change; it is a living doc.
+**Status**: active prerelease, open source under the root MIT `LICENSE`. The decisions below are the plan of record; some remain planned. When reality diverges, update this file in the same change.
+
+**Documentation language**: write project documentation, contributor guidance and release notes in English. Preserve third-party license/notices verbatim. Generated dependency-notice snapshots stay outside Git; release packages must still include the notices and sources required by their actual payload.
 
 **If this file and the code disagree**: treat the code as ground truth for *what currently exists*, and this file as ground truth for *what it should become*. Don't silently follow stale guidance and don't silently follow stale code — flag the mismatch in the PR description and update this file in the same change. If the divergence affects an "Ask first" item below, stop and ask rather than resolving it unilaterally.
 
@@ -42,14 +44,14 @@ This repo is client-only; backend code will live elsewhere. New dependencies nee
 
 Everything in the table above is $0 to develop with — no seat licenses, no paid SDKs required to build and test the app. Two items have strings attached, not costs, and are worth stating explicitly so nobody trips over them later:
 
-- **Qt 6 is free under LGPLv3** ("Qt for Open Source Development"), not free-and-unencumbered. To ship a closed-source commercial build under LGPL (no Qt commercial license), Qt must be **dynamically linked**, and users need the ability to relink against a modified Qt (e.g. by shipping Qt as separate DLLs/.so files, not baked into a single static binary). Static-linking Qt into the executable requires a paid Qt commercial license. This constrains packaging/distribution, not development — call it out explicitly in the build/packaging setup so it isn't discovered at release time.
+- **Qt runtime libraries use LGPLv3 in the reviewed releases.** Prism dynamically links Qt and ships replaceable DLLs/frameworks/shared libraries, corresponding source, notices and replacement instructions. Prism's MIT license does not replace these obligations. Any proposed change to this linking/distribution model needs a fresh license review.
 - **GitHub Actions is free with limits, not unlimited.** Public repos get unlimited free minutes; a private repo gets a fixed free minutes/month allowance on the free plan, then bills per minute. If the repo is private, either budget for occasional CI cost at scale, or use a self-hosted runner (free, your own hardware) once usage grows.
 
 Everything else — CMake, vcpkg, Skia, LittleCMS, libpsd, libpng/libjpeg-turbo/libwebp, GoogleTest, Qt Test, clang-format/clang-tidy — ships under MIT/BSD/Apache-2.0-style or LGPL terms with no dynamic-linking caveat beyond the one above, and no usage fees. A compiler/toolchain is also free: MSVC via Visual Studio Community (free for individuals, open-source projects, and small teams/organizations under Microsoft's revenue/headcount thresholds) or LLVM/Clang, both $0.
 
 ### License policy for dependencies
 
-This is a commercial product — license compatibility is not optional.
+Prism's original code uses MIT. Dependencies retain their own licenses, and compatibility and distribution obligations remain required.
 
 - **Fine by default**: MIT, BSD (2/3-clause), Apache-2.0, zlib/libpng, ISC.
 - **Needs review before adding**: LGPL (dynamic linking only, and confirm the build actually links dynamically), MPL-2.0, any "source-available" or dual-licensed package.

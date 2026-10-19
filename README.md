@@ -2,6 +2,8 @@
 
 A native drawing and illustration app for **Sketch → Ink → Paint**, built with C++20 and Qt Quick.
 
+Open source under the [MIT License](LICENSE).
+
 Prism combines a canvas-focused workspace, graphite and ink brushes, layers, local artwork recovery, and automatic timelapse recording.
 
 ## Download
@@ -108,6 +110,10 @@ The [CI workflow](.github/workflows/ci.yml) records platform dependencies and na
 - [Third-party dependencies and notices](third_party/README.md)
 - [Native runtime/license review](third_party/native-release-license-review.md)
 
-Release packages contain third-party license notices, corresponding sources, and instructions for replacing LGPL libraries. Those third-party licenses do not assign a license to Prism's own source code.
+## License and contributions
+
+Prism's original source code and documentation use the [MIT License](LICENSE). Third-party libraries, sources, and notices retain their own licenses; MIT does not replace those terms. Release packages include third-party notices, corresponding sources, and instructions for replacing LGPL libraries.
+
+Contributions are welcome through issues and pull requests. Describe the change, build and test the affected platforms, and include screenshots for UI changes. Report real tablet testing separately from simulated input. Write project documentation and release notes in English; preserve upstream license texts verbatim.
 
 When reporting an issue, include your OS, Prism version, reproduction steps, and tablet model/driver if relevant. The package's `candidate-manifest.json` identifies the build; exclude private artwork and recordings from reports unless you intend to share them.

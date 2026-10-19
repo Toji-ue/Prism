@@ -19,11 +19,13 @@ $stage = Join-Path $dist 'stage'
 if (Test-Path -LiteralPath $dist) { $dist += '-' + [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 6); $stage = Join-Path $dist 'stage' }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -Path (Join-Path $deploy '*') -Destination $stage -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $stage 'LICENSE.txt')
 $notes = @'
-PRISM CLOSED-BETA CANDIDATE - TESTER GUIDE
-========================================
+PRISM PRERELEASE - TESTER GUIDE
+==============================
 Candidate identity is in candidate-manifest.json. Include that file with feedback.
-This is a Windows drawing-app candidate, not a public or cross-platform release.
+This is the Windows package of the Prism drawing-app prerelease.
+Prism's original code uses MIT; see LICENSE.txt. Third-party terms remain separate.
 
 INSTALL / PORTABLE / USER DATA
 Windows 10/11 64-bit. Installer: run the versioned Prism-Setup executable.

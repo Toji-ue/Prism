@@ -219,6 +219,7 @@ def main():
     output.mkdir(parents=True)  # Preserve earlier artifacts; never overwrite a candidate.
     stage = output / 'stage'
     shutil.copytree(payload, stage, symlinks=True)
+    shutil.copy2(root / 'LICENSE', stage / 'LICENSE.txt')
     notices = stage / 'THIRD-PARTY'
     notices.mkdir()
     copy_sources(review, notices / 'SOURCES', root / 'build/native-sources')
@@ -262,6 +263,9 @@ notarized. Copy Prism.app to a writable application folder. Retain THIRD-PARTY
 beside it. The build was tested on macOS 14; no clean-machine acceptance is
 claimed.'''
     instructions = f'''PRISM NATIVE PRERELEASE CANDIDATE
+
+Prism's original code uses the MIT License in LICENSE.txt. Third-party libraries
+retain their own licenses; MIT does not replace those terms.
 
 Qt 6.11.1 libraries/plugins are dynamically linked under LGPLv3. Complete
 corresponding sources are in THIRD-PARTY/SOURCES; build flags/SPDX documents

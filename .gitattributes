@@ -1,4 +1,3 @@
 # Preserve original notice/provenance bytes, including upstream line endings.
-third_party/notices/** -text
 third_party/msys2-source-signing-key.asc -text
 third_party/ICU-73.2-LICENSE.txt -text

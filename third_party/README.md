@@ -6,14 +6,13 @@ walks PE imports, and verifies image plugins without removing installed formats.
 `tools/package.ps1` binds the payload to the tested Release and generates a
 versioned candidate manifest, portable ZIP and per-user NSIS installer.
 
-`notices/dependency-inventory.json` is a snapshot of the development runtime at
-the time recorded in that file. Each DLL is byte-matched against files listed
-in the installed MSYS2 pacman database. `pacman-desc.txt` preserves package
-version, license expression, upstream and packager. Actual installed license
-texts are copied with their package-relative paths. The packaging script
-regenerates `THIRD-PARTY` from the candidate's actual DLLs; it rejects unmatched
-DLLs or missing/review-required license information. Updating the toolchain
-therefore cannot silently reuse an old notice bundle.
+The packaging script generates `THIRD-PARTY/dependency-inventory.json` from
+each candidate's actual DLLs, byte-matching against the installed MSYS2 pacman
+database. Generated `pacman-desc.txt` files preserve package versions, license
+expressions, upstream and packager; installed license texts retain their
+package-relative paths. Unmatched DLLs and missing/unreviewed license information
+block packaging. These generated snapshots are not committed to the source
+repository; the release packages retain their complete notices and sources.
 
 This inventory is evidence, **not a legal-compliance certification**. Package
 license expressions can cover tools, documentation and different runtime
@@ -47,8 +46,9 @@ must be disclosed in tester/release notes. TIFF itself is retained. The initial
 engineering proof passed 18/18 upstream tests plus Qt TIFF None/LZW/Deflate
 checks; decoded None/LZW RGBA pixels matched the installed baseline exactly.
 
-Older deployments and the historical inventory above still contain JBIG.
-Rebuild/deploy before inspecting the new payload. This change does not approve
+Older deployments may still contain JBIG. Rebuild/deploy before inspecting the
+new payload. The obsolete development snapshot has been removed from the source
+tree; it remains in Git history. This change does not approve
 other dependencies or certify macOS/Linux runtime contents. Detailed findings
 and remaining obligations are in [release-license-review.md](release-license-review.md).
 

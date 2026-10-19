@@ -41,7 +41,8 @@ The historical MSYS2 inventory uses package-wide license expressions. A GPL text
 in a package can describe tools or an alternative license; it does not establish
 that every DLL is GPL-only. Conversely, permissive package metadata alone does
 not establish the license of every bundled component. The following findings
-come from the installed license files retained under `third_party/notices/`.
+come from installed license files retained in each release's `THIRD-PARTY/`
+folder. The obsolete generated development snapshot is no longer tracked.
 Versions and bytes must be checked against the fresh payload, not copied from
 the historical inventory when the toolchain changes.
 
