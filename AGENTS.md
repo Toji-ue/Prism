@@ -6,6 +6,8 @@ Guidance for AI coding agents (Claude Code, Copilot, Cursor, etc.) working in th
 
 **Documentation language**: write project documentation, contributor guidance and release notes in English. Preserve third-party license/notices verbatim. Generated dependency-notice snapshots stay outside Git; release packages must still include the notices and sources required by their actual payload.
 
+**Release assets**: publish only the Windows Setup `.exe`, macOS `.dmg` and Ubuntu `.deb` on GitHub Releases. Keep candidate manifests and portable archives as local/CI evidence; put installer SHA-256 values in release notes. Preserve all required dependency notices and sources inside installers. GitHub also displays its automatic source archives.
+
 **If this file and the code disagree**: treat the code as ground truth for *what currently exists*, and this file as ground truth for *what it should become*. Don't silently follow stale guidance and don't silently follow stale code — flag the mismatch in the PR description and update this file in the same change. If the divergence affects an "Ask first" item below, stop and ask rather than resolving it unilaterally.
 
 ## Project overview

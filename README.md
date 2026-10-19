@@ -16,7 +16,7 @@ Prism combines a canvas-focused workspace, graphite and ink brushes, layers, loc
 | macOS | [macOS disk image (.dmg)](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/Prism-0.3.0-beta.1-macos-arm64-93e470551b08.dmg) | macOS 14+, Apple Silicon; no Intel build |
 | Ubuntu | [Ubuntu installer (.deb)](https://github.com/Toji-ue/Prism/releases/download/v0.3.0-beta.1/Prism-0.3.0-beta.1-linux-x86_64-0ce08f79aa5a.deb) | Ubuntu 24.04 desktop, x86_64/amd64 |
 
-Portable Windows ZIP and macOS/Linux TAR archives are also available under **Assets** on the release page. Download the package for your operating system, not GitHub's automatically generated source-code archives.
+Choose the installer for your operating system under **Assets**. GitHub's automatically generated source-code archives are for building Prism from source.
 
 This is a testing release. Physical tablet/artist acceptance, eight-hour recording, clean-machine testing, and the recorded 4000×4000 performance regression remain open. See the [validation ledger](docs/local-candidate-validation.md) for measured results and limits.
 
@@ -24,7 +24,7 @@ This is a testing release. Physical tablet/artist acceptance, eight-hour recordi
 
 ### Windows
 
-Run the Setup executable and follow the installer. For the portable version, extract the entire ZIP and launch `prism.exe`; keep its libraries, plugins, and notices together.
+Run the Setup executable and follow the installer.
 
 The build does not have a verified publisher signature.
 
@@ -44,11 +44,11 @@ sudo apt install ./Prism-0.3.0-beta.1-linux-x86_64-*.deb
 
 Launch **Prism** from the application menu or run `prism`. Remove the installed application with `sudo apt remove prism`; this package has no scripts that delete your artwork or user recordings.
 
-For the portable Linux archive, extract the entire folder and run `bin/prism`. See its `README-TESTER.txt` for system-library requirements. Other distributions and older glibc versions have not been validated.
+Other distributions and older glibc versions have not been validated.
 
 ### Verify your download
 
-Compare its SHA-256 with `SHA256SUMS.txt` on the same release. Windows provides `Get-FileHash -Algorithm SHA256`; macOS provides `shasum -a 256`; Ubuntu provides `sha256sum`.
+Compare its SHA-256 with the **SHA-256** section in the release notes. Windows provides `Get-FileHash -Algorithm SHA256`; macOS provides `shasum -a 256`; Ubuntu provides `sha256sum`.
 
 ## What you can do
 

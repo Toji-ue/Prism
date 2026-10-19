@@ -456,3 +456,14 @@ readiness.
 - README and release notes link directly to Windows Setup, macOS DMG and
   Ubuntu DEB, with requirements and installation instructions. All earlier
   hardware, soak, performance and publisher-signing limitations remain open.
+
+## Installer-only release assets — 2026-10-19
+
+At the owner's request, v0.3.0-beta.1 now publishes only its Windows Setup,
+macOS DMG and Ubuntu DEB as uploaded assets. The nine auxiliary uploads
+(portable archives, manifests, standalone license and checksum file) were
+removed. Installer hashes are preserved in the release notes; the installer
+bytes, embedded third-party notices and sources are unchanged. The MIT license
+remains available in the public source repository. Earlier asset counts in
+this ledger describe the publication state at those dates. GitHub's two
+automatically generated source archives remain visible separately.
